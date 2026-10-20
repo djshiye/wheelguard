@@ -1,0 +1,4 @@
+# Give the logged-in user access to the Endgame Gear wireless mouse dongle (3367:1970) so
+# wheelguard can grab it. (Also matches the dongle's "Keyboard" node; wheelguard never opens it.)
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="3367", ATTRS{idProduct}=="1970", TAG+="uaccess"
+KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", OPTIONS+="static_node=uinput"

@@ -1,0 +1,17 @@
+module Wg
+singleton Theme 1.0 Theme.qml
+WgIcon 1.0 WgIcon.qml
+WgCard 1.0 WgCard.qml
+WgSwitch 1.0 WgSwitch.qml
+WgSlider 1.0 WgSlider.qml
+WgSegmented 1.0 WgSegmented.qml
+WgButton 1.0 WgButton.qml
+WgSpinBox 1.0 WgSpinBox.qml
+WgExpander 1.0 WgExpander.qml
+WgScrollPage 1.0 WgScrollPage.qml
+StatusPill 1.0 StatusPill.qml
+StatusBanner 1.0 StatusBanner.qml
+WheelMonitor 1.0 WheelMonitor.qml
+ScrollProtectionPage 1.0 ScrollProtectionPage.qml
+PointerPage 1.0 PointerPage.qml
+AboutPage 1.0 AboutPage.qml

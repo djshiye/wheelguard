@@ -1,0 +1,12 @@
+[Unit]
+Description=wheelguard daemon (drops bouncing scroll-wheel ticks)
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=%h/.local/bin/wheelguard-daemon
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

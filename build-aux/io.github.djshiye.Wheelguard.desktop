@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Wheelguard
+Comment=Advanced mouse settings
+Exec=wheelguard-settings
+Icon=io.github.djshiye.Wheelguard
+Terminal=false
+Categories=Settings;HardwareSettings;
+Keywords=mouse;scroll;wheel;
+StartupNotify=true
