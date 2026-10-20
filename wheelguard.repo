@@ -1,0 +1,7 @@
+[wheelguard]
+name=Wheelguard
+baseurl=https://djshiye.github.io/wheelguard/fedora-$releasever/
+enabled=1
+# The packages are built locally and are not signed.
+gpgcheck=0
+metadata_expire=1h

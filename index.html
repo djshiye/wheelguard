@@ -1,1 +1,35 @@
-<!doctype html><title>wheelguard</title>coming soon
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wheelguard DNF repository</title>
+<link rel="icon" href="icon.svg">
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0c0d11;
+         color: #e6e6ee; font: 16px/1.5 system-ui, sans-serif; }
+  main { width: min(640px, 92vw); text-align: center; }
+  img { width: 96px; height: 96px; }
+  h1 { margin: .4em 0 .1em; font-size: 2rem;
+       background: linear-gradient(90deg, #9b6bff, #22d3ee); -webkit-background-clip: text;
+       background-clip: text; color: transparent; }
+  p { margin: 0 0 1.4em; color: #9a9ab0; }
+  pre { margin: 0; padding: 1em 1.2em; text-align: left; overflow-x: auto; background: #161720;
+        border: 1px solid #262838; border-radius: 12px; font-size: .85rem; }
+  a { color: #22d3ee; }
+  small { display: block; margin-top: 1.6em; color: #6c6c82; }
+</style>
+</head>
+<body>
+<main>
+  <img src="icon.svg" alt="">
+  <h1>Wheelguard</h1>
+  <p>DNF repository for Fedora</p>
+  <pre>sudo dnf config-manager addrepo --from-repofile=https://djshiye.github.io/wheelguard/wheelguard.repo
+sudo dnf install wheelguard</pre>
+  <small><a href="https://github.com/djshiye/wheelguard">github.com/djshiye/wheelguard</a>
+  &middot; unsigned packages &middot; not affiliated with Endgame Gear</small>
+</main>
+</body>
+</html>
