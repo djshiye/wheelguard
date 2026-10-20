@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Wheelguard
+Comment=Wheelguard tray icon
+Exec=wheelguard-settings --tray
+Icon=io.github.djshiye.Wheelguard
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true

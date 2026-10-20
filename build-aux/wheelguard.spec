@@ -1,7 +1,7 @@
 %global app_id io.github.djshiye.Wheelguard
 
 Name:           wheelguard
-Version:        1.1.0
+Version:        1.2.0
 # tools/publish.sh appends .<commit count> so every build from main is a newer release.
 Release:        1%{?release_suffix}%{?dist}
 Summary:        Scroll bounce filter and advanced settings for the Endgame Gear XM2w 4k v2
@@ -28,7 +28,8 @@ drops the bouncing wrong-direction scroll-wheel ticks of a faulty encoder and
 passes everything else through untouched. The Wheelguard app (Qt Quick) tunes
 the filter with a live view of the wheel, edits the mouse's on-board settings
 (DPI, polling rate, lift-off distance, button filtering, sleep, battery) and
-the GNOME pointer settings. Not affiliated with Endgame Gear.
+the GNOME pointer settings, and sits in the system tray for a quick look.
+Not affiliated with Endgame Gear.
 
 %prep
 %autosetup -n %{name}-%{version}
@@ -52,6 +53,7 @@ install -Dpm 0644 build-aux/wheelguard.service %{buildroot}%{_userunitdir}/wheel
 install -Dpm 0644 build-aux/80-wheelguard.preset %{buildroot}%{_userpresetdir}/80-wheelguard.preset
 install -Dpm 0644 build-aux/70-wheelguard.rules %{buildroot}%{_udevrulesdir}/70-wheelguard.rules
 install -Dpm 0644 build-aux/%{app_id}.desktop %{buildroot}%{_datadir}/applications/%{app_id}.desktop
+install -Dpm 0644 build-aux/%{app_id}-autostart.desktop %{buildroot}%{_sysconfdir}/xdg/autostart/%{app_id}.desktop
 install -Dpm 0644 build-aux/%{app_id}.svg %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/%{app_id}.svg
 install -Dpm 0644 build-aux/%{app_id}.metainfo.xml %{buildroot}%{_metainfodir}/%{app_id}.metainfo.xml
 # The app loads its header/About logo from next to its gui files; point that at the themed icon.
@@ -59,6 +61,7 @@ ln -s ../../../../../share/icons/hicolor/scalable/apps/%{app_id}.svg %{buildroot
 
 %check
 desktop-file-validate %{buildroot}%{_datadir}/applications/%{app_id}.desktop
+desktop-file-validate %{buildroot}%{_sysconfdir}/xdg/autostart/%{app_id}.desktop
 appstreamcli validate --no-net --explain %{buildroot}%{_metainfodir}/%{app_id}.metainfo.xml
 PYTHONPATH=%{buildroot}%{python3_sitelib} %{python3} -c "import wheelguard.core, wheelguard.config, wheelguard.frames, wheelguard.control, wheelguard.ipc"
 
@@ -94,10 +97,16 @@ fi
 %{_userpresetdir}/80-wheelguard.preset
 %{_udevrulesdir}/70-wheelguard.rules
 %{_datadir}/applications/%{app_id}.desktop
+%config(noreplace) %{_sysconfdir}/xdg/autostart/%{app_id}.desktop
 %{_datadir}/icons/hicolor/scalable/apps/%{app_id}.svg
 %{_metainfodir}/%{app_id}.metainfo.xml
 
 %changelog
+* Tue Oct 20 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.2.0-1
+- Tray icon with a quick-view popup (battery, scroll protection, DPI stage) and a menu
+- Closing the window hides it to the tray; a second launch brings the running window forward
+- Start in the tray at login (autostart entry, switch on the About page)
+
 * Tue Oct 20 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.1.0-1
 - First RPM: per-user service, udev rule (input, uinput, hidraw) and app installed under /usr
 - Hardware mouse settings page for the Endgame Gear XM2w 4k v2

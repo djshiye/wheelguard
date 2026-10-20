@@ -45,6 +45,20 @@ WgScrollPage {
 
     WgCard {
         width: parent.width
+        visible: autostart.available
+        height: visible ? implicitHeight : 0
+        WgToggleRow {
+            Layout.topMargin: 0
+            Layout.bottomMargin: 0
+            title: "Start in tray at login"
+            description: "Keep the tray icon running in the background. Closing the window hides it there."
+            checked: autostart.enabled
+            onToggled: (value) => autostart.setEnabled(value)
+        }
+    }
+
+    WgCard {
+        width: parent.width
         spacing: 12
         Text {
             text: "How it works"
@@ -73,7 +87,7 @@ WgScrollPage {
         }
         Text {
             Layout.fillWidth: true
-            text: "DPI stages, polling rate, lift-off distance, click filters, button actions and sleep timers are stored on the mouse itself. This app reads them over the dongle (or the cable) and writes them only when you press Apply, after saving a backup of the original settings. Wheelguard only talks to the mouse while the Mouse page is open."
+            text: "DPI stages, polling rate, lift-off distance, click filters, button actions and sleep timers are stored on the mouse itself. This app reads them over the dongle (or the cable) and writes them only when you press Apply, after saving a backup of the original settings. Wheelguard reads the mouse when it starts and now and then (battery and DPI stage, for the tray icon), and writes only when you press Apply or switch the DPI stage from the tray."
             font.pixelSize: Theme.fsBody
             color: Theme.textMuted
             wrapMode: Text.WordWrap

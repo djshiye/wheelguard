@@ -16,7 +16,6 @@ Window {
     height: 708
     minimumWidth: 860
     minimumHeight: 600
-    visible: true
     color: "transparent"
     flags: Qt.Window | Qt.FramelessWindowHint
     title: "Wheelguard"
@@ -24,7 +23,9 @@ Window {
     Binding { target: Theme; property: "dark"; value: appearance.dark }
 
     onActiveChanged: if (active) pointer.refresh()
-    // The mouse is only contacted once its page is opened, never in the background.
+    // The app loads the mouse once at startup (for the tray); this covers the screenshot harness.
+    // X hides to the tray (or quits when there is none); only the tray's Quit and Ctrl+Q exit.
+    onClosing: (close) => { close.accepted = false; shell.closeMainWindow() }
     onPageIndexChanged: if (pageIndex === 1) mouse.ensureLoaded()
     Component.onCompleted: if (pageIndex === 1) mouse.ensureLoaded()
 

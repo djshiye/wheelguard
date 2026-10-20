@@ -3,19 +3,25 @@ channel (wheelguard.hw). All HID I/O runs on one worker thread; the UI thread on
 
 Edits are never sent live. `staged` holds only the keys that differ from what the mouse reported;
 Apply sends those (the session re-reads the mouse first and writes only the groups that changed).
+The tray is the one exception: setActiveStage() applies just the active DPI stage, and only when
+nothing else is staged. It also gets quiet background refreshes (battery, or a full read-only poll)
+that never touch the page state.
 """
 import os
 import tempfile
 import time
 from typing import Dict, Optional
 
-from PySide6.QtCore import Property, QObject, QThread, Signal, Slot
+from PySide6.QtCore import Property, QObject, QThread, QTimer, Signal, Slot
 
 from ..hw import codec, mock
+from . import traymodel
 from ..hw.session import (ApplyResult, HwError, MouseSession, Snapshot, UnsupportedMouse, VerifyMismatch,
                           WriteFailed)
 
 BUSY_STATES = ("reading", "applying")
+REFRESH_MIN_S = 20          # at most one tray-triggered refresh per this many seconds
+BATTERY_EVERY_MS = 5 * 60 * 1000
 
 
 class _Worker(QObject):
@@ -30,12 +36,16 @@ class _Worker(QObject):
     def run(self, kind: str, arg):
         emit = self.progress.emit
         try:
-            if kind == "read":
+            if kind in ("read", "poll"):
                 res = self._session.read(emit)
-            elif kind == "apply":
+            elif kind in ("apply", "stage"):
                 res = self._session.apply(arg, emit)
-            else:
+            elif kind == "restore":
                 res = self._session.restore(emit)
+            elif kind == "battery":
+                res = self._session.read_battery()
+            else:
+                raise ValueError(f"unknown job {kind!r}")
         except Exception as e:      # noqa: BLE001 - everything is reported to the UI, never raised into Qt
             res = e
         self.finished.emit(kind, res)
@@ -47,9 +57,10 @@ class MouseController(QObject):
     valuesChanged = Signal()
     progressChanged = Signal()
     messageChanged = Signal()
+    trayChanged = Signal()          # anything the tray icon or popup shows
     _request = Signal(str, object)
 
-    def __init__(self, session: Optional[MouseSession] = None, parent=None):
+    def __init__(self, session: Optional[MouseSession] = None, parent=None, clock=time.monotonic):
         super().__init__(parent)
         if session is None:
             if mock.mock_mode():
@@ -78,6 +89,13 @@ class MouseController(QObject):
         self._edit_problem = ""
         self._detail = ""
         self._keep_message = False
+        self._pending_stage: Optional[int] = None       # stage being switched to by setActiveStage
+        self._bg_busy = False                           # a poll/battery job is queued or running
+        self._clock = clock
+        self._last_refresh = -REFRESH_MIN_S
+        self._timer: Optional[QTimer] = None
+        for sig in (self.stateChanged, self.infoChanged, self.valuesChanged):
+            sig.connect(self.trayChanged)
 
         self._thread: Optional[QThread] = None
         self._worker = _Worker(session)
@@ -147,6 +165,10 @@ class MouseController(QObject):
 
     @Slot(str, object)
     def _on_finished(self, kind: str, res):
+        if kind in ("poll", "battery"):
+            self._on_background(kind, res)
+            return
+        self._pending_stage = None
         self._set_progress(1.0, "")
         if isinstance(res, Snapshot):
             self._take_snapshot(res)
@@ -161,7 +183,9 @@ class MouseController(QObject):
             self._staged = {}
             self._revalidate()
             self.valuesChanged.emit()
-            if res.unchanged:
+            if kind == "stage":
+                self._set_message("")
+            elif res.unchanged:
                 self._set_message("The mouse already has these settings.", "ok")
             elif kind == "restore":
                 self._set_message("Original settings restored.", "ok")
@@ -205,6 +229,34 @@ class MouseController(QObject):
         self._set_message(f"Unexpected error: {res}")
         self._set_state("error")
 
+    def _on_background(self, kind: str, res):
+        """Result of a quiet refresh: update what was learned, never the page's progress or message."""
+        self._bg_busy = False
+        if isinstance(res, int):
+            if res != self._battery:
+                self._battery = res
+                self.infoChanged.emit()
+            return
+        if self._state in BUSY_STATES:
+            return                          # the user started something meanwhile; its result wins
+        if isinstance(res, Snapshot):
+            self._take_snapshot(res)
+            self._retain_edits()
+            self._set_state("ready")
+        elif isinstance(res, HwError) and kind == "poll":
+            if res.snapshot is not None:
+                self._take_snapshot(res.snapshot)
+            if isinstance(res, UnsupportedMouse):
+                self._writable = False
+            self._detail = str(res)
+            self.infoChanged.emit()
+            self._set_state(res.state)
+
+    def _background(self, kind: str):
+        self._bg_busy = True
+        self._last_refresh = self._clock()
+        self._submit(kind)
+
     # ---- slots for QML
     @Slot()
     def ensureLoaded(self):
@@ -219,6 +271,53 @@ class MouseController(QObject):
         self._set_state("reading")
         self._set_progress(0.0, "Starting…")
         self._submit("read")
+
+    @Slot()
+    def startBackground(self):
+        """Keep the battery fresh every few minutes (the tray needs it while the window is hidden)."""
+        if self._timer is None:
+            self._timer = QTimer(self)
+            self._timer.setInterval(BATTERY_EVERY_MS)
+            self._timer.timeout.connect(self.refreshBattery)
+            self._timer.start()
+
+    def _may_refresh(self) -> bool:
+        return not (self._state in BUSY_STATES or self._bg_busy or self._clock() - self._last_refresh < REFRESH_MIN_S)
+
+    @Slot()
+    def refreshBattery(self):
+        """Timer or tray menu opened: battery only (probe + A1 B4), once the mouse has been read. Rate-limited."""
+        if self._state == "ready" and self._may_refresh():
+            self._background("battery")
+
+    @Slot()
+    def refreshQuietly(self):
+        """Quick-view popup opened: refresh without disturbing the Mouse page. With nothing staged this
+        is a full read-only poll (the mouse's own DPI button changes the stage, and a mouse that was away
+        may be back); with staged edits only the battery is read. Rate-limited."""
+        if not self._may_refresh():
+            return
+        if self._state == "idle":
+            self.refresh()
+            self._last_refresh = self._clock()
+        elif not self._staged:
+            self._background("poll")
+        elif self._state == "ready":
+            self._background("battery")
+
+    @Slot(int)
+    def setActiveStage(self, index: int):
+        """Switch the active DPI stage now (tray/popup). Goes through the normal apply path, so only the
+        0x14 group is written, and only when nothing else is staged: pending edits are never sent."""
+        if self._stage_reason() or self._state != "ready":
+            return
+        if not 0 <= index < self._baseline["stage_count"] or index == self._baseline["active_stage"]:
+            return
+        self._set_message("")
+        self._pending_stage = index
+        self._set_state("applying")
+        self._set_progress(0.0, "Switching DPI stage…")
+        self._submit("stage", {"active_stage": index})
 
     @Slot()
     def apply(self):
@@ -305,6 +404,21 @@ class MouseController(QObject):
         """Screenshot harness only: stage two edits as if the user had made them."""
         self.setValues({"dpi_x1": 1200, "dpi_y1": 1200, "polling": 0x04})
 
+    # ---- tray view
+    def _stage_reason(self) -> str:
+        return traymodel.stage_reason(self._state, self._blob is not None, self._writable, len(self._staged))
+
+    def _online(self) -> bool:
+        return traymodel.is_online(self._state, self._blob is not None)
+
+    def _stage_count(self) -> int:
+        return int(self._baseline["stage_count"]) if self._online() else 0
+
+    def _active_stage(self) -> int:
+        if not self._online():
+            return -1
+        return self._baseline["active_stage"] if self._pending_stage is None else self._pending_stage
+
     # ---- properties
     # Constants shared with the codec so the QML never duplicates an encoding.
     pollingCodes = Property("QVariantList", lambda s: list(codec.POLLING_CODES), constant=True)
@@ -347,3 +461,10 @@ class MouseController(QObject):
     changeSummary = Property(str, lambda s: ", ".join(codec.describe_changes(s._baseline, s._current())),
                              notify=valuesChanged)
     editProblem = Property(str, lambda s: s._edit_problem, notify=valuesChanged)
+    online = Property(bool, lambda s: s._online(), notify=trayChanged)
+    stageCount = Property(int, lambda s: s._stage_count(), notify=trayChanged)
+    activeStage = Property(int, lambda s: s._active_stage(), notify=trayChanged)
+    stageLabels = Property("QVariantList", lambda s: traymodel.stage_labels(s._baseline) if s._online() else [],
+                           notify=trayChanged)
+    stageReason = Property(str, lambda s: s._stage_reason(), notify=trayChanged)
+    stagesEnabled = Property(bool, lambda s: not s._stage_reason() and s._state == "ready", notify=trayChanged)

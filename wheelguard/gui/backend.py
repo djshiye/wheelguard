@@ -5,7 +5,7 @@ from typing import Optional
 from PySide6.QtCore import Property, QObject, QProcess, QTimer, Signal, Slot
 from PySide6.QtNetwork import QLocalSocket
 
-from . import gsettings, presets, protocol
+from . import autostart, gsettings, presets, protocol
 
 SERVICE = "wheelguard"
 DEBOUNCE_MS = 250
@@ -384,6 +384,28 @@ class PointerSettings(QObject):
                            lambda s, v: s._user_set("double-click", v), notify=changed)
     dragThreshold = Property(int, lambda s: s._v["drag-threshold"],
                              lambda s, v: s._user_set("drag-threshold", v), notify=changed)
+
+
+class Autostart(QObject):
+    """The 'Start in tray at login' switch on the About page (see autostart.py)."""
+
+    changed = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._on = autostart.is_enabled()
+
+    @Slot(bool)
+    def setEnabled(self, on: bool):
+        try:
+            autostart.set_enabled(bool(on))
+        except OSError:
+            pass
+        self._on = autostart.is_enabled()
+        self.changed.emit()
+
+    available = Property(bool, lambda s: autostart.available(), constant=True)
+    enabled = Property(bool, lambda s: s._on, notify=changed)
 
 
 class Appearance(QObject):

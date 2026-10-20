@@ -235,6 +235,19 @@ class MouseSession:
             finally:
                 dev.close()
 
+    def read_battery(self) -> Optional[int]:
+        """Battery percentage only (link check + A1 B4): the cheap read the tray refreshes in the background."""
+        with self._lock:
+            dev, eg = self._open()
+            try:
+                try:
+                    eg.probe()
+                    return eg.battery()
+                except (StatusError, LinkError) as e:
+                    raise self._unreachable(eg, None, e) from e
+            finally:
+                dev.close()
+
     def _write_and_verify(self, eg: EndgameDevice, snap: Snapshot, fresh: bytes, new: bytes,
                           check_keys: List[str], progress: Progress, f0: float) -> ApplyResult:
         plan = codec.plan_writes(fresh, new)
