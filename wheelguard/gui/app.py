@@ -59,6 +59,12 @@ def wait_for_tray(QEventLoop, QTimer, stop, seconds=15) -> bool:
 def main(argv=None):
     args = parse_args(sys.argv[1:] if argv is None else argv)
 
+    # Qt's QML disk cache trusts source mtimes, but RPM clamps every file to the build day, so two
+    # releases built the same day look identical and stale bytecode gets loaded. Key it by version.
+    from .. import __version__
+    cache_root = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
+    os.environ.setdefault("QML_DISK_CACHE_PATH", str(cache_root / "Wheelguard" / f"qmlcache-{__version__}"))
+
     try:
         from PySide6.QtCore import QEventLoop, QTimer, QUrl
         from PySide6.QtGui import QFont, QGuiApplication, QIcon

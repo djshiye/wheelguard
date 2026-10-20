@@ -1,7 +1,7 @@
 %global app_id io.github.djshiye.Wheelguard
 
 Name:           wheelguard
-Version:        1.2.0
+Version:        1.2.1
 # tools/publish.sh appends .<commit count> so every build from main is a newer release.
 Release:        1%{?release_suffix}%{?dist}
 Summary:        Scroll bounce filter and advanced settings for the Endgame Gear XM2w 4k v2
@@ -102,6 +102,9 @@ fi
 %{_metainfodir}/%{app_id}.metainfo.xml
 
 %changelog
+* Tue Oct 20 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.2.1-1
+- Keep the QML cache per version so an upgrade never loads stale components
+
 * Tue Oct 20 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.2.0-1
 - Tray icon with a quick-view popup (battery, scroll protection, DPI stage) and a menu
 - Closing the window hides it to the tray; a second launch brings the running window forward
