@@ -15,3 +15,7 @@ WheelMonitor 1.0 WheelMonitor.qml
 ScrollProtectionPage 1.0 ScrollProtectionPage.qml
 PointerPage 1.0 PointerPage.qml
 AboutPage 1.0 AboutPage.qml
+WgToggleRow 1.0 WgToggleRow.qml
+WgSelect 1.0 WgSelect.qml
+BatteryGlyph 1.0 BatteryGlyph.qml
+MousePage 1.0 MousePage.qml

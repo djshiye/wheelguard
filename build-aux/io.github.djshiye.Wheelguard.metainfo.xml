@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.djshiye.Wheelguard</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Wheelguard</name>
+  <summary>Scroll bounce filter and advanced settings for your mouse</summary>
+  <description>
+    <p>
+      Wheelguard drops the bouncing, wrong-direction scroll-wheel ticks of a faulty encoder on
+      GNOME, with a live view of the wheel. It also edits the on-board settings of the
+      Endgame Gear XM2w 4k v2 (DPI, polling rate, lift-off distance, button filtering, sleep timers and
+      battery) and the GNOME pointer settings. Not affiliated with Endgame Gear.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.djshiye.Wheelguard.desktop</launchable>
+  <url type="homepage">https://github.com/djshiye/wheelguard</url>
+  <developer id="io.github.djshiye"><name>djshiye</name></developer>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="1.1.0" date="2026-10-20"/>
+  </releases>
+</component>

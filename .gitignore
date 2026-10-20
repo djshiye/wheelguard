@@ -5,3 +5,13 @@ venv/
 env/
 *.egg-info/
 screenshots/
+
+# local DNF repo worktree (gh-pages branch) and build output
+/.gh-pages/
+/dist/
+/build/
+*.rpm
+
+# keep README assets
+!/docs/
+!/docs/**

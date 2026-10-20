@@ -2,3 +2,6 @@
 # wheelguard can grab it. (Also matches the dongle's "Keyboard" node; wheelguard never opens it.)
 SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="3367", ATTRS{idProduct}=="1970", TAG+="uaccess"
 KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", OPTIONS+="static_node=uinput"
+# Config channel (hidraw) of the mouse, for the hardware settings page: dongle (1970) and wired (1982)
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3367", ATTRS{idProduct}=="1970", TAG+="uaccess"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3367", ATTRS{idProduct}=="1982", TAG+="uaccess"

@@ -8,13 +8,14 @@ Item {
     property string detail: ""
     property bool busy: false
     property string serviceError: ""
+    property bool suppressed: false     // hidden on pages that don't involve the daemon
     signal startRequested()
     signal retryRequested()
 
     property string ss: "stopped"   // last non-running state, kept while collapsing
     onDaemonStateChanged: if (daemonState === "stopped" || daemonState === "permission" || daemonState === "waiting") ss = daemonState
     Component.onCompleted: if (shown) ss = daemonState
-    readonly property bool shown: daemonState === "stopped" || daemonState === "permission" || daemonState === "waiting"
+    readonly property bool shown: !suppressed && (daemonState === "stopped" || daemonState === "permission" || daemonState === "waiting")
     readonly property color tone: ss === "waiting" ? Theme.amber : Theme.coral
     readonly property string icon: ss === "stopped" ? "power" : (ss === "permission" ? "lock" : "clock")
     readonly property string title: ss === "stopped" ? "The Wheelguard service isn't running"

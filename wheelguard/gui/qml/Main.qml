@@ -24,6 +24,9 @@ Window {
     Binding { target: Theme; property: "dark"; value: appearance.dark }
 
     onActiveChanged: if (active) pointer.refresh()
+    // The mouse is only contacted once its page is opened, never in the background.
+    onPageIndexChanged: if (pageIndex === 1) mouse.ensureLoaded()
+    Component.onCompleted: if (pageIndex === 1) mouse.ensureLoaded()
 
     Shortcut { sequences: [StandardKey.Quit]; onActivated: Qt.quit() }
 
@@ -169,6 +172,7 @@ Window {
             Repeater {
                 model: [
                     { label: "Scroll protection", icon: "shield" },
+                    { label: "Mouse", icon: "mouse" },
                     { label: "Pointer", icon: "cursor" },
                     { label: "About", icon: "info" }
                 ]
@@ -225,7 +229,7 @@ Window {
                 anchors.leftMargin: 14
                 anchors.rightMargin: 10
                 anchors.bottomMargin: 6
-                text: "DPI, polling rate and button remapping aren't available: this mouse's protocol isn't public."
+                text: "The Mouse page uses a reverse-engineered protocol. Not affiliated with Endgame Gear."
                 font.pixelSize: Theme.fsSmall - 1
                 color: Theme.textFaint
                 wrapMode: Text.WordWrap
@@ -249,6 +253,7 @@ Window {
             StatusBanner {
                 id: banner
                 width: parent.width
+                suppressed: win.pageIndex === 1     // the Mouse page doesn't involve the service
                 daemonState: daemon.state
                 detail: daemon.detail
                 busy: daemon.serviceBusy
@@ -272,18 +277,25 @@ Window {
                     transform: Translate { y: win.pageIndex === 0 ? 0 : 12; Behavior on y { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutCubic } } }
                     Behavior on opacity { NumberAnimation { duration: Theme.normal } }
                 }
-                PointerPage {
+                MousePage {
                     anchors.fill: parent
                     opacity: win.pageIndex === 1 ? 1 : 0
                     visible: opacity > 0
                     transform: Translate { y: win.pageIndex === 1 ? 0 : 12; Behavior on y { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutCubic } } }
                     Behavior on opacity { NumberAnimation { duration: Theme.normal } }
                 }
-                AboutPage {
+                PointerPage {
                     anchors.fill: parent
                     opacity: win.pageIndex === 2 ? 1 : 0
                     visible: opacity > 0
                     transform: Translate { y: win.pageIndex === 2 ? 0 : 12; Behavior on y { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutCubic } } }
+                    Behavior on opacity { NumberAnimation { duration: Theme.normal } }
+                }
+                AboutPage {
+                    anchors.fill: parent
+                    opacity: win.pageIndex === 3 ? 1 : 0
+                    visible: opacity > 0
+                    transform: Translate { y: win.pageIndex === 3 ? 0 : 12; Behavior on y { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutCubic } } }
                     Behavior on opacity { NumberAnimation { duration: Theme.normal } }
                 }
             }
