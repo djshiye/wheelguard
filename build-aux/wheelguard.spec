@@ -1,7 +1,8 @@
 %global app_id io.github.djshiye.Wheelguard
+%global shell_ext wheelguard@djshiye.github.io
 
 Name:           wheelguard
-Version:        1.2.1
+Version:        1.3.0
 # tools/publish.sh appends .<commit count> so every build from main is a newer release.
 Release:        1%{?release_suffix}%{?dist}
 Summary:        Scroll bounce filter and advanced settings for the Endgame Gear XM2w 4k v2
@@ -28,7 +29,7 @@ drops the bouncing wrong-direction scroll-wheel ticks of a faulty encoder and
 passes everything else through untouched. The Wheelguard app (Qt Quick) tunes
 the filter with a live view of the wheel, edits the mouse's on-board settings
 (DPI, polling rate, lift-off distance, button filtering, sleep, battery) and
-the GNOME pointer settings, and sits in the system tray for a quick look.
+the GNOME pointer settings. A GNOME Shell extension adds a panel icon with a quick popup.
 Not affiliated with Endgame Gear.
 
 %prep
@@ -56,6 +57,10 @@ install -Dpm 0644 build-aux/%{app_id}.desktop %{buildroot}%{_datadir}/applicatio
 install -Dpm 0644 build-aux/%{app_id}-autostart.desktop %{buildroot}%{_sysconfdir}/xdg/autostart/%{app_id}.desktop
 install -Dpm 0644 build-aux/%{app_id}.svg %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/%{app_id}.svg
 install -Dpm 0644 build-aux/%{app_id}.metainfo.xml %{buildroot}%{_metainfodir}/%{app_id}.metainfo.xml
+# The panel icon: a GNOME Shell extension (enabled for the user at the next login by `wheelguard-settings --tray`).
+install -d %{buildroot}%{_datadir}/gnome-shell/extensions/%{shell_ext}/icons
+install -pm 0644 build-aux/gnome-extension/{metadata.json,extension.js,stylesheet.css} %{buildroot}%{_datadir}/gnome-shell/extensions/%{shell_ext}/
+install -pm 0644 build-aux/gnome-extension/icons/*.svg %{buildroot}%{_datadir}/gnome-shell/extensions/%{shell_ext}/icons/
 # The app loads its header/About logo from next to its gui files; point that at the themed icon.
 ln -s ../../../../../share/icons/hicolor/scalable/apps/%{app_id}.svg %{buildroot}%{python3_sitelib}/wheelguard/gui/%{app_id}.svg
 
@@ -100,8 +105,14 @@ fi
 %config(noreplace) %{_sysconfdir}/xdg/autostart/%{app_id}.desktop
 %{_datadir}/icons/hicolor/scalable/apps/%{app_id}.svg
 %{_metainfodir}/%{app_id}.metainfo.xml
+%{_datadir}/gnome-shell/extensions/%{shell_ext}/
 
 %changelog
+* Wed Oct 21 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.3.0-1
+- Panel icon as a GNOME Shell extension: one click opens an instant popup (battery, scroll protection, DPI stage)
+- The app owns a D-Bus name for the popup and for single instance; the maximized overlay popup is gone
+- The extension is switched on once by the tray autostart; the StatusNotifier tray stays as a fallback
+
 * Tue Oct 20 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.2.1-1
 - Keep the QML cache per version so an upgrade never loads stale components
 

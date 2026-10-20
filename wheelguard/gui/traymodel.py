@@ -1,4 +1,5 @@
-"""What the tray icon shows, as plain data: menu rows, tooltip and the DPI-stage rules. No Qt."""
+"""What the tray icon and the panel extension show, as plain data: menu rows, tooltip, the D-Bus state and
+the DPI-stage rules. No Qt."""
 from dataclasses import dataclass
 from typing import Dict, List, Tuple
 
@@ -19,16 +20,25 @@ class TrayState:
     stages: Tuple[str, ...] = ()    # one label per configured DPI stage ("800", "800 × 400")
     active: int = -1
     stage_reason: str = ""          # why the stage rows are disabled; "" = switchable
+    preset: str = ""                # name of the active scroll-protection preset
+    dropped: int = 0                # ticks dropped since the daemon started
 
 
 @dataclass(frozen=True)
 class Row:
     kind: str                       # "info" | "toggle" | "stage" | "action" | "separator"
     text: str = ""
-    key: str = ""                   # what a click does: "protect" | "stage" | "popup" | "open" | "quit"
+    key: str = ""                   # what a click does: "protect" | "stage" | "open" | "quit"
     index: int = -1
     checked: bool = False
     enabled: bool = True
+
+
+def snapshot(daemon, mouse) -> TrayState:
+    """Read the state from the DaemonClient and MouseController (or anything with the same properties)."""
+    return TrayState(daemon.state, daemon.enabled, mouse.online, mouse.battery, mouse.charging,
+                     tuple(mouse.stageLabels), mouse.activeStage, mouse.stageReason,
+                     daemon.presetName, daemon.dropped)
 
 
 def stage_labels(flat: Dict[str, object]) -> List[str]:
@@ -95,7 +105,55 @@ def menu_rows(s: TrayState) -> List[Row]:
     else:
         rows.append(Row("info", "DPI: " + (s.stage_reason or REASON_OFFLINE), enabled=False))
     rows += [Row("separator"),
-             Row("action", "Quick view", key="popup"),
              Row("action", "Open Wheelguard", key="open"),
              Row("action", "Quit", key="quit")]
     return rows
+
+
+def status_pill(daemon_state: str, protecting: bool) -> Tuple[str, str]:
+    """(label, tone) of the status pill; tone is one of good, amber, coral, muted. Mirrors StatusPill.qml."""
+    if daemon_state == "running":
+        return ("Protecting", "good") if protecting else ("Paused", "amber")
+    if daemon_state == "waiting":
+        return "No mouse", "amber"
+    if daemon_state == "permission":
+        return "No access", "coral"
+    if daemon_state == "stopped":
+        return "Stopped", "coral"
+    return "Connecting…", "muted"
+
+
+def protection_detail(daemon_state: str, protecting: bool, preset: str, dropped: int) -> str:
+    """The line under "Scroll protection": preset, paused flag and drop count."""
+    if daemon_state in ("stopped", "permission"):
+        return "Service not running"
+    text = preset if protecting else f"Paused · {preset}"
+    return f"{text} · {dropped} dropped" if dropped > 0 else text
+
+
+def battery_note(online: bool, charging: bool) -> str:
+    if not online:
+        return REASON_OFFLINE
+    return "Charging" if charging else "Battery"
+
+
+def state_dict(s: TrayState) -> Dict[str, object]:
+    """Everything the panel popup shows; this is what GetState() returns and StateChanged carries."""
+    label, tone = status_pill(s.daemon_state, s.protecting)
+    return {
+        "Online": s.online,
+        "Battery": int(s.battery) if s.online else -1,
+        "Charging": bool(s.online and s.charging),
+        "StageLabels": list(s.stages),
+        "ActiveStage": int(s.active),
+        "StageReason": s.stage_reason,
+        "ProtectionEnabled": s.protecting,
+        "DaemonState": s.daemon_state,
+        "Preset": s.preset,
+        "Dropped": int(s.dropped),
+        "StatusLabel": label,
+        "StatusTone": tone,
+        "ProtectionDetail": protection_detail(s.daemon_state, s.protecting, s.preset, s.dropped),
+        "BatteryNote": battery_note(s.online, s.charging),
+        "Tooltip": tooltip(s),
+    }

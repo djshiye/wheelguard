@@ -23,9 +23,10 @@ Then open **Wheelguard** from the app grid. **Update:** `sudo dnf upgrade`.
 - **Hardware mouse settings** for the Endgame Gear XM2w 4k v2: DPI, polling rate, lift-off distance,
   debounce, sleep and battery
 - **GNOME pointer settings** (speed, acceleration, scrolling) in the same app
-- **Tray icon** with a quick view (battery, scroll protection, DPI stage); closing the window keeps it
-  in the tray, and it starts there at login (switch on the About page). Needs a tray host such as
-  GNOME's AppIndicator extension; without one, closing the window quits.
+- **Panel icon** with an instant popup (battery, scroll protection, DPI stage); closing the window keeps
+  it running there, and it starts at login (switch on the About page). The icon is a GNOME Shell
+  extension, enabled automatically after the next login. Without it a tray icon is used if available,
+  otherwise closing the window quits.
 - **Runs as a background service**: a user daemon starts with your session, the app is optional
 - **Light and dark**, following GNOME
 

@@ -1,20 +1,16 @@
-"""Tray icon, its right-click menu and the quick-view popup window.
+"""App window plumbing and the fallback tray icon.
 
-QSystemTrayIcon talks StatusNotifierItem, so GNOME's AppIndicator extension renders the menu. Wayland
-clients can't position their own windows, so the popup is a transparent frameless window shown
-maximized (it covers the work area, which excludes the panel); the QML draws the card in the bottom-right
-corner and the window's input mask is shrunk to that card, so clicks anywhere else reach the windows below.
+With the GNOME Shell extension active the panel icon and popup belong to the extension (see service.py)
+and the QSystemTrayIcon below stays hidden. Without it, QSystemTrayIcon talks StatusNotifierItem, so
+GNOME's AppIndicator extension (or another tray host) renders its menu; a left click opens the window.
 """
-import time
 from typing import Optional
 
-from PySide6.QtCore import QCoreApplication, QObject, QPoint, QRect, Slot
-from PySide6.QtGui import QAction, QActionGroup, QRegion, QWindow
+from PySide6.QtCore import QCoreApplication, QObject, Slot
+from PySide6.QtGui import QAction, QActionGroup, QWindow
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 
 from . import traymodel
-
-REOPEN_GUARD_S = 0.35        # a tray click that just closed the popup (by taking focus) must not reopen it
 
 
 def tray_available() -> bool:
@@ -22,23 +18,20 @@ def tray_available() -> bool:
 
 
 class AppShell(QObject):
-    """Window plumbing shared by the QML (as `shell`) and the tray icon."""
+    """Window plumbing shared by the QML (as `shell`), the tray icon and the D-Bus service."""
 
-    def __init__(self, mouse, parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self._mouse = mouse
         self._main = None
-        self._popup = None
-        self._tray_enabled = False
-        self._popup_hidden_at = 0.0
-        self.preview = False        # screenshot harness: the popup is a plain window, not a maximized overlay
+        self._ext = None            # ExtensionWatcher: is the panel extension active?
+        self._sni = False           # a StatusNotifierItem icon was set up
 
-    def attach(self, main, popup, tray_enabled: bool):
-        self._main, self._popup, self._tray_enabled = main, popup, tray_enabled
+    def attach(self, main, ext, sni: bool):
+        self._main, self._ext, self._sni = main, ext, sni
 
-    def tray_ok(self) -> bool:
-        """Live check: if the shell's tray host goes away the window must not hide into nothing."""
-        return self._tray_enabled and tray_available()
+    def panel_ok(self) -> bool:
+        """Live check: closing may hide the window only while something in the panel can bring it back."""
+        return bool(self._ext is not None and self._ext.active) or (self._sni and tray_available())
 
     # ---- main window
     @Slot()
@@ -46,7 +39,6 @@ class AppShell(QObject):
         w = self._main
         if w is None:
             return
-        self.hidePopup()
         if w.visibility() == QWindow.Visibility.Minimized:
             w.showNormal()
         else:
@@ -56,8 +48,8 @@ class AppShell(QObject):
 
     @Slot()
     def closeMainWindow(self):
-        """The X button: hide to the tray, or really quit when there is no tray to bring it back from."""
-        if self.tray_ok() and self._main is not None:
+        """The X button: hide to the panel, or really quit when there is nothing to bring it back from."""
+        if self.panel_ok() and self._main is not None:
             self._main.hide()
         else:
             QCoreApplication.quit()
@@ -66,43 +58,14 @@ class AppShell(QObject):
     def quit(self):
         QCoreApplication.quit()
 
-    # ---- popup
-    @Slot()
-    def togglePopup(self):
-        p = self._popup
-        if p is None:
-            return
-        if p.isVisible():
-            self.hidePopup()
-        elif time.monotonic() - self._popup_hidden_at > REOPEN_GUARD_S:
-            self._mouse.refreshQuietly()
-            if self.preview:
-                p.show()
-            else:
-                p.showMaximized()
-            p.raise_()
-            p.requestActivate()
-
-    @Slot()
-    def hidePopup(self):
-        p = self._popup
-        if p is not None and p.isVisible():
-            p.hide()
-            self._popup_hidden_at = time.monotonic()
-
-    @Slot(float, float, float, float)
-    def setPopupMask(self, x, y, w, h):
-        """Only the card takes input; the rest of the maximized window is click-through."""
-        if self._popup is not None:
-            self._popup.setMask(QRegion(QRect(QPoint(round(x), round(y)), QPoint(round(x + w) - 1, round(y + h) - 1))))
-
 
 class TrayIcon(QObject):
     """The icon, its tooltip and the context menu, kept in sync with the daemon and the mouse."""
 
-    def __init__(self, shell: AppShell, daemon, mouse, icon, parent=None):
+    def __init__(self, shell: AppShell, daemon, mouse, icon, suppressed=False, parent=None):
         super().__init__(parent)
         self._shell, self._daemon, self._mouse = shell, daemon, mouse
+        self._suppressed = suppressed
         self._rows = None
         self._menu = QMenu()
         self._group: Optional[QActionGroup] = None
@@ -113,15 +76,24 @@ class TrayIcon(QObject):
         for sig in (daemon.stateChanged, daemon.configChanged, mouse.trayChanged):
             sig.connect(self.update)
         self.update()
-        self._tray.show()
+        if not suppressed:
+            self._tray.show()
 
     def hide(self):
         self._tray.hide()
 
+    def setSuppressed(self, on: bool):
+        """The panel extension took over: never show two icons."""
+        if on == self._suppressed:
+            return
+        self._suppressed = on
+        if on:
+            self._tray.hide()
+        else:
+            self._tray.show()
+
     def state(self) -> traymodel.TrayState:
-        d, m = self._daemon, self._mouse
-        return traymodel.TrayState(d.state, d.enabled, m.online, m.battery, m.charging,
-                                   tuple(m.stageLabels), m.activeStage, m.stageReason)
+        return traymodel.snapshot(self._daemon, self._mouse)
 
     @Slot()
     def update(self):
@@ -158,8 +130,7 @@ class TrayIcon(QObject):
             self._menu.addAction(act)
 
     def _action(self, key):
-        return {"popup": self._shell.togglePopup, "open": self._shell.showMain,
-                "quit": self._shell.quit}[key]
+        return {"open": self._shell.showMain, "quit": self._shell.quit}[key]
 
     def _on_menu_open(self):
         self._mouse.refreshBattery()
@@ -167,4 +138,4 @@ class TrayIcon(QObject):
 
     def _on_activated(self, reason):
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
-            self._shell.togglePopup()
+            self._shell.showMain()

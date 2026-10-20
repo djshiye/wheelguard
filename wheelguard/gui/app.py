@@ -1,4 +1,4 @@
-"""Wheelguard settings application: Qt Quick window, tray icon, backends and a screenshot harness."""
+"""Wheelguard settings application: Qt Quick window, panel/tray integration, backends and a screenshot harness."""
 import argparse
 import os
 import signal
@@ -27,33 +27,42 @@ def parse_args(argv):
     ap = argparse.ArgumentParser(prog="wheelguard-settings", description="Wheelguard advanced mouse settings")
     ap.add_argument("--socket", help="daemon socket path (default $XDG_RUNTIME_DIR/wheelguard.sock)")
     ap.add_argument("--tray", action="store_true",
-                    help="start hidden in the system tray (does nothing if there is no tray)")
+                    help="start hidden in the panel (does nothing if there is no panel icon or tray)")
     shot = ap.add_argument_group("screenshots (development)")
     shot.add_argument("--screenshot", metavar="PNG", help="render the window to PNG after a delay, then quit")
     shot.add_argument("--page", choices=("scroll", "mouse", "pointer", "about"), default="scroll")
     shot.add_argument("--advanced", action="store_true", help="open the Advanced expander")
     shot.add_argument("--theme", choices=("dark", "light"), help="force a theme instead of following GNOME")
     shot.add_argument("--size", default="1008x708", help="window size WxH including shadow margin")
-    shot.add_argument("--popup", action="store_true", help="with --screenshot: render the tray quick view")
     shot.add_argument("--stage-demo", action="store_true",
                       help="on the Mouse page, stage two edits once the mouse has been read")
     shot.add_argument("--delay-ms", type=int, default=1500)
     return ap.parse_args(argv)
 
 
-def wait_for_tray(QEventLoop, QTimer, stop, seconds=15) -> bool:
-    """At login the shell's tray host can start a moment after us: give it a little time to appear.
-    `stop()` ends the wait early (someone launched the app by hand meanwhile)."""
+def wait_for_panel(QEventLoop, QTimer, ext, stop, seconds=15) -> bool:
+    """At login the shell's extension or tray host can start a moment after us: give it a little time to
+    appear. `stop()` ends the wait early (someone launched the app by hand meanwhile)."""
     from .tray import tray_available
     loop = QEventLoop()
+    ext.changed.connect(loop.quit)
     for _ in range(seconds):
-        if tray_available():
+        if ext.active or tray_available():
             return True
         if stop():
             break
         QTimer.singleShot(1000, loop.quit)
         loop.exec()
-    return tray_available()
+    return ext.active or tray_available()
+
+
+def wait_for(QEventLoop, QTimer, signal, ms):
+    """Spin the event loop until `signal` fires or `ms` pass."""
+    loop = QEventLoop()
+    signal.connect(loop.quit)
+    QTimer.singleShot(ms, loop.quit)
+    loop.exec()
+    signal.disconnect(loop.quit)
 
 
 def main(argv=None):
@@ -68,22 +77,36 @@ def main(argv=None):
     try:
         from PySide6.QtCore import QEventLoop, QTimer, QUrl
         from PySide6.QtGui import QFont, QGuiApplication, QIcon
-        from PySide6.QtQml import QQmlApplicationEngine, QQmlComponent
-        from PySide6.QtQuickControls2 import QQuickStyle
         from PySide6.QtWidgets import QApplication
     except ImportError:
         print("wheelguard-settings needs PySide6: sudo dnf install python3-pyside6", file=sys.stderr)
         return 1
 
-    from . import single, tray
-    from .backend import Appearance, Autostart, DaemonClient, PointerSettings
-    from .mouse import MouseController
-
-    QQuickStyle.setStyle("Basic")
+    from . import service
     QGuiApplication.setApplicationName("Wheelguard")
     QGuiApplication.setApplicationDisplayName("Wheelguard")
     QGuiApplication.setDesktopFileName(APP_ID)
     app = QApplication(sys.argv[:1])        # QtWidgets for QSystemTrayIcon; the UI itself is Qt Quick
+
+    # Owning the bus name is the single-instance lock. A second launch hands over to the first before any
+    # of the heavy modules (QML, backends) are even imported.
+    shot = bool(args.screenshot)
+    svc = None
+    if not shot:
+        if not service.claim():
+            if not args.tray:
+                service.call_remote("ShowWindow")
+            return 0
+        svc = service.Service(parent=app)
+        svc.register()
+
+    from PySide6.QtQml import QQmlApplicationEngine
+    from PySide6.QtQuickControls2 import QQuickStyle
+    from . import shellext, tray
+    from .backend import Appearance, Autostart, DaemonClient, PointerSettings
+    from .mouse import MouseController
+
+    QQuickStyle.setStyle("Basic")
     if os.environ.get("QT_QPA_PLATFORM") == "offscreen":
         # Headless runs have no platform theme: use the GNOME UI font so screenshots match the desktop.
         from PySide6.QtGui import QFontDatabase
@@ -93,20 +116,22 @@ def main(argv=None):
                 app.setFont(QFont(name, 11))
                 break
 
-    shot = bool(args.screenshot)
-    server, early = None, []
+    ext = None
     if not shot:
-        if single.send("tray" if args.tray else "show"):       # already running: it shows its window
-            return 0
-        server = single.InstanceServer(parent=app)
-        if server.listen():
-            server.messageReceived.connect(early.append)       # held until the window exists
-            app.aboutToQuit.connect(server.close)
-        if args.tray and not wait_for_tray(QEventLoop, QTimer, lambda: "show" in early) and "show" not in early:
-            return 0                                           # no tray: don't pop a window up at login
-    tray_ok = not shot and tray.tray_available()
-    if tray_ok:
-        app.setQuitOnLastWindowClosed(False)
+        ext = shellext.ExtensionWatcher(parent=app)
+        if args.tray:
+            if not ext.answered:
+                wait_for(QEventLoop, QTimer, ext.infoReceived, 2500)    # one round trip to the shell
+            marker = shellext.marker_path()
+            if shellext.should_enable(ext.info, marker.exists(), True):
+                ext.enable()                                    # once: afterwards the user's choice stands
+                shellext.write_marker(marker)
+                wait_for(QEventLoop, QTimer, ext.changed, 3000)         # so no tray icon flashes up meanwhile
+            elif ext.active:
+                shellext.write_marker(marker)
+            if not wait_for_panel(QEventLoop, QTimer, ext, lambda: svc.pending_show) and not svc.pending_show:
+                return 0                                        # no panel icon: don't pop a window up at login
+        app.setQuitOnLastWindowClosed(False)                    # closing hides or quits via AppShell
 
     icon_path = find_icon()
     icon = QIcon(str(icon_path))
@@ -121,7 +146,7 @@ def main(argv=None):
     daemon = DaemonClient(args.socket, engine)
     pointer = PointerSettings(engine)
     mouse = MouseController(parent=engine)
-    shell = tray.AppShell(mouse, engine)
+    shell = tray.AppShell(engine)
 
     engine.addImportPath(str(QML_DIR))
     ctx = engine.rootContext()
@@ -137,18 +162,16 @@ def main(argv=None):
         return 1
     win = engine.rootObjects()[0]
 
-    popup = None
-    if tray_ok or args.popup:
-        comp = QQmlComponent(engine, QUrl.fromLocalFile(str(QML_DIR / "TrayPopup.qml")))
-        popup = comp.create()
-        if popup is None:
-            print(comp.errorString(), file=sys.stderr)
-            return 1
-        if args.popup:
-            popup.setProperty("preview", True)
-            shell.preview = True
-    shell.attach(win, popup, tray_ok)
-    tray_icon = tray.TrayIcon(shell, daemon, mouse, icon, engine) if tray_ok else None
+    sni = not shot and tray.tray_available()
+    tray_icon = None
+    if sni:
+        # Hidden until the shell has said whether the extension (which replaces this icon) is active.
+        tray_icon = tray.TrayIcon(shell, daemon, mouse, icon, suppressed=not ext.answered or ext.active, parent=engine)
+        ext.infoReceived.connect(lambda _info: tray_icon.setSuppressed(ext.active))
+    shell.attach(win, ext, sni)
+    if svc is not None:
+        svc.attach(daemon, mouse)
+        svc.showRequested.connect(shell.showMain)
 
     w, h = (int(v) for v in args.size.lower().split("x"))
     win.setWidth(w)
@@ -167,14 +190,10 @@ def main(argv=None):
     pointer.refresh()
     appearance.watch()
     daemon.start()
-    if not shot or args.popup:
-        mouse.ensureLoaded()            # the tray needs the stages and battery before the Mouse page is opened
-    if tray_ok:
+    if not shot:
+        mouse.ensureLoaded()            # the panel needs the stages and battery before the Mouse page is opened
         mouse.startBackground()
-    if server is not None:
-        server.messageReceived.disconnect(early.append)
-        server.messageReceived.connect(lambda msg: shell.showMain() if msg == "show" else None)
-    if "show" in early or not ((args.tray and tray_ok) or (shot and args.popup)):
+    if (svc is not None and svc.pending_show) or not (args.tray and shell.panel_ok()):
         win.show()
 
     signal.signal(signal.SIGINT, signal.SIG_DFL)
@@ -186,14 +205,10 @@ def main(argv=None):
 
     if shot:
         def grab():
-            img = (popup if args.popup else win).grabWindow()
+            img = win.grabWindow()
             ok = img.save(args.screenshot)
             print(f"screenshot {'saved' if ok else 'FAILED'}: {args.screenshot} {img.width()}x{img.height()}", flush=True)
             app.exit(0 if ok else 2)
-        if args.popup:
-            QTimer.singleShot(args.delay_ms, popup.show)
-            QTimer.singleShot(args.delay_ms + 600, grab)        # after the fade-in
-        else:
-            QTimer.singleShot(args.delay_ms, grab)
+        QTimer.singleShot(args.delay_ms, grab)
 
     return app.exec()

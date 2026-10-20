@@ -51,7 +51,7 @@ WgScrollPage {
             Layout.topMargin: 0
             Layout.bottomMargin: 0
             title: "Start in tray at login"
-            description: "Keep the tray icon running in the background. Closing the window hides it there."
+            description: "Keep the panel icon running in the background. Closing the window hides it there."
             checked: autostart.enabled
             onToggled: (value) => autostart.setEnabled(value)
         }
@@ -87,7 +87,7 @@ WgScrollPage {
         }
         Text {
             Layout.fillWidth: true
-            text: "DPI stages, polling rate, lift-off distance, click filters, button actions and sleep timers are stored on the mouse itself. This app reads them over the dongle (or the cable) and writes them only when you press Apply, after saving a backup of the original settings. Wheelguard reads the mouse when it starts and now and then (battery and DPI stage, for the tray icon), and writes only when you press Apply or switch the DPI stage from the tray."
+            text: "DPI stages, polling rate, lift-off distance, click filters, button actions and sleep timers are stored on the mouse itself. This app reads them over the dongle (or the cable) and writes them only when you press Apply, after saving a backup of the original settings. Wheelguard reads the mouse when it starts and now and then (battery and DPI stage, for the panel icon), and writes only when you press Apply or switch the DPI stage from the panel icon."
             font.pixelSize: Theme.fsBody
             color: Theme.textMuted
             wrapMode: Text.WordWrap

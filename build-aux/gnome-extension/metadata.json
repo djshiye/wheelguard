@@ -1,0 +1,8 @@
+{
+  "uuid": "wheelguard@djshiye.github.io",
+  "name": "Wheelguard",
+  "description": "Panel icon and quick popup for the Wheelguard app: mouse battery, scroll protection and DPI stage.",
+  "shell-version": ["50"],
+  "url": "https://github.com/djshiye/wheelguard",
+  "version-name": "1.3.0"
+}
