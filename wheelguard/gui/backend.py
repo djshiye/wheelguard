@@ -1,4 +1,5 @@
-"""QObject backends exposed to QML: daemon client, GNOME pointer settings, appearance."""
+"""QObject backends exposed to QML: daemon client, GNOME pointer settings, appearance, Liquid Glass."""
+import json
 import os
 from typing import Optional
 
@@ -446,3 +447,80 @@ class Appearance(QObject):
             self._proc.waitForFinished(500)
 
     dark = Property(bool, lambda s: s._dark, notify=changed)
+
+
+class LiquidGlass(QObject):
+    """Colours from the Liquid Glass theme (github.com/djshiye/fedora-liquid-glass), when it's in use.
+
+    Liquid Glass writes its design tokens to ~/.config/liquid-glass/tokens-{dark,light}.json on every
+    apply. While those files exist the app takes its surfaces, text and accent from them, so it matches
+    the rest of the desktop; without them it keeps its own look. The folder is watched, so a change in
+    the Liquid Glass app shows up here immediately.
+    """
+
+    changed = Signal()
+
+    # Theme.qml role -> Liquid Glass token
+    ROLES = {
+        "chrome": "chrome", "panel": "window", "card": "card", "cardHi": "active", "inset": "view",
+        "track": "edge", "border": "edge", "borderHi": "highlight", "hover": "hover",
+        "text": "fg", "textMuted": "fg_dim", "textFaint": "fg_faint",
+        "accentA": "accent", "accentB": "accent_text",
+        "coral": "destructive", "amber": "warning", "good": "success",
+    }
+
+    def __init__(self, directory: Optional[str] = None, parent=None):
+        super().__init__(parent)
+        base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+        self._dir = directory or os.path.join(base, "liquid-glass")
+        self._tokens: dict = {}
+        self._watcher = None
+        self._debounce = QTimer(self, singleShot=True, interval=150, timeout=self.reload)
+        self.reload()
+
+    @Slot()
+    def watch(self):
+        from PySide6.QtCore import QFileSystemWatcher
+        if self._watcher is None:
+            self._watcher = QFileSystemWatcher(self)
+            self._watcher.directoryChanged.connect(lambda _p: self._debounce.start())
+            self._watcher.fileChanged.connect(lambda _p: self._debounce.start())
+        parent = os.path.dirname(self._dir)
+        for p in (parent, self._dir, *self._files()):
+            if os.path.exists(p) and p not in self._watcher.directories() + self._watcher.files():
+                self._watcher.addPath(p)
+
+    def _files(self):
+        return [os.path.join(self._dir, f"tokens-{s}.json") for s in ("dark", "light")]
+
+    @Slot()
+    def reload(self):
+        tokens = {}
+        for scheme, path in zip(("dark", "light"), self._files()):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
+            except (OSError, ValueError):
+                continue
+            if isinstance(data, dict) and data.get("version") == 1:
+                tokens[scheme] = data
+        if tokens != self._tokens:
+            self._tokens = tokens
+            self.changed.emit()
+        if self._watcher is not None:
+            self.watch()            # files that were replaced need re-adding
+
+    @Slot(bool, str, str, result=str)
+    def color(self, dark: bool, role: str, fallback: str) -> str:
+        """The token colour for a Theme.qml role, or the fallback (an "#RRGGBBAA" token becomes Qt's "#AARRGGBB")."""
+        value = self._tokens.get("dark" if dark else "light", {}).get(self.ROLES.get(role, ""))
+        if not (isinstance(value, str) and value.startswith("#") and len(value) in (7, 9)):
+            return fallback
+        return value if len(value) == 7 else "#" + value[7:9] + value[1:7]
+
+    @Slot(bool, str, int, result=int)
+    def number(self, dark: bool, name: str, fallback: int) -> int:
+        value = self._tokens.get("dark" if dark else "light", {}).get(name)
+        return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else fallback
+
+    active = Property(bool, lambda s: bool(s._tokens), notify=changed)

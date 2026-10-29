@@ -400,5 +400,61 @@ class DaemonClientTests(unittest.TestCase):
         self.assertTrue(self.client._retry.isActive())
 
 
+@unittest.skipUnless(HAVE_QT, "PySide6 not installed")
+class LiquidGlassTests(unittest.TestCase):
+    """Token files from the Liquid Glass theme, as it writes them."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QCoreApplication.instance() or QCoreApplication([])
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.lg = os.path.join(self.dir.name, "liquid-glass")
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def write(self, scheme, **tokens):
+        os.makedirs(self.lg, exist_ok=True)
+        with open(os.path.join(self.lg, f"tokens-{scheme}.json"), "w") as f:
+            json.dump({"version": 1, **tokens}, f)
+
+    def test_inactive_without_files_keeps_fallbacks(self):
+        g = backend.LiquidGlass(self.lg)
+        self.assertFalse(g.active)
+        self.assertEqual(g.color(True, "chrome", "#0A0B0E"), "#0A0B0E")
+        self.assertEqual(g.number(True, "radius", 16), 16)
+
+    def test_maps_roles_and_converts_alpha_to_qt_order(self):
+        self.write("dark", chrome="#2c2f3670", fg="#f4f5f9", radius=22)
+        self.write("light", chrome="#f5f6fab0")
+        g = backend.LiquidGlass(self.lg)
+        self.assertTrue(g.active)
+        self.assertEqual(g.color(True, "chrome", ""), "#702c2f36")
+        self.assertEqual(g.color(True, "text", ""), "#f4f5f9")
+        self.assertEqual(g.color(False, "chrome", ""), "#b0f5f6fa")
+        self.assertEqual(g.color(False, "text", "#14161D"), "#14161D")   # missing token: fallback
+        self.assertEqual(g.color(True, "nonsense", "#123456"), "#123456")
+        self.assertEqual(g.number(True, "radius", 16), 22)
+
+    def test_ignores_unknown_versions_and_garbage(self):
+        self.write("dark", chrome="#2c2f3670")
+        with open(os.path.join(self.lg, "tokens-dark.json"), "w") as f:
+            f.write('{"version": 2, "chrome": "#000000ff"}')
+        with open(os.path.join(self.lg, "tokens-light.json"), "w") as f:
+            f.write("not json")
+        self.assertFalse(backend.LiquidGlass(self.lg).active)
+
+    def test_reload_emits_changed_when_tokens_change(self):
+        g = backend.LiquidGlass(self.lg)
+        seen = []
+        g.changed.connect(lambda: seen.append(g.active))
+        self.write("dark", chrome="#11111111")
+        g.reload()
+        g.reload()                      # same content: no second signal
+        self.assertEqual(seen, [True])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -103,7 +103,7 @@ def main(argv=None):
     from PySide6.QtQml import QQmlApplicationEngine
     from PySide6.QtQuickControls2 import QQuickStyle
     from . import shellext, tray
-    from .backend import Appearance, Autostart, DaemonClient, PointerSettings
+    from .backend import Appearance, Autostart, DaemonClient, LiquidGlass, PointerSettings
     from .mouse import MouseController
 
     QQuickStyle.setStyle("Basic")
@@ -143,6 +143,7 @@ def main(argv=None):
     # Backends are children of the engine so they outlive the QML objects bound to them at exit.
     override = None if args.theme is None else args.theme == "dark"
     appearance = Appearance(override, engine)
+    glass = LiquidGlass(parent=engine)
     daemon = DaemonClient(args.socket, engine)
     pointer = PointerSettings(engine)
     mouse = MouseController(parent=engine)
@@ -154,6 +155,7 @@ def main(argv=None):
     ctx.setContextProperty("pointer", pointer)
     ctx.setContextProperty("mouse", mouse)
     ctx.setContextProperty("appearance", appearance)
+    ctx.setContextProperty("liquidGlass", glass)
     ctx.setContextProperty("shell", shell)
     ctx.setContextProperty("autostart", Autostart(engine))
     ctx.setContextProperty("iconUrl", QUrl.fromLocalFile(str(icon_path)))
@@ -189,6 +191,7 @@ def main(argv=None):
 
     pointer.refresh()
     appearance.watch()
+    glass.watch()
     daemon.start()
     if not shot:
         mouse.ensureLoaded()            # the panel needs the stages and battery before the Mouse page is opened

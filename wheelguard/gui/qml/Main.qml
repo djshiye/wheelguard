@@ -21,6 +21,7 @@ Window {
     title: "Wheelguard"
 
     Binding { target: Theme; property: "dark"; value: appearance.dark }
+    Binding { target: Theme; property: "glass"; value: liquidGlass }
 
     onActiveChanged: if (active) pointer.refresh()
     // The app loads the mouse once at startup (for the tray); this covers the screenshot harness.
