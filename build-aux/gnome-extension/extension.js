@@ -109,7 +109,7 @@ class WheelguardIndicator extends PanelMenu.Button {
 
     // ------------------------------------------------------------------ popup widgets
     _buildPopup() {
-        this._root = new St.BoxLayout({vertical: true, style_class: 'wg-root'});
+        this._root = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, style_class: 'wg-root'});
         this.menu.box.add_child(this._root);
 
         // header: logo + name open the app, the pill shows the status, the button opens the app too
@@ -145,13 +145,13 @@ class WheelguardIndicator extends PanelMenu.Button {
         header.add_child(open);
         this._root.add_child(header);
 
-        this._body = new St.BoxLayout({vertical: true, style_class: 'wg-body'});
+        this._body = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, style_class: 'wg-body'});
         this._root.add_child(this._body);
         this._buildBattery();
         this._buildProtection();
         this._buildDpi();
 
-        this._offline = new St.BoxLayout({vertical: true, style_class: 'wg-card wg-offline'});
+        this._offline = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, style_class: 'wg-card wg-offline'});
         this._offlineText = makeLabel("Wheelguard isn't running", 'wg-card-title');
         this._offlineHint = makeLabel('Start it to see your mouse and protection here.', 'wg-card-sub');
         this._startButton = new St.Button({style_class: 'wg-start', can_focus: true, x_expand: true});
@@ -166,7 +166,7 @@ class WheelguardIndicator extends PanelMenu.Button {
     }
 
     _card() {
-        return new St.BoxLayout({vertical: true, style_class: 'wg-card'});
+        return new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, style_class: 'wg-card'});
     }
 
     _buildBattery() {
@@ -188,7 +188,7 @@ class WheelguardIndicator extends PanelMenu.Button {
     _buildProtection() {
         const card = this._card();
         const row = new St.BoxLayout({style_class: 'wg-row'});
-        const text = new St.BoxLayout({vertical: true, x_expand: true, y_align: Clutter.ActorAlign.CENTER});
+        const text = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, x_expand: true, y_align: Clutter.ActorAlign.CENTER});
         text.add_child(new St.Label({text: 'Scroll protection', style_class: 'wg-card-title'}));
         this._protectDetail = new St.Label({style_class: 'wg-card-sub'});
         this._protectDetail.clutter_text.ellipsize = 3;     // Pango.EllipsizeMode.END

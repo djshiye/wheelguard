@@ -23,6 +23,7 @@
         <ul>
           <li>One package for every Fedora release, independent of the Python version</li>
           <li>Signed packages from a DNF repository that keeps itself configured</li>
+          <li>The panel icon works on GNOME 51 (Fedora 45)</li>
         </ul>
       </description>
     </release>

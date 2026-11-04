@@ -127,6 +127,7 @@ fi
 - One package for every Fedora release: installed under /usr/share/wheelguard, runs on any Python 3
 - Signed packages and repository metadata, published by GitHub Actions on every push
 - The package installs its own repository file and key
+- The panel extension works on GNOME 51 (Fedora 45) as well as GNOME 50
 
 * Wed Nov 04 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.3.1-1
 - Build for Fedora 45 (Python 3.15) as well as Fedora 44
