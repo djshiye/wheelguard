@@ -15,7 +15,10 @@ sudo dnf install wheelguard
 ```
 
 Then open **Wheelguard** from the app grid. **Update:** `sudo dnf upgrade`.
-**Uninstall:** `sudo dnf remove wheelguard`. Packages are unsigned.
+**Uninstall:** `sudo dnf remove wheelguard`. One package works on every current Fedora release.
+Packages and repository metadata are signed; dnf asks once to trust the key
+([RPM-GPG-KEY-djshiye](https://djshiye.github.io/wheelguard/RPM-GPG-KEY-djshiye)). The package
+installs its own `/etc/yum.repos.d/wheelguard.repo`, so the repository stays configured.
 
 ## Features
 
@@ -45,10 +48,12 @@ a Unix socket ([PROTOCOL.md](PROTOCOL.md)).
 <details>
 <summary>Building / publishing</summary>
 
-Everything is built locally, there is no CI. `tools/publish.sh` builds the RPM in a Fedora
-container with podman, updates the DNF repository on the `gh-pages` worktree (`.gh-pages/`) and
-commits it. Add `--push` to push `main` and `gh-pages`; `--allow-dirty` builds the working tree
-for testing. Run the tests with `python3 -m unittest discover -s tests -t .`. The mouse's HID
+GitHub Actions (`.github/workflows/ci.yml`) builds and tests the RPM on every push and pull
+request. Pushes to `main` also sign it (key in the `RPM_SIGNING_KEY` secret), rebuild the DNF
+repository with the last three builds (`build-aux/dnf-repo.py`), commit it to the `gh-pages`
+branch that GitHub Pages serves, and install it in clean Fedora 44 and 45 containers
+(`build-aux/verify-install.sh`). The old local `tools/publish.sh` is retired: one publishing path
+is less to maintain, and local builds could not be signed. Run the tests with `python3 -m unittest discover -s tests -t .`. The mouse's HID
 protocol is documented in [docs/endgame-protocol.md](docs/endgame-protocol.md).
 
 </details>

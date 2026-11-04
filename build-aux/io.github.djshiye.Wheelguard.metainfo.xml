@@ -18,6 +18,14 @@
   <developer id="io.github.djshiye"><name>djshiye</name></developer>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.4.0" date="2026-11-04">
+      <description>
+        <ul>
+          <li>One package for every Fedora release, independent of the Python version</li>
+          <li>Signed packages from a DNF repository that keeps itself configured</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.3.1" date="2026-11-04"/>
     <release version="1.3.0" date="2026-10-21"/>
     <release version="1.2.1" date="2026-10-20"/>

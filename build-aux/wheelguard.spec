@@ -1,18 +1,25 @@
 %global app_id io.github.djshiye.Wheelguard
 %global shell_ext wheelguard@djshiye.github.io
+# One package for every Fedora: the code lives in %{_datadir}/%{name} (not in a
+# python3.X site-packages) and runs on the system's /usr/bin/python3, so nothing
+# may pin a Python version. Nothing should generate one; this is the safety net.
+%global __requires_exclude ^python\\(abi\\)
+%global __brp_python_bytecompile %{nil}
 
 Name:           wheelguard
-Version:        1.3.1
-# tools/publish.sh appends .<commit count> so every build from main is a newer release.
+Version:        1.4.0
+# CI appends .<commit count> so every build from main is a newer release.
 Release:        1%{?release_suffix}%{?dist}
 Summary:        Scroll bounce filter and advanced settings for the Endgame Gear XM2w 4k v2
 
 License:        MIT
 URL:            https://github.com/djshiye/wheelguard
 Source0:        %{name}-%{version}.tar.gz
+# The public package signing key; CI exports it from the signing secret.
+Source1:        RPM-GPG-KEY-djshiye
 BuildArch:      noarch
 
-BuildRequires:  python3-devel
+BuildRequires:  python3
 # for the import check in %%check
 BuildRequires:  python3-evdev
 BuildRequires:  desktop-file-utils
@@ -39,15 +46,15 @@ Not affiliated with Endgame Gear.
 
 %install
 # The whole package tree, including gui/qml (with its qmldir) and any hw/ modules.
-install -d %{buildroot}%{python3_sitelib}
-cp -r wheelguard %{buildroot}%{python3_sitelib}/
-find %{buildroot}%{python3_sitelib}/wheelguard -name __pycache__ -prune -exec rm -rf {} +
-find %{buildroot}%{python3_sitelib}/wheelguard -type d -exec chmod 0755 {} +
-find %{buildroot}%{python3_sitelib}/wheelguard -type f -exec chmod 0644 {} +
+install -d %{buildroot}%{_datadir}/%{name}
+cp -r wheelguard %{buildroot}%{_datadir}/%{name}/
+find %{buildroot}%{_datadir}/%{name} -name __pycache__ -prune -exec rm -rf {} +
+find %{buildroot}%{_datadir}/%{name} -type d -exec chmod 0755 {} +
+find %{buildroot}%{_datadir}/%{name} -type f -exec chmod 0644 {} +
 
 install -d %{buildroot}%{_bindir} %{buildroot}%{_libexecdir}
-printf '#!%{python3}\nimport sys\nfrom wheelguard.gui.app import main\nsys.exit(main())\n' > %{buildroot}%{_bindir}/wheelguard-settings
-printf '#!%{python3}\nimport sys\nfrom wheelguard.daemon import main\nsys.exit(main())\n' > %{buildroot}%{_libexecdir}/wheelguard-daemon
+printf '#!/usr/bin/python3 -sP\nimport sys\nsys.path.insert(0, "%{_datadir}/%{name}")\nfrom wheelguard.gui.app import main\nsys.exit(main())\n' > %{buildroot}%{_bindir}/wheelguard-settings
+printf '#!/usr/bin/python3 -sP\nimport sys\nsys.path.insert(0, "%{_datadir}/%{name}")\nfrom wheelguard.daemon import main\nsys.exit(main())\n' > %{buildroot}%{_libexecdir}/wheelguard-daemon
 chmod 0755 %{buildroot}%{_bindir}/wheelguard-settings %{buildroot}%{_libexecdir}/wheelguard-daemon
 
 install -Dpm 0644 build-aux/wheelguard.service %{buildroot}%{_userunitdir}/wheelguard.service
@@ -62,13 +69,16 @@ install -d %{buildroot}%{_datadir}/gnome-shell/extensions/%{shell_ext}/icons
 install -pm 0644 build-aux/gnome-extension/{metadata.json,extension.js,stylesheet.css} %{buildroot}%{_datadir}/gnome-shell/extensions/%{shell_ext}/
 install -pm 0644 build-aux/gnome-extension/icons/*.svg %{buildroot}%{_datadir}/gnome-shell/extensions/%{shell_ext}/icons/
 # The app loads its header/About logo from next to its gui files; point that at the themed icon.
-ln -s ../../../../../share/icons/hicolor/scalable/apps/%{app_id}.svg %{buildroot}%{python3_sitelib}/wheelguard/gui/%{app_id}.svg
+ln -s ../../../icons/hicolor/scalable/apps/%{app_id}.svg %{buildroot}%{_datadir}/%{name}/wheelguard/gui/%{app_id}.svg
+# The DNF repository definition and its signing key, so the repository keeps itself configured.
+install -Dpm 0644 build-aux/%{name}.repo %{buildroot}%{_sysconfdir}/yum.repos.d/%{name}.repo
+install -Dpm 0644 %{SOURCE1} %{buildroot}%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-djshiye-%{name}
 
 %check
 desktop-file-validate %{buildroot}%{_datadir}/applications/%{app_id}.desktop
 desktop-file-validate %{buildroot}%{_sysconfdir}/xdg/autostart/%{app_id}.desktop
 appstreamcli validate --no-net --explain %{buildroot}%{_metainfodir}/%{app_id}.metainfo.xml
-PYTHONPATH=%{buildroot}%{python3_sitelib} %{python3} -c "import wheelguard.core, wheelguard.config, wheelguard.frames, wheelguard.control, wheelguard.ipc"
+PYTHONPATH=%{buildroot}%{_datadir}/%{name} /usr/bin/python3 -c "import wheelguard.core, wheelguard.config, wheelguard.frames, wheelguard.control, wheelguard.ipc"
 
 %post
 %systemd_user_post wheelguard.service
@@ -95,7 +105,7 @@ fi
 %files
 %license LICENSE
 %doc README.md PROTOCOL.md
-%{python3_sitelib}/wheelguard/
+%{_datadir}/%{name}/
 %{_bindir}/wheelguard-settings
 %{_libexecdir}/wheelguard-daemon
 %{_userunitdir}/wheelguard.service
@@ -106,8 +116,18 @@ fi
 %{_datadir}/icons/hicolor/scalable/apps/%{app_id}.svg
 %{_metainfodir}/%{app_id}.metainfo.xml
 %{_datadir}/gnome-shell/extensions/%{shell_ext}/
+# Plain %%config, not noreplace: an upgrade replaces an older hand-added copy
+# (saved as .rpmorig/.rpmsave), which is how users of the old per-Fedora
+# repository move to the signed one.
+%config %{_sysconfdir}/yum.repos.d/%{name}.repo
+%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-djshiye-%{name}
 
 %changelog
+* Wed Nov 04 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.4.0-1
+- One package for every Fedora release: installed under /usr/share/wheelguard, runs on any Python 3
+- Signed packages and repository metadata, published by GitHub Actions on every push
+- The package installs its own repository file and key
+
 * Wed Nov 04 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.3.1-1
 - Build for Fedora 45 (Python 3.15) as well as Fedora 44
 

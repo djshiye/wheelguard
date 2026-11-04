@@ -1,0 +1,182 @@
+name: Wheelguard CI
+
+# Every push and pull request builds and tests one noarch RPM on the oldest
+# supported Fedora. It installs under /usr/share/wheelguard and runs on any
+# Python 3, so the same package serves every Fedora release.
+# Pushes to main also sign it, commit the signed DNF repository to the
+# gh-pages branch (served by GitHub Pages) and install it from there in clean
+# Fedora 44 and 45 containers.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  APP: wheelguard
+  SITE_URL: https://djshiye.github.io/wheelguard
+
+jobs:
+  build:
+    name: Build and test RPM
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:44
+    outputs:
+      evr: ${{ steps.rpm.outputs.evr }}
+    steps:
+      # git first: without it checkout downloads a tarball and the commit
+      # count used for the RPM release number is unavailable.
+      - name: Install git
+        run: dnf install -y git
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install build dependencies
+        run: |
+          dnf install -y rpm-build rpmdevtools rpmlint python3 python3-evdev python3-pyside6 \
+            desktop-file-utils appstream systemd-rpm-macros tar gnupg2
+
+      # The only step that sees the signing secret, before any project code
+      # runs: it exports the public half for the package and forgets the rest.
+      - name: Public signing key
+        env:
+          RPM_SIGNING_KEY: ${{ secrets.RPM_SIGNING_KEY }}
+        run: |
+          rpmdev-setuptree
+          export GNUPGHOME=$(mktemp -d)
+          if [ -n "$RPM_SIGNING_KEY" ]; then
+            printf '%s\n' "$RPM_SIGNING_KEY" | gpg --batch --quiet --import
+          elif [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            # Pull requests from forks get no secrets: build with a throwaway key.
+            gpg --batch --passphrase '' --quick-gen-key 'Throwaway CI key' rsa2048 sign 1d
+          else
+            echo "::error::The RPM_SIGNING_KEY secret is not set for this repository."
+            exit 1
+          fi
+          gpg --batch --armor --export-options export-minimal --export > ~/rpmbuild/SOURCES/RPM-GPG-KEY-djshiye
+          gpgconf --kill all
+          rm -rf "$GNUPGHOME"
+
+      # ---- Tests ----
+      - name: Syntax check
+        run: python3 -m compileall -q wheelguard tests tools
+
+      - name: Unit tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python3 -m unittest discover -s tests -t . -v
+
+      - name: Build RPM
+        id: rpm
+        run: |
+          VERSION=$(sed -n 's/^Version: *//p' build-aux/wheelguard.spec)
+          git config --global --add safe.directory "$PWD"
+          BUILD=$(git rev-list --count HEAD)
+          git archive --format=tar.gz --prefix="wheelguard-${VERSION}/" \
+            -o ~/rpmbuild/SOURCES/wheelguard-${VERSION}.tar.gz HEAD
+          rpmbuild -ba --define "release_suffix .$BUILD" build-aux/wheelguard.spec
+          rpmlint build-aux/wheelguard.spec ~/rpmbuild/RPMS/noarch/wheelguard-*.rpm || true
+          mkdir -p out
+          cp ~/rpmbuild/RPMS/noarch/wheelguard-*.rpm ~/rpmbuild/SRPMS/wheelguard-*.src.rpm out/
+          echo "evr=$(rpm -qp --qf '%{VERSION}-%{RELEASE}' ~/rpmbuild/RPMS/noarch/wheelguard-*.noarch.rpm)" >> "$GITHUB_OUTPUT"
+
+      - name: No Python version pinned
+        run: |
+          rpm -qp --requires out/*.noarch.rpm
+          if rpm -qp --requires out/*.noarch.rpm | grep -E '^python\(abi\)|python3\.[0-9]+'; then
+            echo "::error::The package pins a Python version; it must run on any Fedora."
+            exit 1
+          fi
+
+      - name: Upload RPMs
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheelguard-rpms
+          path: out/*.rpm
+          if-no-files-found: error
+
+  publish:
+    name: Sign and publish repository
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:44
+    permissions:
+      contents: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - name: Install tools
+        run: dnf install -y git rpm-sign createrepo_c python3-rpm gnupg2
+      - uses: actions/checkout@v4
+      # The published repository; its rpm/ holds the builds to keep.
+      - uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: pages
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheelguard-rpms
+          path: new
+      - name: Sign packages and build the repository
+        env:
+          RPM_SIGNING_KEY: ${{ secrets.RPM_SIGNING_KEY }}
+        run: |
+          printf '%s\n' "$RPM_SIGNING_KEY" | gpg --batch --quiet --import
+          FPR=$(gpg --batch --with-colons --list-secret-keys | awk -F: '/^fpr/ {print $10; exit}')
+          gpg --batch --armor --export-options export-minimal --export "$FPR" > "$RUNNER_TEMP/key.asc"
+          rpmsign --define "_gpg_name $FPR" --addsign new/*.rpm
+          python3 build-aux/dnf-repo.py --app "$APP" --url "$SITE_URL" --title Wheelguard \
+            --summary "Scroll bounce filter and settings for the Endgame Gear XM2w 4k v2" \
+            --icon build-aux/io.github.djshiye.Wheelguard.svg \
+            --new new --site site --prev pages/rpm \
+            --repo-file build-aux/wheelguard.repo --key "$RUNNER_TEMP/key.asc"
+          gpgconf --kill all
+          echo "### Signed with key \`$FPR\`" >> "$GITHUB_STEP_SUMMARY"
+      - name: Commit to gh-pages
+        run: |
+          cd pages
+          git config user.name "Dino Klisura"
+          git config user.email "115914552+djshiye@users.noreply.github.com"
+          git rm -rq --ignore-unmatch .
+          cp -a ../site/. .
+          git add -A
+          git commit -q -m "Publish $APP-${{ needs.build.outputs.evr }}"
+          git push origin HEAD:gh-pages
+
+  # A clean container adds the repository from its URL (or still has the old
+  # per-Fedora .repo file), installs with signature checks on, and runs the app.
+  verify:
+    name: Install on Fedora ${{ matrix.fedora }} (${{ matrix.setup }} repo file)
+    needs: [build, publish]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        fedora: [44, 45]
+        setup: [new, legacy]
+    container:
+      image: fedora:${{ matrix.fedora }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: build-aux/verify-install.sh
+          sparse-checkout-cone-mode: false
+      - name: Install from the published repository
+        run: |
+          sh build-aux/verify-install.sh "${{ matrix.setup }}" "$APP" "$SITE_URL" \
+            "${{ needs.build.outputs.evr }}" "$SITE_URL/fedora-\$releasever/"
+      - name: Smoke test
+        run: |
+          export QT_QPA_PLATFORM=offscreen
+          /usr/bin/python3 -sP -c 'import sys; sys.path.insert(0, "/usr/share/wheelguard"); import wheelguard.core, wheelguard.daemon, wheelguard.gui.app, wheelguard.gui.backend; print(wheelguard.__version__)'
+          head -n1 /usr/bin/wheelguard-settings | grep -qx '#!/usr/bin/python3 -sP'
