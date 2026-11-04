@@ -3,33 +3,52 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Wheelguard DNF repository</title>
+<title>Wheelguard for Fedora</title>
 <link rel="icon" href="icon.svg">
 <style>
-  :root { color-scheme: dark; }
-  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0c0d11;
-         color: #e6e6ee; font: 16px/1.5 system-ui, sans-serif; }
-  main { width: min(640px, 92vw); text-align: center; }
-  img { width: 96px; height: 96px; }
-  h1 { margin: .4em 0 .1em; font-size: 2rem;
-       background: linear-gradient(90deg, #9b6bff, #22d3ee); -webkit-background-clip: text;
-       background-clip: text; color: transparent; }
-  p { margin: 0 0 1.4em; color: #9a9ab0; }
-  pre { margin: 0; padding: 1em 1.2em; text-align: left; overflow-x: auto; background: #161720;
-        border: 1px solid #262838; border-radius: 12px; font-size: .85rem; }
-  a { color: #22d3ee; }
-  small { display: block; margin-top: 1.6em; color: #6c6c82; }
+  :root { color-scheme: light dark; --bg: #f6f7f9; --card: #ffffff; --text: #1c1f24; --dim: #5c6470;
+          --line: #e2e5ea; --code: #f0f2f5; --accent: #3584e4; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0d0f12; --card: #16191e; --text: #eceff3; --dim: #9aa3ae; --line: #262b33;
+            --code: #1e2228; --accent: #62a0ea; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px 16px;
+         background: var(--bg); color: var(--text);
+         font: 15px/1.55 "Adwaita Sans", "Inter", system-ui, sans-serif; }
+  main { width: min(680px, 100%); background: var(--card); border: 1px solid var(--line);
+         border-radius: 20px; padding: 28px 24px;
+         box-shadow: 0 1px 2px rgba(0,0,0,.06), 0 12px 32px rgba(0,0,0,.08); }
+  header { display: flex; gap: 16px; align-items: center; margin-bottom: 18px; }
+  .icon { width: 64px; height: 64px; }
+  h1 { margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -.01em; }
+  .sub { margin: 2px 0 0; color: var(--dim); }
+  h2 { margin: 22px 0 8px; font-size: 13px; font-weight: 600; text-transform: uppercase;
+        letter-spacing: .06em; color: var(--dim); }
+  pre { margin: 0; padding: 14px 16px; overflow-x: auto; background: var(--code);
+        border: 1px solid var(--line); border-radius: 13px; font-size: 13px; }
+  code { font-family: "Adwaita Mono", ui-monospace, monospace; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px;
+          background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent);
+          font-size: 12px; font-weight: 600; }
+  p.note { color: var(--dim); font-size: 13px; margin: 8px 0 0; }
+  .fpr { font-family: "Adwaita Mono", ui-monospace, monospace; font-size: 12px; word-break: break-word; }
+  a { color: var(--accent); }
+  footer { margin-top: 22px; font-size: 13px; color: var(--dim); }
 </style>
 </head>
 <body>
 <main>
-  <img src="icon.svg" alt="">
-  <h1>Wheelguard</h1>
-  <p>DNF repository for Fedora</p>
-  <pre>sudo dnf config-manager addrepo --from-repofile=https://djshiye.github.io/wheelguard/wheelguard.repo
-sudo dnf install wheelguard</pre>
-  <small><a href="https://github.com/djshiye/wheelguard">github.com/djshiye/wheelguard</a>
-  &middot; unsigned packages &middot; not affiliated with Endgame Gear</small>
+  <header><img class="icon" src="icon.svg" alt=""><div><h1>Wheelguard</h1><p class="sub">Scroll bounce filter and settings for the Endgame Gear XM2w 4k v2</p></div></header>
+  <span class="pill">&#10003; Signed packages &middot; any current Fedora</span>
+  <h2>Install</h2>
+  <pre><code>sudo dnf config-manager addrepo --from-repofile=https://djshiye.github.io/wheelguard/wheelguard.repo
+sudo dnf install wheelguard</code></pre>
+  <p class="note">dnf asks once to trust the signing key below. The package keeps its repository
+  file up to date from then on.</p>
+  <h2>Signing key</h2>
+  <p class="fpr"><a href="RPM-GPG-KEY-djshiye">RPM-GPG-KEY-djshiye</a><br>D49A 3081 6825 7FDB F9D5 AE14 BD1A C1C6 F56A 7252</p>
+  <h2>Latest build</h2><p class="fpr">wheelguard-1.4.0-1.9.fc44.noarch.rpm</p>
+  <footer><a href="https://github.com/djshiye/wheelguard">Source on GitHub</a></footer>
 </main>
 </body>
 </html>
