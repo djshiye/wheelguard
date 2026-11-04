@@ -6,8 +6,7 @@ env/
 *.egg-info/
 screenshots/
 
-# local DNF repo worktree (gh-pages branch) and build output
-/.gh-pages/
+# build output
 /dist/
 /build/
 *.rpm
