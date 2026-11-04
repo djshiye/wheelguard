@@ -11,7 +11,9 @@ set -euo pipefail
 # Where the repository is served. Switch to https://raw.githubusercontent.com/djshiye/wheelguard/gh-pages
 # if GitHub Pages cannot be used.
 REPO_URL="https://djshiye.github.io/wheelguard"
-IMAGE="registry.fedoraproject.org/fedora:44"
+# One build per Fedora release: each ships its own Python, and the RPM depends on that python(abi).
+FEDORA_RELEASES=(44 45)
+IMAGE_BASE="registry.fedoraproject.org/fedora"
 KEEP=3
 COMMIT_NAME="Dino Klisura"
 COMMIT_EMAIL="115914552+djshiye@users.noreply.github.com"
@@ -47,9 +49,8 @@ fi
 version=$(awk '/^Version:/ {print $2; exit}' build-aux/wheelguard.spec)
 release_suffix=.$(git rev-list --count HEAD)
 [ "$allow_dirty" -eq 0 ] || release_suffix+=.dirty
-fedora=${IMAGE##*:}
 name=wheelguard-$version
-step "Building $name (release suffix $release_suffix) for Fedora $fedora"
+step "Building $name (release suffix $release_suffix) for Fedora ${FEDORA_RELEASES[*]}"
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -89,12 +90,15 @@ if [ "$have_remote" -eq 1 ]; then
     fi
 fi
 
-# ---- 4. build, copy, prune and index inside the container ----
+# ---- 4. build, copy, prune and index inside a container per Fedora release ----
+for fedora in "${FEDORA_RELEASES[@]}"; do
+IMAGE="$IMAGE_BASE:$fedora"
 # Fedora version in the path, like the baseurl's $releasever.
 repo_dir="$wt/fedora-$fedora"
 mkdir -p "$repo_dir"
-cache="${XDG_CACHE_HOME:-$HOME/.cache}/wheelguard-publish/dnf"
+cache="${XDG_CACHE_HOME:-$HOME/.cache}/wheelguard-publish/dnf-$fedora"
 mkdir -p "$cache"
+rm -rf "$work/out"; mkdir -p "$work/out"
 
 step "Running rpmbuild and createrepo_c in $IMAGE"
 podman run --rm \
@@ -121,6 +125,7 @@ podman run --rm \
         done
         createrepo_c --update --general-compress-type gz /repo
     '
+done
 
 # ---- 5. repo file, landing page, commit ----
 step "Writing wheelguard.repo and index.html"
@@ -180,7 +185,7 @@ if git -C "$wt" diff --cached --quiet; then
 else
     GIT_AUTHOR_NAME=$COMMIT_NAME GIT_AUTHOR_EMAIL=$COMMIT_EMAIL \
     GIT_COMMITTER_NAME=$COMMIT_NAME GIT_COMMITTER_EMAIL=$COMMIT_EMAIL \
-        git -C "$wt" commit -q -m "Publish $name-1$release_suffix.fc$fedora"
+        git -C "$wt" commit -q -m "Publish $name-1$release_suffix for Fedora ${FEDORA_RELEASES[*]}"
     git -C "$wt" log --oneline -1
 fi
 
@@ -193,4 +198,4 @@ else
     echo
     echo "Built locally, nothing pushed. To publish: tools/publish.sh --push"
 fi
-echo "Repository directory: $repo_dir"
+echo "Repository directories: $wt/fedora-{$(IFS=,; echo "${FEDORA_RELEASES[*]}")}"

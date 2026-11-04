@@ -2,7 +2,7 @@
 %global shell_ext wheelguard@djshiye.github.io
 
 Name:           wheelguard
-Version:        1.3.0
+Version:        1.3.1
 # tools/publish.sh appends .<commit count> so every build from main is a newer release.
 Release:        1%{?release_suffix}%{?dist}
 Summary:        Scroll bounce filter and advanced settings for the Endgame Gear XM2w 4k v2
@@ -108,6 +108,9 @@ fi
 %{_datadir}/gnome-shell/extensions/%{shell_ext}/
 
 %changelog
+* Wed Nov 04 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.3.1-1
+- Build for Fedora 45 (Python 3.15) as well as Fedora 44
+
 * Wed Oct 21 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.3.0-1
 - Panel icon as a GNOME Shell extension: one click opens an instant popup (battery, scroll protection, DPI stage)
 - The app owns a D-Bus name for the popup and for single instance; the maximized overlay popup is gone
