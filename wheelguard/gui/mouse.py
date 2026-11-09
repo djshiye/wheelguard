@@ -491,6 +491,8 @@ class MouseController(QObject):
     dongleFw = Property(str, lambda s: s._dongle_fw, notify=infoChanged)
     mouseFw = Property(str, lambda s: s._mouse_fw, notify=infoChanged)
     pidText = Property(str, lambda s: f"0x{s._pid:04X}" if s._pid else "", notify=infoChanged)
+    usbIdText = Property(str, lambda s: f"{s._model.usb_vendor:04X}:{s._pid:04X}" if s._known and s._pid else "",
+                         notify=infoChanged)
     battery = Property(int, lambda s: s._battery, notify=infoChanged)
     charging = Property(bool, lambda s: s._charging_now(), notify=infoChanged)
     writable = Property(bool, lambda s: s._writable, notify=infoChanged)

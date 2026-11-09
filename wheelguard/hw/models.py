@@ -28,6 +28,7 @@ class Model:
     polling: Tuple[Polling, ...]
     features: FrozenSet[str]    # see FEATURES
     wireless_text: str = "Wireless via dongle"
+    usb_vendor: int = 0         # USB vendor id (the product id comes from the connected device)
 
     @property
     def polling_codes(self) -> Tuple[int, ...]:
@@ -53,6 +54,7 @@ ENDGAME_XM2W = Model(
     polling=(Polling(0x40, "125 Hz", "Office mode"), Polling(0x80, "1000 Hz", "Power saving"),
              Polling(0x08, "1000 Hz", "No saving"), Polling(0x04, "2000 Hz", "No saving"),
              Polling(0x02, "4000 Hz", "No saving")),
+    usb_vendor=0x3367,
     features=frozenset(("xy", "motion_sync", "angle_snapping", "ripple", "glass", "lod", "buttons",
                         "sleep_deep")),
 )
@@ -67,6 +69,7 @@ SUPERLIGHT = Model(
     polling=(Polling(8, "125 Hz"), Polling(4, "250 Hz"), Polling(2, "500 Hz"), Polling(1, "1000 Hz")),
     features=frozenset(),
     wireless_text="Wireless via LIGHTSPEED receiver",
+    usb_vendor=0x046D,
 )
 
 # Razer HyperPolling codes (command 00:40), as OpenRazer's set_polling_rate2 sends them. 250 Hz (0x20)
@@ -81,6 +84,7 @@ DEATHADDER_V4_PRO = Model(
              Polling(0x04, "2000 Hz"), Polling(0x02, "4000 Hz"), Polling(0x01, "8000 Hz")),
     features=frozenset(("xy", "idle", "low_battery")),
     wireless_text="Wireless via HyperSpeed dongle",
+    usb_vendor=0x1532,
 )
 
 MODELS: Dict[str, Model] = {m.key: m for m in (ENDGAME_XM2W, SUPERLIGHT, DEATHADDER_V4_PRO)}

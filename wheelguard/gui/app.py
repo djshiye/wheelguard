@@ -106,6 +106,7 @@ def main(argv=None):
     from .appsettings import AppSettings
     from .backend import Appearance, Autostart, DaemonClient, LiquidGlass, PointerSettings
     from .batteryalert import BatteryAlerts
+    from .diagnostics import Diagnostics
     from .mouse import MouseController
 
     QQuickStyle.setStyle("Basic")
@@ -163,6 +164,7 @@ def main(argv=None):
     ctx.setContextProperty("liquidGlass", glass)
     ctx.setContextProperty("shell", shell)
     ctx.setContextProperty("appSettings", app_settings)
+    ctx.setContextProperty("diagnostics", Diagnostics(daemon, mouse, ext, app_settings, engine))
     ctx.setContextProperty("autostart", Autostart(engine))
     ctx.setContextProperty("iconUrl", QUrl.fromLocalFile(str(icon_path)))
     engine.load(QUrl.fromLocalFile(str(QML_DIR / "Main.qml")))

@@ -5,6 +5,31 @@ WgScrollPage {
     id: page
     maxContentWidth: 640
 
+    property bool copied: false
+    Timer { id: copiedTimer; interval: 2500; onTriggered: page.copied = false }
+
+    // A title and a sentence on the left, one button on the right.
+    component ActionRow: RowLayout {
+        property string title
+        property string description
+        default property alias button: buttonSlot.data
+        Layout.fillWidth: true
+        spacing: 16
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 2
+            Text { text: parent.parent.title; font.pixelSize: Theme.fsBody; font.weight: Font.DemiBold; color: Theme.text }
+            Text {
+                Layout.fillWidth: true
+                text: parent.parent.description
+                font.pixelSize: Theme.fsSmall
+                color: Theme.textMuted
+                wrapMode: Text.WordWrap
+            }
+        }
+        RowLayout { id: buttonSlot }
+    }
+
     Item {
         width: parent.width
         height: 132
@@ -66,6 +91,24 @@ WgScrollPage {
             description: "Get a desktop notification when the mouse battery drops to 20% and again at 5%. The panel icon also shows an amber dot at 20% or below."
             checked: appSettings.batteryAlerts
             onToggled: (value) => appSettings.setBatteryAlerts(value)
+        }
+    }
+
+    WgCard {
+        width: parent.width
+        ActionRow {
+            title: "Diagnostics"
+            description: "Copies a short report for bug reports: versions, your mouse model and what the Mouse page says. It has no names, folders or serial numbers."
+            WgButton {
+                text: page.copied ? "Copied" : "Copy diagnostics"
+                iconName: page.copied ? "check" : "copy"
+                onClicked: {
+                    if (diagnostics.copy()) {
+                        page.copied = true
+                        copiedTimer.restart()
+                    }
+                }
+            }
         }
     }
 
