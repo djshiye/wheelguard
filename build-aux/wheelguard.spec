@@ -7,7 +7,7 @@
 %global __brp_python_bytecompile %{nil}
 
 Name:           wheelguard
-Version:        1.5.0
+Version:        1.5.1
 # CI appends .<commit count> so every build from main is a newer release.
 Release:        1%{?release_suffix}%{?dist}
 Summary:        Scroll bounce filter and advanced mouse settings (Endgame Gear, Logitech, Razer)
@@ -125,6 +125,14 @@ fi
 %{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-djshiye-%{name}
 
 %changelog
+* Mon Nov 09 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.5.1-1
+- Fix: a click at the exact moment Wheelguard took over the mouse could still leave the button stuck
+- Fix: clicks, scrolls and moves made while Wheelguard was starting could happen twice
+- Fix: a broken config file or a bad request could stop the scroll filter service
+- Fix: switching on the Endgame sleep timer could save only part of the changes to the mouse
+- Fix: the Logitech mouse could be set to a DPI stage that doesn't exist
+- Fix: the panel popup could show controls after the app had closed
+
 * Mon Nov 09 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.5.0-1
 - Click-Lock: hold the left button for a set time (default 5 s) and Wheelguard keeps clicking, or keeps
   the button pressed, until the next click
