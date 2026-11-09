@@ -18,43 +18,82 @@ from .core import DROP, EMIT, HOLD
 from .ipc import AlreadyRunning, Server
 
 log = logging.getLogger("wheelguard")
-UI_NAME = "wheelguard Endgame Gear"
+UI_NAME = "wheelguard Endgame Gear"     # unchanged for every mouse, so existing setups see the same virtual device
 UI_PREFIX = "wheelguard"
+
+
+# Mice Wheelguard knows, as (vendor, product) of their wheel-bearing input device. The configured
+# vendor/product (config.json) is tried first; these are the fallbacks, so any supported mouse gets the
+# scroll filter without editing the config. The Superlight's wireless ID is the one hid-logitech-dj
+# gives the mouse behind its receiver.
+KNOWN_MICE = (
+    (0x3367, 0x1970),       # Endgame Gear XM2w 4k v2, dongle
+    (0x3367, 0x1982),       # Endgame Gear XM2w 4k v2, cable
+    (0x1532, 0x00BF),       # Razer DeathAdder V4 Pro, dongle
+    (0x1532, 0x00BE),       # Razer DeathAdder V4 Pro, cable
+    (0x046D, 0x4093),       # Logitech G Pro X Superlight, LIGHTSPEED receiver
+    (0x046D, 0xC094),       # Logitech G Pro X Superlight, cable
+)
+_SKIP_NAMES = ("Keyboard", "Consumer Control", "System Control")
+
+
+def _wanted(vendor, product):
+    ids = [(vendor, product)]
+    ids += [k for k in KNOWN_MICE if k not in ids]
+    return ids
+
+
+def _sysfs_ids(path):
+    base = f"/sys/class/input/{os.path.basename(path)}/device"
+
+    def attr(name):
+        with open(f"{base}/{name}") as f:
+            return f.read().strip()
+    return attr
 
 
 def _sysfs_is_wheel_mouse(path, vendor, product):
     """Match an event node we may not open by its sysfs attributes (name, ids, REL bitmask)."""
-    base = f"/sys/class/input/{os.path.basename(path)}/device"
     try:
-        def attr(name):
-            with open(f"{base}/{name}") as f:
-                return f.read().strip()
+        attr = _sysfs_ids(path)
         return (int(attr("id/vendor"), 16) == vendor and int(attr("id/product"), 16) == product
-                and "Keyboard" not in attr("name")
+                and not any(n in attr("name") for n in _SKIP_NAMES)
                 and int(attr("capabilities/rel") or "0", 16) >> e.REL_WHEEL & 1 == 1)
     except (OSError, ValueError):
         return False
 
 
 def discover(vendor, product):
-    """(device, error): the wheel-bearing (non-Keyboard) event node of the mouse, or a reason."""
+    """(device, error): the wheel-bearing event node of the configured mouse or, failing that, of the
+    first supported mouse found (KNOWN_MICE order); or a reason."""
+    ids = _wanted(vendor, product)
     denied = None
+    best = None                 # (rank, device)
     # not evdev.list_devices(): that silently skips nodes we are not allowed to open
     for path in sorted(glob.glob("/dev/input/event*")):
         try:
             dev = evdev.InputDevice(path)
         except PermissionError:
-            if denied is None and _sysfs_is_wheel_mouse(path, vendor, product):
+            if denied is None and any(_sysfs_is_wheel_mouse(path, v, p) for v, p in ids):
                 denied = path
             continue
         except OSError:
             continue
         name = dev.name or ""
-        if (dev.info.vendor == vendor and dev.info.product == product
-                and "Keyboard" not in name and not name.startswith(UI_PREFIX)
-                and e.REL_WHEEL in dev.capabilities().get(e.EV_REL, [])):
-            return dev, None
+        ident = (dev.info.vendor, dev.info.product)
+        caps = dev.capabilities()
+        if (ident in ids and not any(n in name for n in _SKIP_NAMES) and not name.startswith(UI_PREFIX)
+                and e.REL_WHEEL in caps.get(e.EV_REL, [])):
+            # prefer the configured mouse, then the node that also has the buttons
+            rank = (ids.index(ident), 0 if e.BTN_LEFT in caps.get(e.EV_KEY, []) else 1)
+            if best is None or rank < best[0]:
+                if best is not None:
+                    best[1].close()
+                best = (rank, dev)
+                continue
         dev.close()
+    if best is not None:
+        return best[1], None
     if denied:
         return None, f"permission denied: {denied}"
     return None, "mouse not found"

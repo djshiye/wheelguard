@@ -17,6 +17,10 @@ Messages are UTF-8 JSON objects, one per line (`\n`-terminated), both directions
 }
 ```
 
+`vendor` / `product` pick the mouse to filter. If it isn't connected, the daemon falls back to any
+other supported mouse (Endgame Gear XM2w 4k v2, Razer DeathAdder V4 Pro, Logitech G Pro X
+Superlight), so the defaults work for all of them.
+
 `enabled: false` = pass every wheel tick through untouched (device stays grabbed, ticks are still
 reported with `kind: "pass"`). Missing keys take defaults. The daemon also notices hand edits
 (mtime poll, ~2 s) and applies them live.

@@ -14,14 +14,21 @@ from typing import Dict, Optional
 
 from PySide6.QtCore import Property, QObject, QThread, QTimer, Signal, Slot
 
-from ..hw import codec, mock
+from ..hw import codec, mock, models, razer
 from . import traymodel
-from ..hw.session import (ApplyResult, HwError, MouseSession, Snapshot, UnsupportedMouse, VerifyMismatch,
-                          WriteFailed)
+from ..hw.session import (ApplyResult, Battery, HwError, MouseSession, Snapshot, UnsupportedMouse, VerifyMismatch,
+                          WriteFailed, CODECS, codec_for)
 
 BUSY_STATES = ("reading", "applying")
 REFRESH_MIN_S = 20          # at most one tray-triggered refresh per this many seconds
 BATTERY_EVERY_MS = 5 * 60 * 1000
+
+# Every key any model uses, with a harmless value: the page binds to keys of cards it hides, and this
+# keeps those bindings defined whatever mouse is connected.
+NEUTRAL: Dict[str, object] = {}
+for _c in CODECS.values():
+    for _k, _v in _c.empty().items():
+        NEUTRAL.setdefault(_k, _v)
 
 
 class _Worker(QObject):
@@ -76,6 +83,10 @@ class MouseController(QObject):
         self._progress = 0.0
         self._progress_text = ""
         self._wired: Optional[bool] = None
+        self._model = models.DEFAULT
+        self._codec = codec
+        self._known = False             # a mouse has been identified at least once
+        self._charging: Optional[bool] = None
         self._dongle_fw = ""
         self._mouse_fw = ""
         self._pid = 0
@@ -83,7 +94,7 @@ class MouseController(QObject):
         self._writable = False
         self._problem = ""
         self._backup = ""
-        self._baseline: Dict[str, object] = codec.flat(codec.decode(bytes(codec.BLOB_LEN)))
+        self._baseline: Dict[str, object] = codec.empty()
         self._blob: Optional[bytes] = None
         self._staged: Dict[str, object] = {}
         self._edit_problem = ""
@@ -132,7 +143,15 @@ class MouseController(QObject):
         self.progressChanged.emit()
 
     def _take_snapshot(self, snap: Snapshot):
+        if snap.model != self._model.key or not self._known:
+            if snap.model != self._model.key:
+                self._staged = {}       # another mouse: edits made for the old one don't apply
+                self._blob = None
+            self._model, self._codec = models.by_key(snap.model), codec_for(snap.model)
+            self._baseline = self._codec.empty()
+            self._known = True
         self._wired = snap.wired
+        self._charging = snap.charging
         self._dongle_fw, self._mouse_fw, self._pid = snap.dongle_fw, snap.mouse_fw, snap.mouse_pid
         if snap.battery is not None:
             self._battery = snap.battery
@@ -140,7 +159,7 @@ class MouseController(QObject):
         self._backup = snap.backup or ""
         if snap.blob is not None:
             self._blob = snap.blob
-            self._baseline = codec.flat(codec.decode(snap.blob))
+            self._baseline = self._codec.flat(self._codec.decode(snap.blob))
         self.infoChanged.emit()
 
     def _retain_edits(self):
@@ -153,8 +172,9 @@ class MouseController(QObject):
         self._edit_problem = ""
         if not self._staged or self._blob is None:
             return
+        c = self._codec
         try:
-            codec.validate_settings(codec.decode(codec.encode(self._blob, self._staged)))
+            c.validate_settings(c.decode(c.encode(self._blob, self._staged)))
         except ValueError as e:
             self._edit_problem = str(e)
 
@@ -232,9 +252,9 @@ class MouseController(QObject):
     def _on_background(self, kind: str, res):
         """Result of a quiet refresh: update what was learned, never the page's progress or message."""
         self._bg_busy = False
-        if isinstance(res, int):
-            if res != self._battery:
-                self._battery = res
+        if isinstance(res, Battery):
+            if (res.percent, res.charging) != (self._battery, self._charging):
+                self._battery, self._charging = res.percent, res.charging
                 self.infoChanged.emit()
             return
         if self._state in BUSY_STATES:
@@ -349,16 +369,17 @@ class MouseController(QObject):
         self._set_message("")
 
     def _stage_one(self, key: str, value):
-        if key not in codec.KEYS:
+        c = self._codec
+        if key not in c.KEYS:
             return
         if key.startswith("dpi_"):
-            value = codec.snap_dpi(int(value))
+            value = c.snap_dpi(int(value))
         elif isinstance(self._baseline.get(key), bool):
             value = bool(value)
         else:
             value = int(value)
         try:
-            codec._check_key_value(key, int(value))
+            c.check_key_value(key, int(value))
         except ValueError as e:
             self._set_message(str(e))
             return
@@ -386,7 +407,7 @@ class MouseController(QObject):
         for key, value in list(patch.items()):
             self._stage_one(key, value)
             cur = self._current()
-            if key == "glass":
+            if key == "glass" and "glass" in self._codec.KEYS:
                 lod = cur["lod"]
                 if cur["glass"] and lod not in codec.GLASS_LOD:
                     self._stage_one("lod", 1)
@@ -402,7 +423,8 @@ class MouseController(QObject):
     @Slot()
     def stageDemoEdits(self):
         """Screenshot harness only: stage two edits as if the user had made them."""
-        self.setValues({"dpi_x1": 1200, "dpi_y1": 1200, "polling": 0x04})
+        codes = self._model.polling_codes
+        self.setValues({"dpi_x1": 1200, "dpi_y1": 1200, "polling": 0x04 if 0x04 in codes else codes[-1]})
 
     # ---- tray view
     def _stage_reason(self) -> str:
@@ -419,14 +441,36 @@ class MouseController(QObject):
             return -1
         return self._baseline["active_stage"] if self._pending_stage is None else self._pending_stage
 
+    def _charging_now(self) -> bool:
+        if self._charging is not None:
+            return self._charging
+        return bool(self._wired) and 0 <= self._battery < 100      # Endgame: no charging flag, assume it
+
     # ---- properties
-    # Constants shared with the codec so the QML never duplicates an encoding.
-    pollingCodes = Property("QVariantList", lambda s: list(codec.POLLING_CODES), constant=True)
+    # What the connected model offers (models.Model); the page shows only those controls.
+    modelKey = Property(str, lambda s: s._model.key if s._known else "", notify=infoChanged)
+    modelName = Property(str, lambda s: s._model.name if s._known else "", notify=infoChanged)
+    brand = Property(str, lambda s: s._model.brand if s._known else "", notify=infoChanged)
+    features = Property("QVariantList", lambda s: sorted(s._model.features), notify=infoChanged)
+    maxStages = Property(int, lambda s: s._model.max_stages, notify=infoChanged)
+    xyDpi = Property(bool, lambda s: "xy" in s._model.features, notify=infoChanged)
+    pollingCodes = Property("QVariantList", lambda s: list(s._model.polling_codes), notify=infoChanged)
+    pollingLabels = Property("QVariantList", lambda s: [p.label for p in s._model.polling], notify=infoChanged)
+    pollingSubs = Property("QVariantList", lambda s: [p.sub for p in s._model.polling], notify=infoChanged)
+    dpiMin = Property(int, lambda s: s._model.dpi_min, notify=infoChanged)
+    dpiMax = Property(int, lambda s: s._model.dpi_max, notify=infoChanged)
+    dpiStep = Property(int, lambda s: s._model.dpi_step, notify=infoChanged)
+    wirelessText = Property(str, lambda s: s._model.wireless_text, notify=infoChanged)
+    supportedNames = Property("QVariantList", lambda s: list(models.supported_names()), constant=True)
+    # Razer power settings
+    idleMin = Property(int, lambda s: razer.IDLE_MIN, constant=True)
+    idleMax = Property(int, lambda s: razer.IDLE_MAX, constant=True)
+    lowBatteryCodes = Property("QVariantList", lambda s: [c for c, _l in razer.LOW_BATTERY], constant=True)
+    lowBatteryLabels = Property("QVariantList", lambda s: [l for _c, l in razer.LOW_BATTERY], constant=True)
+    # Endgame Gear constants shared with its codec so the QML never duplicates an encoding.
     actionCodes = Property("QVariantList", lambda s: [(t << 8) | c for (t, c), _n in codec.ACTIONS], constant=True)
     actionNames = Property("QVariantList", lambda s: [n for _k, n in codec.ACTIONS], constant=True)
     buttonNames = Property("QVariantList", lambda s: list(codec.BUTTON_NAMES), constant=True)
-    dpiMin = Property(int, lambda s: codec.DPI_MIN, constant=True)
-    dpiMax = Property(int, lambda s: codec.DPI_MAX, constant=True)
     filterMax = Property(int, lambda s: codec.FILTER_MAX, constant=True)
     filterDefault = Property(int, lambda s: codec.FILTER_DEFAULT, constant=True)
     gxSpeed = Property(int, lambda s: codec.GX_SPEED, constant=True)
@@ -447,18 +491,18 @@ class MouseController(QObject):
     mouseFw = Property(str, lambda s: s._mouse_fw, notify=infoChanged)
     pidText = Property(str, lambda s: f"0x{s._pid:04X}" if s._pid else "", notify=infoChanged)
     battery = Property(int, lambda s: s._battery, notify=infoChanged)
-    charging = Property(bool, lambda s: bool(s._wired) and 0 <= s._battery < 100, notify=infoChanged)
+    charging = Property(bool, lambda s: s._charging_now(), notify=infoChanged)
     writable = Property(bool, lambda s: s._writable, notify=infoChanged)
     detail = Property(str, lambda s: s._detail, notify=infoChanged)
     problem = Property(str, lambda s: s._problem, notify=infoChanged)
     hasBackup = Property(bool, lambda s: bool(s._backup), notify=infoChanged)
     backupPath = Property(str, lambda s: s._backup, notify=infoChanged)
-    values = Property("QVariantMap", lambda s: s._current(), notify=valuesChanged)
+    values = Property("QVariantMap", lambda s: {**NEUTRAL, **s._current()}, notify=valuesChanged)
     baseline = Property("QVariantMap", lambda s: dict(s._baseline), notify=infoChanged)
     editedKeys = Property("QVariantList", lambda s: list(s._staged), notify=valuesChanged)
-    changeCount = Property(int, lambda s: len(codec.describe_changes(s._baseline, s._current())),
+    changeCount = Property(int, lambda s: len(s._codec.describe_changes(s._baseline, s._current())),
                            notify=valuesChanged)
-    changeSummary = Property(str, lambda s: ", ".join(codec.describe_changes(s._baseline, s._current())),
+    changeSummary = Property(str, lambda s: ", ".join(s._codec.describe_changes(s._baseline, s._current())),
                              notify=valuesChanged)
     editProblem = Property(str, lambda s: s._edit_problem, notify=valuesChanged)
     online = Property(bool, lambda s: s._online(), notify=trayChanged)
