@@ -37,6 +37,8 @@ def parse_args(argv):
     shot.add_argument("--advanced", action="store_true", help="open the Advanced expander")
     shot.add_argument("--theme", choices=("dark", "light"), help="force a theme instead of following GNOME")
     shot.add_argument("--size", default="1008x708", help="window size WxH including shadow margin")
+    shot.add_argument("--welcome", type=int, nargs="?", const=0, metavar="STEP",
+                      help="show the first-run welcome at this step (0 to 2)")
     shot.add_argument("--stage-demo", action="store_true",
                       help="on the Mouse page, stage two edits once the mouse has been read")
     shot.add_argument("--delay-ms", type=int, default=1500)
@@ -160,7 +162,7 @@ def main(argv=None):
     pointer = PointerSettings(engine)
     mouse = MouseController(parent=engine)
     shell = tray.AppShell(engine)
-    app_settings = AppSettings(parent=engine, welcome_enabled=not shot)
+    app_settings = AppSettings(parent=engine, welcome_enabled=not shot or args.welcome is not None)
     if not shot:
         BatteryAlerts(mouse, app_settings, parent=engine)
 
@@ -197,6 +199,8 @@ def main(argv=None):
     win.setWidth(w)
     win.setHeight(h)
     win.setProperty("pageIndex", PAGES[args.page])
+    if args.welcome is not None:
+        win.setProperty("welcomeStep", max(0, min(2, args.welcome)))
     if args.advanced:
         win.setProperty("advancedOpen", True)
 

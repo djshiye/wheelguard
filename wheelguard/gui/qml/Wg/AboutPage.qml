@@ -109,6 +109,16 @@ WgScrollPage {
         }
         Rectangle { visible: shortcuts.available; Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.border }
         ActionRow {
+            title: "Welcome tour"
+            description: "The short setup that appears the first time you open Wheelguard: service, permissions and protection strength."
+            WgButton {
+                text: "Show welcome again"
+                iconName: "sparkle"
+                onClicked: appSettings.resetWelcome()
+            }
+        }
+        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.border }
+        ActionRow {
             title: "Diagnostics"
             description: "Copies a short report for bug reports: versions, your mouse model and what the Mouse page says. It has no names, folders or serial numbers."
             WgButton {

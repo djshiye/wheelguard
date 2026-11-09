@@ -7,6 +7,7 @@ Window {
     id: win
     property int pageIndex: 0
     property alias advancedOpen: scrollPage.advancedOpen
+    property alias welcomeStep: welcome.step
 
     readonly property bool maximized: visibility === Window.Maximized || visibility === Window.FullScreen
     readonly property int margin: maximized ? 0 : 14
@@ -302,6 +303,16 @@ Window {
                 }
             }
         }
+    }
+
+    // ------------------------------------------------------------ first-run welcome (over everything but the header)
+    WelcomeOverlay {
+        id: welcome
+        x: win.margin
+        y: win.margin + header.height
+        width: win.width - 2 * win.margin
+        height: win.height - 2 * win.margin - header.height
+        cornerRadius: win.cornerRadius
     }
 
     // ------------------------------------------------------------ edge resize handles

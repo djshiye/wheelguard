@@ -19,3 +19,4 @@ WgToggleRow 1.0 WgToggleRow.qml
 WgSelect 1.0 WgSelect.qml
 BatteryGlyph 1.0 BatteryGlyph.qml
 MousePage 1.0 MousePage.qml
+WelcomeOverlay 1.0 WelcomeOverlay.qml
