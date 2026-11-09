@@ -30,6 +30,8 @@ Item {
     property int editStage: 0
     property var unlinked: ({})
     property bool confirmRestore: false
+    property bool namingSetup: false
+    property string setupError: ""
 
     function isEdited(key) { return edited.indexOf(key) >= 0 }
     function anyEdited(prefix) {
@@ -63,7 +65,7 @@ Item {
         return f === mouse.gxSpeed ? 1 : (f === mouse.gxSafe ? 2 : 0)
     }
 
-    onShownChanged: if (!shown) confirmRestore = false
+    onShownChanged: if (!shown) { confirmRestore = false; namingSetup = false }
 
     // ------------------------------------------------------------------ reusable bits
     component Heading: RowLayout {
@@ -530,6 +532,137 @@ Item {
             icon: "alert"
             title: "Settings are read-only"
             body: "Wheelguard won't change anything on this mouse: " + mouse.problem + "."
+        }
+
+        // ---------------------------------------------------------------- saved setups
+        WgCard {
+            width: parent.width
+            visible: root.shown
+            spacing: 12
+
+            Heading { title: "Setups" }
+            Hint { text: "Save the settings you see now under a name, like Gaming or Desktop, and switch back with one click. Applying a setup saves a backup first and checks what the mouse stored, like the Apply button." }
+
+            Text {
+                visible: mouse.setups.length === 0 && !root.namingSetup
+                Layout.fillWidth: true
+                text: "No setups yet."
+                font.pixelSize: Theme.fsBody - 1
+                color: Theme.textFaint
+            }
+            Repeater {
+                model: mouse.setups
+                delegate: Rectangle {
+                    id: sr
+                    required property var modelData
+                    Layout.fillWidth: true
+                    implicitHeight: 56
+                    radius: Theme.radiusSm
+                    color: sr.modelData.active ? Theme.alpha(Theme.accentB, Theme.dark ? 0.08 : 0.10) : Theme.inset
+                    border.width: 1
+                    border.color: sr.modelData.active ? Theme.alpha(Theme.accentB, 0.4) : Theme.border
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 16
+                        anchors.rightMargin: 10
+                        spacing: 10
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 1
+                            RowLayout {
+                                spacing: 8
+                                Text {
+                                    text: sr.modelData.name
+                                    font.pixelSize: Theme.fsBody
+                                    font.weight: Font.DemiBold
+                                    color: Theme.text
+                                    elide: Text.ElideRight
+                                }
+                                Rectangle {
+                                    visible: sr.modelData.active
+                                    Layout.preferredWidth: inUseText.implicitWidth + 14
+                                    Layout.preferredHeight: 18
+                                    radius: 9
+                                    color: Theme.alpha(Theme.accentB, 0.18)
+                                    Text {
+                                        id: inUseText
+                                        anchors.centerIn: parent
+                                        text: "In use"
+                                        font.pixelSize: Theme.fsSmall - 1
+                                        font.weight: Font.DemiBold
+                                        color: Theme.accentB
+                                    }
+                                }
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: sr.modelData.summary
+                                font.pixelSize: Theme.fsSmall
+                                color: Theme.textMuted
+                                elide: Text.ElideRight
+                            }
+                        }
+                        WgButton {
+                            text: "Apply"
+                            iconName: "check"
+                            enabled: root.editable && !sr.modelData.active
+                            onClicked: mouse.applySetup(sr.modelData.name)
+                        }
+                        WgButton {
+                            variant: "ghost"
+                            text: "Delete"
+                            onClicked: root.setupError = mouse.deleteSetup(sr.modelData.name)
+                        }
+                    }
+                }
+            }
+
+            RowLayout {
+                visible: root.namingSetup
+                Layout.fillWidth: true
+                spacing: 8
+                WgTextField {
+                    id: setupName
+                    Layout.fillWidth: true
+                    placeholder: "Name, for example Gaming"
+                    maximumLength: 30
+                    onAccepted: saveButton.clicked()
+                    Keys.onEscapePressed: root.namingSetup = false
+                    onVisibleChanged: if (visible) { text = ""; forceActiveFocus() }
+                }
+                WgButton { text: "Cancel"; onClicked: root.namingSetup = false }
+                WgButton {
+                    id: saveButton
+                    variant: "primary"
+                    iconName: "save"
+                    text: "Save"
+                    enabled: setupName.text.trim() !== ""
+                    onClicked: {
+                        root.setupError = mouse.saveSetup(setupName.text)
+                        if (root.setupError === "")
+                            root.namingSetup = false
+                    }
+                }
+            }
+            RowLayout {
+                visible: root.setupError !== ""
+                Layout.fillWidth: true
+                spacing: 8
+                WgIcon { name: "alert"; size: 16; color: Theme.coral }
+                Text {
+                    Layout.fillWidth: true
+                    text: root.setupError
+                    font.pixelSize: Theme.fsBody - 1
+                    color: Theme.coral
+                    wrapMode: Text.WordWrap
+                }
+            }
+            WgButton {
+                visible: !root.namingSetup
+                text: "Save as setup…"
+                iconName: "plus"
+                onClicked: { root.setupError = ""; root.namingSetup = true }
+            }
         }
 
         // ---------------------------------------------------------------- sensitivity

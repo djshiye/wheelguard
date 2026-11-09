@@ -13,6 +13,7 @@ panel extension talks to the running app through it.
         SetClickLockMode(s)              "repeat" (keep clicking) or "hold" (keep the button pressed)
         ToggleClickLock() -> s           flip Click-Lock; "ok:Click-Lock on" or "error:<why>" (commands.py)
         NextDpiStage() -> s              switch to the next DPI stage, wrapping round; same reply format
+        ApplySetup(s)                    apply a saved mouse setup by name (the guarded MouseController path)
         ShowWindow()                     bring the settings window forward
         Refresh()                        re-read the mouse quietly (rate-limited)
         read-only properties             the same keys, with org.freedesktop.DBus.Properties.PropertiesChanged
@@ -31,7 +32,7 @@ PROPS_IFACE = "org.freedesktop.DBus.Properties"
 
 PROPERTIES = ("Online", "Battery", "Charging", "StageLabels", "ActiveStage", "StageReason",
               "ProtectionEnabled", "DaemonState", "Preset", "Dropped",
-              "ClickLockEnabled", "ClickLockMs", "ClickLockActive", "ClickLockMode", "BatteryLow")
+              "ClickLockEnabled", "ClickLockMs", "ClickLockActive", "ClickLockMode", "BatteryLow", "SetupNames", "ActiveSetup")
 IDLE_STATE = traymodel.state_dict(traymodel.TrayState())
 
 
@@ -132,6 +133,10 @@ class Service(QObject):
         if d is not None and d.state in ("running", "waiting") and mode in protocol.CLICKLOCK_MODES:
             d.setClickLockMode(mode)
 
+    def apply_setup(self, name: str):
+        if self._mouse is not None and name in list(getattr(self._mouse, "setupNames", ())):
+            self._mouse.applySetup(str(name))
+
     def toggle_clicklock(self) -> str:
         d = self._daemon
         if d is None or d.state not in ("running", "waiting"):
@@ -209,6 +214,10 @@ class Adaptor(QDBusAbstractAdaptor):
     def NextDpiStage(self):
         return self.parent().next_dpi_stage()
 
+    @Slot(str)
+    def ApplySetup(self, name):
+        self.parent().apply_setup(name)
+
     @Slot()
     def ShowWindow(self):
         self.parent().show_window()
@@ -237,3 +246,5 @@ class Adaptor(QDBusAbstractAdaptor):
     ClickLockActive = _prop("ClickLockActive", bool)
     ClickLockMode = _prop("ClickLockMode", str)
     BatteryLow = _prop("BatteryLow", bool)
+    SetupNames = _prop("SetupNames", "QStringList")
+    ActiveSetup = _prop("ActiveSetup", str)

@@ -14,10 +14,12 @@ from typing import Dict, Optional
 
 from PySide6.QtCore import Property, QObject, QThread, QTimer, Signal, Slot
 
+from pathlib import Path
+
 from ..hw import codec, mock, models, razer
-from . import traymodel
+from . import setups as setupstore, traymodel
 from ..hw.session import (ApplyResult, Battery, HwError, MouseSession, Snapshot, UnsupportedMouse, VerifyMismatch,
-                          WriteFailed, CODECS, codec_for)
+                          WriteFailed, CODECS, codec_for, config_home, default_backup_dir)
 
 BUSY_STATES = ("reading", "applying")
 REFRESH_MIN_S = 20          # at most one tray-triggered refresh per this many seconds
@@ -65,9 +67,11 @@ class MouseController(QObject):
     progressChanged = Signal()
     messageChanged = Signal()
     trayChanged = Signal()          # anything the tray icon or popup shows
+    setupsChanged = Signal()
     _request = Signal(str, object)
 
-    def __init__(self, session: Optional[MouseSession] = None, parent=None, clock=time.monotonic):
+    def __init__(self, session: Optional[MouseSession] = None, parent=None, clock=time.monotonic,
+                 setups: Optional[setupstore.SetupStore] = None):
         super().__init__(parent)
         if session is None:
             if mock.mock_mode():
@@ -77,6 +81,14 @@ class MouseController(QObject):
             else:
                 session = MouseSession()
         self._session = session
+        if setups is None:
+            # Next to the user's other Wheelguard files; mock runs and tests (own backup folder) stay in that folder.
+            path = (setupstore.default_path(config_home()) if session.backup_dir == default_backup_dir()
+                    else Path(session.backup_dir) / setupstore.FILE)
+            setups = setupstore.SetupStore(path, {k: tuple(c.KEYS) for k, c in CODECS.items()})
+        self._setups = setups
+        self._setup_list = []           # [Setup] of the connected model
+        self._applying_setup = ""
         self._state = "idle"
         self._message = ""
         self._message_kind = ""         # "error" | "ok" | ""
@@ -107,6 +119,9 @@ class MouseController(QObject):
         self._timer: Optional[QTimer] = None
         for sig in (self.stateChanged, self.infoChanged, self.valuesChanged):
             sig.connect(self.trayChanged)
+        for sig in (self.infoChanged, self.valuesChanged):
+            sig.connect(self.setupsChanged)
+        self.setupsChanged.connect(self.trayChanged)
 
         self._thread: Optional[QThread] = None
         self._worker = _Worker(session)
@@ -150,6 +165,7 @@ class MouseController(QObject):
             self._model, self._codec = models.by_key(snap.model), codec_for(snap.model)
             self._baseline = self._codec.empty()
             self._known = True
+        self._reload_setups()
         self._wired = snap.wired
         if snap.battery is not None:
             self._charging = snap.charging
@@ -190,6 +206,7 @@ class MouseController(QObject):
             self._on_background(kind, res)
             return
         self._pending_stage = None
+        setup_name, self._applying_setup = self._applying_setup, ""
         self._set_progress(1.0, "")
         if isinstance(res, Snapshot):
             self._take_snapshot(res)
@@ -210,6 +227,9 @@ class MouseController(QObject):
                 self._set_message("The mouse already has these settings.", "ok")
             elif kind == "restore":
                 self._set_message("Original settings restored.", "ok")
+            elif setup_name:
+                self._set_message(f"Setup \u201c{setup_name}\u201d applied to the mouse."
+                                  + (" A backup of the previous settings was kept." if res.backup_created else ""), "ok")
             else:
                 self._set_message("Saved to the mouse." + (" A backup of the previous settings was kept."
                                   if res.backup_created else ""), "ok")
@@ -421,6 +441,85 @@ class MouseController(QObject):
         self._revalidate()
         self.valuesChanged.emit()
 
+    # ---- saved setups
+    def _reload_setups(self):
+        self._setup_list = self._setups.list(self._model.key) if self._known else []
+
+    def _setup_summary(self, values: Dict[str, object]) -> str:
+        labels = traymodel.stage_labels(values) if "stage_count" in values else []
+        parts = [", ".join(labels) + " DPI"] if labels else []
+        rate = next((p.label for p in self._model.polling if p.code == values.get("polling")), "")
+        if rate:
+            parts.append(rate)
+        return " \u00b7 ".join(parts)
+
+    def _setup_rows(self):
+        base = self._baseline
+        return [{"name": st.name, "summary": self._setup_summary(st.values),
+                 "active": all(base.get(k) == v for k, v in st.values.items())}
+                for st in self._setup_list]
+
+    @Slot(str, result=str)
+    def saveSetup(self, name: str) -> str:
+        """Keep the settings on screen (including unsaved edits) under a name. Returns "" or the problem."""
+        if not self._known or self._blob is None:
+            return "Read the mouse first."
+        cur = self._current()
+        err = self._setups.save(self._model.key, name, {k: cur[k] for k in self._codec.KEYS if k in cur})
+        self._reload_setups()
+        self.setupsChanged.emit()
+        return err
+
+    @Slot(str, result=str)
+    def deleteSetup(self, name: str) -> str:
+        err = self._setups.delete(self._model.key, name)
+        self._reload_setups()
+        self.setupsChanged.emit()
+        return err
+
+    @Slot(str)
+    def applySetup(self, name: str):
+        """Write a saved setup to the mouse now, through the normal apply path (backup first, then verify)."""
+        if self._state != "ready" or not self._writable or self._blob is None:
+            return
+        if self._staged:
+            self._set_message("You have unsaved changes. Apply or discard them first.")
+            return
+        st = self._setups.get(self._model.key, name)
+        if st is None:
+            self._set_message("That setup isn't saved any more.")
+            self._reload_setups()
+            self.setupsChanged.emit()
+            return
+        c = self._codec
+        patch: Dict[str, object] = {}
+        try:
+            for key, value in st.values.items():
+                if key not in c.KEYS:
+                    continue
+                if isinstance(self._baseline.get(key), bool):
+                    value = bool(value)
+                else:
+                    value = int(value)
+                c.check_key_value(key, int(value))          # out of range is refused, never clamped
+                if key.startswith("dpi_"):
+                    value = c.snap_dpi(value)
+                if self._baseline.get(key) != value:
+                    patch[key] = value
+            if patch:
+                c.validate_settings(c.decode(c.encode(self._blob, patch)))
+        except ValueError as e:
+            self._set_message(f"The setup \u201c{st.name}\u201d doesn't fit this mouse: {e}")
+            return
+        if not patch:
+            self._set_message(f"The mouse already has the setup \u201c{st.name}\u201d.", "ok")
+            return
+        self._set_message("")
+        self._applying_setup = st.name
+        self._set_state("applying")
+        self._set_progress(0.0, "Starting…")
+        self._submit("apply", patch)
+
     @Slot()
     def stageDemoEdits(self):
         """Screenshot harness only: stage two edits as if the user had made them."""
@@ -508,6 +607,11 @@ class MouseController(QObject):
     changeSummary = Property(str, lambda s: ", ".join(s._codec.describe_changes(s._baseline, s._current())),
                              notify=valuesChanged)
     editProblem = Property(str, lambda s: s._edit_problem, notify=valuesChanged)
+    setups = Property("QVariantList", lambda s: s._setup_rows(), notify=setupsChanged)
+    setupNames = Property("QVariantList", lambda s: [st.name for st in s._setup_list] if s._online() else [],
+                          notify=setupsChanged)
+    activeSetup = Property(str, lambda s: next((r["name"] for r in s._setup_rows() if r["active"]), ""),
+                           notify=setupsChanged)
     online = Property(bool, lambda s: s._online(), notify=trayChanged)
     stageCount = Property(int, lambda s: s._stage_count(), notify=trayChanged)
     activeStage = Property(int, lambda s: s._active_stage(), notify=trayChanged)
