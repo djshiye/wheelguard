@@ -313,3 +313,9 @@
   background-color: #FFB547;
   border: 1px solid #1B1D24;
   margin: 1px 0 0 0; }
+
+/* Battery percentage shown beside the panel icon on hover */
+.wg-hover-label {
+  margin-left: 5px;
+  font-size: 13px;
+  font-weight: 600; }
