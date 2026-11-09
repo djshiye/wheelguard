@@ -153,23 +153,25 @@ class Engine(unittest.TestCase):
 
     def test_random_streams_never_leave_a_button_stuck(self):
         rng = random.Random(7)
+        seen = set()                            # what the desktop has been told is pressed
+        count = [0, 0]                          # presses, releases that went through
+
+        def take(ev):
+            for _, c, v in ev:
+                if v:
+                    self.assertNotIn(c, seen)       # never a press for a button already down
+                    seen.add(c)
+                    count[0] += 1
+                else:
+                    self.assertIn(c, seen)          # never a release without its press
+                    seen.discard(c)
+                    count[1] += 1
         for _ in range(300):
             deb = ClickDebounce(rng.choice((0, 10, 40, 150)))
-            down, seen = set(), set()           # physical state / what the desktop has been told
-            presses = releases = 0
+            down = set()                        # physical state
+            seen.clear()
+            count[:] = [0, 0]
             t = 0.0
-
-            def take(ev):
-                nonlocal presses, releases
-                for _, c, v in ev:
-                    if v:
-                        self.assertNotIn(c, seen)       # never a press for a button already down
-                        seen.add(c)
-                        presses += 1
-                    else:
-                        self.assertIn(c, seen)          # never a release without its press
-                        seen.discard(c)
-                        releases += 1
             for _ in range(60):
                 t += rng.choice((0.002, 0.01, 0.03, 0.08, 0.2))
                 if rng.random() < 0.3:
@@ -188,7 +190,7 @@ class Engine(unittest.TestCase):
                 take(ev)
             take(sum((x for _, x in deb.flush(t + 10)), []))
             self.assertEqual(seen, set())               # nothing left pressed
-            self.assertEqual(presses, releases)         # every passed press got exactly one release
+            self.assertEqual(count[0], count[1])         # every passed press got exactly one release
 
 
 class Config(unittest.TestCase):
