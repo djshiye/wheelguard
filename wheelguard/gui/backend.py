@@ -1,4 +1,5 @@
 """QObject backends exposed to QML: daemon client, GNOME pointer settings, appearance, Liquid Glass."""
+import datetime
 import json
 import os
 from typing import Optional
@@ -37,6 +38,7 @@ class DaemonClient(QObject):
     serviceChanged = Signal()
     clickLockActiveChanged = Signal()
     miceChanged = Signal()
+    historyChanged = Signal()
     tick = Signal(int, str, bool, float)     # sign, kind, held, t
 
     def __init__(self, path: Optional[str] = None, parent=None):
@@ -50,6 +52,7 @@ class DaemonClient(QObject):
         self._server_cfg = dict(protocol.CONFIG_DEFAULTS)
         self._clicklock_active = False
         self._mice: list = []
+        self._history: list = []
         self._cfg = dict(self._server_cfg)
         self._staged: dict = {}
         self._inflight = 0
@@ -157,6 +160,8 @@ class DaemonClient(QObject):
                     self._dropped += tk.kind == "drop"
                     self.statsChanged.emit()
                 self.tick.emit(tk.sign, tk.kind, tk.held, tk.t)
+        elif t == "history":
+            self._set_history(protocol.history_days(msg))
         elif t == "mice":
             self._set_mice(msg.get("mice"))
         elif t == "status":
@@ -183,6 +188,11 @@ class DaemonClient(QObject):
         if (st["ticks"], st["dropped"], st["debounced"]) != (self._ticks, self._dropped, self._debounced):
             self._ticks, self._dropped, self._debounced = st["ticks"], st["dropped"], st["debounced"]
             self.statsChanged.emit()
+
+    def _set_history(self, days: list):
+        if days != self._history:
+            self._history = days
+            self.historyChanged.emit()
 
     def _set_mice(self, mice):
         mice = mice if isinstance(mice, list) else []       # raw dicts from the daemon; protocol.mouse_options vets them
@@ -280,6 +290,20 @@ class DaemonClient(QObject):
     @Slot(bool)
     def setDebounce(self, on: bool):
         self.setDebounceMs(self._last_debounce_ms if on else 0, immediate=True)
+
+    @Slot()
+    def refreshHistory(self):
+        """Ask the daemon for its daily wheel totals (the last 90 days)."""
+        self._send({"cmd": "history"})
+
+    @Slot(int, result="QVariantList")
+    def historySeries(self, count: int):
+        """The last `count` days for the chart, zero-filled: [{date, ticks, dropped, rate (None = no ticks)}]."""
+        return protocol.history_series(self._history, max(1, min(90, int(count))), datetime.date.today())
+
+    @Slot(result=bool)
+    def hasHistory(self):
+        return protocol.has_history(protocol.history_series(self._history, 30, datetime.date.today()))
 
     @Slot()
     def refreshMice(self):
@@ -393,6 +417,8 @@ class DaemonClient(QObject):
     debounceMs = Property(int, lambda s: s._cfg["debounce_ms"], notify=configChanged)
     debounceOn = Property(bool, lambda s: s._cfg["debounce_ms"] > 0, notify=configChanged)
     debouncedClicks = Property(int, lambda s: s._debounced, notify=statsChanged)
+    wearHint = Property(bool, lambda s: protocol.wear_hint(s._history, datetime.date.today()),
+                        notify=historyChanged)
     mouseChoice = Property(str, lambda s: s._cfg["mouse"], notify=configChanged)
     mouseLabels = Property("QStringList",
                            lambda s: [o["label"] for o in protocol.mouse_options(s._mice, s._cfg["mouse"])],

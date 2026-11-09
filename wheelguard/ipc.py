@@ -215,6 +215,8 @@ class Server:
             client.subscribed = True
             ctl.refresh_mice(MICE_MAX_AGE)
             return ctl.status()
+        if cmd == "history":
+            return {"type": "history", "days": ctl.history_days()}
         if cmd == "mice":
             return {"type": "mice", "mice": ctl.refresh_mice(MICE_MAX_AGE)}
         if cmd == "set":

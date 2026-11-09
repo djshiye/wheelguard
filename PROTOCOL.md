@@ -65,6 +65,16 @@ does so when the screen locks).
 reported with `kind: "pass"`). Missing keys take defaults. The daemon also notices hand edits
 (mtime poll, ~2 s) and applies them live.
 
+## History (`~/.local/share/wheelguard/history.json`, `$XDG_DATA_HOME`)
+
+The daemon keeps daily totals of wheel ticks and blocked ticks (the same counting as `stats.ticks` and
+`stats.dropped`, but not reset by `reset_stats`) for the last 90 days, as
+`{"version": 1, "days": [{"date": "2026-11-09", "ticks": 5120, "dropped": 61}]}`. The file is written
+atomically (like the config) at most every 5 minutes while ticks come in, when the mouse goes away and
+when the daemon exits. A missing or corrupt file is not an error: it is moved aside as
+`history.json.corrupt` and counting starts over. The app reads it with the `history` command and draws
+the block-rate chart (and the "wheel may be wearing" hint) from it.
+
 ## Client -> daemon
 
 | Message | Effect | Reply |
@@ -72,6 +82,7 @@ reported with `kind: "pass"`). Missing keys take defaults. The daemon also notic
 | `{"cmd": "status"}` | | one `status` event |
 | `{"cmd": "subscribe"}` | start streaming `tick` and `status` events to this client | one `status` event, then the stream |
 | `{"cmd": "set", "config": {...partial...}}` | validate, merge, write config.json atomically, apply live | `{"type":"ok"}` or `{"type":"error","message":"..."}`, then a `status` event to all subscribers |
+| `{"cmd": "history"}` | fetch the daily wheel totals | one `{"type":"history","days":[{"date":"2026-11-09","ticks":5120,"dropped":61}, ...]}` event, oldest day first, at most 90 days (local dates; today's total is up to date) |
 | `{"cmd": "mice"}` | rescan the input devices (at most every 5 s, otherwise the last scan is reused) | one `{"type":"mice","mice":[...]}` event, same list as in `status` |
 | `{"cmd": "reload"}` | re-read config.json | `ok`/`error` |
 | `{"cmd": "clicklock_stop"}` | end a running Click-Lock now and release any held button (nothing to do if none runs) | `ok`, then `status` to subscribers if a lock ended |

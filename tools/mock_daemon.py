@@ -10,6 +10,7 @@ Uses a private socket by default so it never collides with the real service:
     wheelguard-settings --socket "$XDG_RUNTIME_DIR/wheelguard-mock.sock"
 """
 import argparse
+import datetime
 import json
 import os
 import random
@@ -39,6 +40,23 @@ MICE = [   # what the mock reports as connected (mice with a scroll wheel), supp
 ]
 MODEL, CONNECTION = "Endgame Gear XM2w 4k v2", "dongle"
 BOUNCE_RATE = 0.09
+
+
+def make_history(kind, rng):
+    """Fake daily totals for the wheel-health chart: "steady", "wear" (bouncing more this week), "short" or "empty"."""
+    today = datetime.date.today()
+    days = []
+    count = {"steady": 60, "wear": 60, "short": 3, "empty": 0}[kind]
+    for n in range(count - 1, -1, -1):
+        ticks = rng.randint(1500, 6000)
+        rate = rng.uniform(0.015, 0.035)
+        if kind == "wear" and n < 7:
+            rate = rng.uniform(0.07, 0.11) - (0.0025 * n)
+        if n % 9 == 4:
+            continue                                   # a day the mouse wasn't used
+        days.append({"date": (today - datetime.timedelta(days=n)).isoformat(), "ticks": ticks,
+                     "dropped": round(ticks * rate)})
+    return days
 
 
 def default_socket():
@@ -165,6 +183,7 @@ class Mock:
         self.mono0 = time.monotonic()
         self.wall0 = time.time()
         self.path = args.socket
+        self.history = make_history(args.history, random.Random(args.seed))
 
     # --- protocol
     def status(self):
@@ -222,6 +241,8 @@ class Mock:
             self.filter = WheelFilter(merged["lock_ms"], merged["pre_ms"], merged["hold_ms"])
             self.send(c, {"type": "ok"})
             self.broadcast(self.status())
+        elif cmd == "history":
+            self.send(c, {"type": "history", "days": self.history})
         elif cmd == "mice":
             self.send(c, {"type": "mice", "mice": MICE})
         elif cmd == "clicklock_stop":
@@ -337,6 +358,8 @@ def main():
     ap.add_argument("--socket", default=default_socket())
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--rate", type=float, default=1.0, help="tick speed multiplier (default 1)")
+    ap.add_argument("--history", choices=("steady", "wear", "short", "empty"), default="steady",
+                    help="the daily wheel totals to report (default steady; wear shows the wearing-wheel hint)")
     ap.add_argument("--set", action="append", default=[], metavar="KEY=JSON",
                     help="start with a config value, e.g. --set debounce_ms=40 (repeatable)")
     ap.add_argument("--debounced", type=int, default=0, help="start with this many double-click-fix clicks counted")

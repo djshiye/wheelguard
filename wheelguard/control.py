@@ -3,6 +3,7 @@
 No device or socket access here, so it can be driven from tests. Everything runs on the daemon's
 single thread. Events for subscribers go out through the `publish` callable (set by the IPC server).
 """
+import atexit
 import logging
 import os
 import time
@@ -13,6 +14,7 @@ from . import mice, scan
 from .clicklock import ClickLock
 from .debounce import ClickDebounce
 from .core import DROP, EMIT, PASS, Decision, WheelFilter
+from .history import History
 from .frames import flush_frames, process_frame, tick_sign
 from .power import SuspendWatch
 
@@ -22,7 +24,7 @@ POLL_S = 2.0  # config.json mtime poll interval
 
 class Controller:
     def __init__(self, overrides=None, config_path=None, publish=None, clock=time.time, power=None,
-                 mouse_lister=None):
+                 mouse_lister=None, history=None):
         self.config_path = config_path or C.CONFIG_PATH
         self.overrides = dict(overrides or {})  # command-line flags; win over the file
         self.publish = publish or (lambda msg: None)
@@ -41,6 +43,11 @@ class Controller:
         self.power = power or SuspendWatch()
         # the connected mice with a wheel, for the "Mouse" choice; the real daemon (no config_path given) scans
         self.mouse_lister = mouse_lister or (scan.list_mice if config_path is None else None)
+        # daily totals for the wheel-health chart; the real daemon (no config_path given) keeps and saves them
+        self.history = history
+        if history is None and config_path is None:
+            self.history = History()
+            atexit.register(self.history.save)          # also on SIGTERM (a SystemExit) and Ctrl-C
         self.mice = []
         self._mice_at = None
         self.restart_requested = False      # the mouse choice changed under a running session
@@ -59,6 +66,10 @@ class Controller:
         return {"type": "status", "version": __version__, "connected": self.connected,
                 "device": self.device, "model": self.model, "connection": self.connection, "error": self.error, "config": C.to_wire(self.cfg),
                 "stats": dict(self.stats), "mice": self.mice, "clicklock_active": self.cl.active}
+
+    def history_days(self):
+        """The daily totals for the `history` command, oldest first (empty without a history)."""
+        return self.history.to_list() if self.history is not None else []
 
     def refresh_mice(self, max_age=0.0):
         """Rescan for mice with a scroll wheel unless the last scan is newer than max_age seconds."""
@@ -81,6 +92,8 @@ class Controller:
         self.model, self.connection = model, connection
         if not connected:
             self.reset_filter()
+            if self.history is not None:
+                self.history.save()                     # nothing is coming in: a good moment to write
         if changed:
             self.publish(self.status())
 
@@ -157,6 +170,8 @@ class Controller:
         if frames:
             write(frames)
         self._record(decisions)
+        if self.history is not None:
+            self.history.maybe_save()
         if lock_changed:
             self._clicklock_changed()
         return decisions
@@ -179,16 +194,21 @@ class Controller:
         self.publish(self.status())
 
     def _record(self, decisions):
+        ticks = dropped = 0
         for d in decisions:
             if not d.held:
                 self.stats["ticks"] += 1
+                ticks += 1
             if d.kind in (EMIT, PASS):
                 self.stats["passed"] += 1
             elif d.kind == DROP:
                 self.stats["dropped"] += 1
+                dropped += 1
             self.publish({"type": "tick", "t": round(d.t, 3), "sign": d.sign, "kind": d.kind,
                           "held": d.held,
                           "gap_ms": None if d.gap_ms is None else round(d.gap_ms, 1)})
+        if self.history is not None and (ticks or dropped):
+            self.history.add(ticks, dropped)
 
     # ---------- config ----------
     def _stat_mtime(self):
