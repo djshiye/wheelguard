@@ -254,8 +254,8 @@ Item {
                 Rectangle {
                     visible: sc.active
                     Layout.preferredWidth: activeRow.implicitWidth + 14
-                    Layout.preferredHeight: 18
-                    radius: 9
+                    Layout.preferredHeight: Theme.px(18)
+                    radius: height / 2
                     color: Theme.alpha(Theme.accentB, 0.18)
                     Row {
                         id: activeRow
@@ -263,6 +263,7 @@ Item {
                         spacing: 5
                         Rectangle { width: 6; height: 6; radius: 3; color: Theme.accentB; anchors.verticalCenter: parent.verticalCenter }
                         Text {
+                            visible: Theme.textScale <= 1.2     // at Large Text the dot alone marks it: the card is too narrow
                             anchors.verticalCenter: parent.verticalCenter
                             text: "Active"
                             font.pixelSize: Theme.fsSmall - 2
@@ -390,8 +391,10 @@ Item {
                             font.pixelSize: Theme.fsH2 + 3
                             font.weight: Font.DemiBold
                             color: Theme.text
+                            wrapMode: Text.WordWrap
                         }
                         WgButton {
+                            Layout.alignment: Qt.AlignTop
                             text: "Refresh"
                             iconName: "reset"
                             enabled: !mouse.busy
@@ -809,11 +812,11 @@ Item {
                     Layout.fillWidth: true
                     spacing: 8
                     HoverHandler { onHoveredChanged: root.setHot(fr.index, hovered) }
-                    RowLayout {
-                        visible: fr.hasGx
+                    RowLayout {     // the same three columns on every row: label, slider, value
                         Layout.fillWidth: true
-                        spacing: 12
+                        spacing: 14
                         RowLayout {
+                            Layout.preferredWidth: Theme.px(130)
                             spacing: 8
                             Text {
                                 text: mouse.buttonNames[fr.index]
@@ -825,30 +828,7 @@ Item {
                                 Layout.preferredWidth: 6; Layout.preferredHeight: 6; radius: 3
                                 color: Theme.accentB
                             }
-                        }
-                        Item { Layout.fillWidth: true }
-                        WgSegmented {
-                            accessibleName: "Click filter mode, " + mouse.buttonNames[fr.index]
-                            Layout.preferredWidth: 270
-                            Layout.preferredHeight: 36
-                            model: ["Filter", "GX Speed", "GX Safe"]
-                            currentIndex: fr.mode
-                            onActivated: (i) => {
-                                if (i === fr.mode) return
-                                var key = "filter" + fr.index
-                                mouse.setValue(key, i === 1 ? mouse.gxSpeed : (i === 2 ? mouse.gxSafe
-                                                   : (mouse.baseline[key] <= mouse.filterMax ? mouse.baseline[key] : mouse.filterDefault)))
-                            }
-                        }
-                    }
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 14
-                        Text {
-                            Layout.preferredWidth: 130
-                            text: fr.hasGx ? "" : mouse.buttonNames[fr.index]
-                            font.pixelSize: Theme.fsBody
-                            color: Theme.text
+                            Item { Layout.fillWidth: true }
                         }
                         WgSlider {
                             Accessible.name: "Click filter, " + mouse.buttonNames[fr.index]
@@ -863,12 +843,26 @@ Item {
                             onMoved: mouse.setValue("filter" + fr.index, Math.round(value))
                         }
                         Text {
-                            Layout.preferredWidth: 72
+                            Layout.preferredWidth: Theme.px(72)
                             horizontalAlignment: Text.AlignRight
                             text: fr.mode === 1 ? "GX Speed" : (fr.mode === 2 ? "GX Safe" : "" + root.v["filter" + fr.index])
                             font.pixelSize: Theme.fsBody
                             font.weight: Font.DemiBold
                             color: root.valueTint
+                        }
+                    }
+                    WgSegmented {     // Left and Right only: the mode sits on its own line under the label
+                        visible: fr.hasGx
+                        accessibleName: "Click filter mode, " + mouse.buttonNames[fr.index]
+                        Layout.preferredWidth: Theme.px(300)
+                        Layout.preferredHeight: Theme.px(36)
+                        model: ["Filter", "GX Speed", "GX Safe"]
+                        currentIndex: fr.mode
+                        onActivated: (i) => {
+                            if (i === fr.mode) return
+                            var key = "filter" + fr.index
+                            mouse.setValue(key, i === 1 ? mouse.gxSpeed : (i === 2 ? mouse.gxSafe
+                                               : (mouse.baseline[key] <= mouse.filterMax ? mouse.baseline[key] : mouse.filterDefault)))
                         }
                     }
                 }

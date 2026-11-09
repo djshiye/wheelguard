@@ -250,7 +250,7 @@ WgScrollPage {
                 Layout.alignment: Qt.AlignTop
                 Accessible.name: "Click-Lock"
                 enabled: clCard.reachable
-                opacity: enabled ? 1 : 0.5
+                opacity: enabled ? 1 : 0.6
                 checked: daemon.clickLock
                 onToggled: daemon.setClickLock(checked)
             }
@@ -260,10 +260,9 @@ WgScrollPage {
             Layout.fillWidth: true
             spacing: 10
             enabled: clCard.reachable
-            opacity: daemon.clickLock && clCard.reachable ? 1 : 0.55
-            Behavior on opacity { NumberAnimation { duration: Theme.normal } }
 
             WgSegmented {
+                opacity: daemon.clickLock && clCard.reachable ? 1 : 0.6     // dim the control, never its label
                 accessibleName: "Click-Lock mode"
                 muted: !daemon.clickLock
                 Layout.fillWidth: true
@@ -291,6 +290,7 @@ WgScrollPage {
                 }
             }
             WgSlider {
+                opacity: daemon.clickLock && clCard.reachable ? 1 : 0.6     // dim the control, never its label
                 Accessible.name: "Click-Lock hold time"
                 Layout.fillWidth: true
                 from: 1000
@@ -341,6 +341,7 @@ WgScrollPage {
                     }
                 }
                 WgSlider {
+                    opacity: daemon.clickLock && clCard.reachable ? 1 : 0.6     // dim the control, never its label
                     Accessible.name: "Click-Lock click speed"
                     Layout.fillWidth: true
                     from: 1
@@ -374,6 +375,7 @@ WgScrollPage {
                     }
                 }
                 WgSelect {
+                    opacity: daemon.clickLock && clCard.reachable ? 1 : 0.6     // dim the control, never its label
                     Layout.alignment: Qt.AlignTop
                     Layout.preferredWidth: 150
                     Accessible.name: "Stop Click-Lock automatically after"
@@ -417,7 +419,7 @@ WgScrollPage {
                 }
                 Text {
                     Layout.fillWidth: true
-                    text: "Worn switches can let go for a moment mid-click, which turns a single click into a double-click or breaks a drag. Wheelguard waits that long before it lets a button go: if the button goes down again in that time, it was a bounce and the click or drag simply carries on. It works for the left, right and middle buttons."
+                    text: "Worn switches can let go for a moment mid-click. Wheelguard waits that long before releasing, so a bounce can't turn a click into a double-click or break a drag."
                     font.pixelSize: Theme.fsBody - 1
                     color: Theme.textMuted
                     wrapMode: Text.WordWrap
@@ -427,7 +429,7 @@ WgScrollPage {
                 Layout.alignment: Qt.AlignTop
                 Accessible.name: "Double-click fix"
                 enabled: dbCard.reachable
-                opacity: enabled ? 1 : 0.5
+                opacity: enabled ? 1 : 0.6
                 checked: daemon.debounceOn
                 onToggled: daemon.setDebounce(checked)
             }
@@ -437,8 +439,6 @@ WgScrollPage {
             Layout.fillWidth: true
             spacing: 10
             enabled: dbCard.reachable && daemon.debounceOn
-            opacity: daemon.debounceOn && dbCard.reachable ? 1 : 0.55
-            Behavior on opacity { NumberAnimation { duration: Theme.normal } }
 
             Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.border }
             RowLayout {
@@ -459,6 +459,7 @@ WgScrollPage {
                 }
             }
             WgSlider {
+                opacity: daemon.debounceOn && dbCard.reachable ? 1 : 0.6     // dim the control, never its label
                 Layout.fillWidth: true
                 Accessible.name: "Ignore a bounce within, in milliseconds"
                 from: 10

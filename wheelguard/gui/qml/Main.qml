@@ -159,7 +159,7 @@ Window {
             id: sidebar
             x: 12
             y: header.height
-            width: 204
+            width: Math.round(204 + (Theme.textScale - 1) * 170)     // wider with Large Text so labels keep their margin
             height: parent.height - header.height - 12
 
             Rectangle {   // moving selection highlight

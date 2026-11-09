@@ -13,7 +13,7 @@ from typing import Dict, FrozenSet, Tuple
 class Polling:
     code: int           # the raw value the codec stores under "polling"
     label: str          # "1000 Hz"
-    sub: str = ""       # second line in the drop-down ("Power saving")
+    sub: str = ""       # second line in the drop-down ("Battery saver")
 
 
 @dataclass(frozen=True)
@@ -51,9 +51,9 @@ ENDGAME_XM2W = Model(
     brand="Endgame Gear",
     dpi_min=50, dpi_max=30000, dpi_step=50,
     max_stages=4,
-    polling=(Polling(0x40, "125 Hz", "Office mode"), Polling(0x80, "1000 Hz", "Power saving"),
-             Polling(0x08, "1000 Hz", "No saving"), Polling(0x04, "2000 Hz", "No saving"),
-             Polling(0x02, "4000 Hz", "No saving")),
+    polling=(Polling(0x40, "125 Hz", "Office mode"), Polling(0x80, "1000 Hz", "Battery saver"),
+             Polling(0x08, "1000 Hz", "Full speed"), Polling(0x04, "2000 Hz", "Full speed"),
+             Polling(0x02, "4000 Hz", "Full speed")),
     usb_vendor=0x3367,
     features=frozenset(("xy", "motion_sync", "angle_snapping", "ripple", "glass", "lod", "buttons",
                         "sleep_deep")),

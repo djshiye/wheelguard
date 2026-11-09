@@ -13,7 +13,7 @@ C.Button {
     hoverEnabled: true
     focusPolicy: Qt.TabFocus
     Accessible.name: text
-    opacity: enabled ? 1 : 0.5
+    opacity: enabled ? 1 : 0.6
     Behavior on opacity { NumberAnimation { duration: Theme.fast } }
 
     HoverHandler { cursorShape: Qt.PointingHandCursor }

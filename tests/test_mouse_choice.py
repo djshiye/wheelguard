@@ -343,7 +343,7 @@ class GuiOptions(unittest.TestCase):
     def test_options(self):
         opts = protocol.mouse_options(self.MICE, "auto")
         self.assertEqual([o["id"] for o in opts], ["auto", "3367:1970", "1111:2222"])
-        self.assertEqual(opts[0]["label"], "Automatic (supported mice)")
+        self.assertEqual(opts[0]["label"], "Automatic")
         self.assertEqual(opts[1]["label"], "Endgame Gear XM2w 4k v2 · dongle")
         self.assertEqual(opts[2]["label"], "Acme Optical Mouse (not tested)")
         self.assertEqual(protocol.mouse_index(opts, "1111:2222"), 2)

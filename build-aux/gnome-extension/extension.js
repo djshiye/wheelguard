@@ -175,7 +175,9 @@ class WheelguardIndicator extends PanelMenu.Button {
             gicon: new Gio.ThemedIcon({name: APP_ICON}), icon_size: 28, style_class: 'wg-logo',
             y_align: Clutter.ActorAlign.CENTER,
         }));
-        homeRow.add_child(makeLabel('Wheelguard', 'wg-title'));
+        const title = makeLabel('Wheelguard', 'wg-title');
+        title.clutter_text.ellipsize = 0;       // Pango.EllipsizeMode.NONE: the name keeps its natural width
+        homeRow.add_child(title);
         home.set_child(homeRow);
         home.connect('clicked', () => this._showWindow());
         header.add_child(home);
@@ -187,6 +189,7 @@ class WheelguardIndicator extends PanelMenu.Button {
             y_align: Clutter.ActorAlign.CENTER}));
         this._pill.add_child(glow);
         this._pillLabel = makeLabel('', 'wg-pill-label');
+        this._pillLabel.clutter_text.ellipsize = 0;
         this._pill.add_child(this._pillLabel);
         header.add_child(this._pill);
 
@@ -437,7 +440,7 @@ class WheelguardIndicator extends PanelMenu.Button {
     // Percentage beside the panel icon while hovering it (and the same words for screen readers).
     _updateHover() {
         const s = this._state;
-        const known = this._running && s.Online && s.Battery >= 0;
+        const known = this._running && s.DaemonState === 'running' && s.Online && s.Battery >= 0;
         this._hoverLabel.text = known ? `${s.Battery}%` : '';
         this._hoverLabel.visible = known && this.hover && !this.menu.isOpen;
         this.accessible_name = known ? `Wheelguard, mouse battery ${s.Battery}%` : 'Wheelguard';
@@ -468,12 +471,12 @@ class WheelguardIndicator extends PanelMenu.Button {
             return;
         }
 
-        const mouseHere = s.Online;
+        const mouseHere = s.Online && s.DaemonState === 'running';     // never show a stale battery
         this._batteryCard.visible = mouseHere;
         this._dpiCard.visible = mouseHere;
         this._asleepCard.visible = !mouseHere;
         this._asleepText.text = s.OfflineNote;
-        const known = s.Online && s.Battery >= 0;
+        const known = mouseHere && s.Battery >= 0;
         this._percent.text = known ? `${s.Battery}%` : '—';
         if (known)
             this._percent.remove_style_class_name('wg-faint');

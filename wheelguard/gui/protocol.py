@@ -170,7 +170,7 @@ def status_mice(status: dict) -> List[dict]:
 def mouse_options(mice: List[dict], selected: str) -> List[dict]:
     """The choices of the "Mouse" picker as [{"id", "label"}]: automatic, each connected mouse, and the saved
     choice when that mouse isn't connected right now (so the picker still says what is selected)."""
-    opts = [{"id": mouse_ids.AUTO, "label": "Automatic (supported mice)"}]
+    opts = [{"id": mouse_ids.AUTO, "label": "Automatic"}]
     for m in status_mice({"mice": mice}):
         label = m["name"] + (f" \u00b7 {m['connection']}" if m["connection"] else "")
         if not m["accessible"]:

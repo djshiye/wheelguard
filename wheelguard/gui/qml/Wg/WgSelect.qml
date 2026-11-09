@@ -49,7 +49,7 @@ Item {
 
     implicitWidth: 180
     implicitHeight: Math.max(36, Theme.px(36))
-    opacity: enabled ? 1 : 0.5
+    opacity: enabled ? 1 : 0.6
     Behavior on opacity { NumberAnimation { duration: Theme.fast } }
 
     Rectangle {

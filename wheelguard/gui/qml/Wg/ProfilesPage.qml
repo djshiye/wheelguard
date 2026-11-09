@@ -187,7 +187,7 @@ WgScrollPage {
             }
         }
         RowLayout {
-            visible: appSettings.profilesEnabled && !profiles.panelActive
+            visible: appSettings.profilesEnabled && !profiles.panelActive && profiles.activeId === ""
             Layout.fillWidth: true
             spacing: 12
             WgIcon { name: "info"; size: 20; color: Theme.amber }

@@ -138,9 +138,11 @@ WgScrollPage {
             onTriggered: daemon.refreshMice()
         }
 
-        RowLayout {
+        GridLayout {     // the list drops under the text at Large Text
             Layout.fillWidth: true
-            spacing: 16
+            columns: Theme.textScale > 1.2 ? 1 : 2
+            columnSpacing: 16
+            rowSpacing: 10
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 2
@@ -152,7 +154,7 @@ WgScrollPage {
                 }
                 Text {
                     Layout.fillWidth: true
-                    text: "Which mouse's scroll wheel to protect. Automatic picks your supported mouse; any other mouse with a wheel can be chosen too."
+                    text: "Which mouse's wheel to protect. Automatic picks your supported mouse; any other mouse with a wheel can be chosen too."
                     font.pixelSize: Theme.fsSmall
                     color: Theme.textMuted
                     wrapMode: Text.WordWrap
@@ -160,7 +162,8 @@ WgScrollPage {
             }
             WgSelect {
                 Layout.alignment: Qt.AlignVCenter
-                Layout.preferredWidth: 300
+                Layout.fillWidth: Theme.textScale > 1.2
+                Layout.preferredWidth: Theme.px(240)
                 accessibleName: "Mouse to protect"
                 commitOnArrow: false
                 model: daemon.mouseLabels

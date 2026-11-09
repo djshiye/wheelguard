@@ -204,6 +204,8 @@ Item {
                             Layout.fillWidth: true
                             spacing: 2
                             Text {
+                                Layout.fillWidth: true
+                                wrapMode: Text.WordWrap
                                 text: root.step === 0 ? "Welcome to Wheelguard" : (root.step === 1 ? "Is everything allowed?" : "How strong should protection be?")
                                 font.pixelSize: Theme.fsH2 + 3
                                 font.weight: Font.DemiBold
@@ -326,8 +328,9 @@ Item {
                             wrapMode: Text.WordWrap
                         }
                         GridLayout {
+                            id: presetGrid
                             Layout.fillWidth: true
-                            columns: 2
+                                columns: 2
                             columnSpacing: 10
                             rowSpacing: 10
                             enabled: daemon.state !== "stopped" && daemon.state !== "connecting"
@@ -339,8 +342,10 @@ Item {
                                     required property int index
                                     required property var modelData
                                     readonly property bool selected: daemon.presetIndex === index
-                                    Layout.fillWidth: true
-                                    Layout.preferredWidth: 1
+                                    // two equal columns, worked out from the grid so the text can't widen them
+                                    Layout.preferredWidth: Math.floor((content.width - presetGrid.columnSpacing) / 2)
+                                    Layout.minimumWidth: Layout.preferredWidth
+                                    Layout.maximumWidth: Layout.preferredWidth
                                     implicitHeight: pcol.implicitHeight + 28
                                     radius: Theme.radiusSm + 2
                                     color: selected ? "transparent" : (pma.containsMouse ? Theme.cardHi : Theme.inset)

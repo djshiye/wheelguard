@@ -3,7 +3,6 @@ import QtQuick.Layouts
 
 WgScrollPage {
     id: page
-    maxContentWidth: 640
 
     property bool copied: false
     Timer { id: copiedTimer; interval: 2500; onTriggered: page.copied = false }
@@ -33,7 +32,7 @@ WgScrollPage {
 
     Item {
         width: parent.width
-        height: 132
+        height: Theme.px(132)
 
         Row {
             anchors.verticalCenter: parent.verticalCenter
