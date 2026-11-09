@@ -3,7 +3,7 @@
   Wheelguard
 </h1>
 
-<p align="center">Stop stray scroll ticks and tune your Endgame Gear mouse, on GNOME.</p>
+<p align="center">Stop stray scroll ticks and tune your gaming mouse, on GNOME.</p>
 
 <p align="center"><img src="docs/screenshot.png" width="720" alt="Wheelguard settings"></p>
 
@@ -23,8 +23,14 @@ installs its own `/etc/yum.repos.d/wheelguard.repo`, so the repository stays con
 ## Features
 
 - **Scroll bounce filter** that drops wrong-direction wheel ticks, with a live monitor of every tick
-- **Hardware mouse settings** for the Endgame Gear XM2w 4k v2: DPI, polling rate, lift-off distance,
-  debounce, sleep and battery
+- **Hardware mouse settings**, stored on the mouse:
+  - Endgame Gear XM2w 4k v2: DPI stages, polling rate, lift-off distance, debounce, button actions,
+    sleep and battery
+  - Logitech G Pro X Superlight (first generation): DPI stages (edits the mouse's onboard profile),
+    polling rate up to 1000 Hz, battery
+  - Razer DeathAdder V4 Pro: DPI stages with separate X/Y, polling rate up to 8000 Hz, sleep timer,
+    low-battery warning, battery
+- **Scroll filter for every supported mouse**: the daemon picks up whichever one is connected
 - **Click-Lock**: hold the left button for a few seconds (5 s by default, adjustable) and Wheelguard keeps
   clicking for you, or keeps the button pressed for long drags, until your next click. Switch it on and off
   from the panel popup
@@ -56,12 +62,13 @@ request. Pushes to `main` also sign it (key in the `RPM_SIGNING_KEY` secret), re
 repository with the last three builds (`build-aux/dnf-repo.py`), commit it to the `gh-pages`
 branch that GitHub Pages serves, and install it in clean Fedora 44 and 45 containers
 (`build-aux/verify-install.sh`). The old local `tools/publish.sh` is retired: one publishing path
-is less to maintain, and local builds could not be signed. Run the tests with `python3 -m unittest discover -s tests -t .`. The mouse's HID
-protocol is documented in [docs/endgame-protocol.md](docs/endgame-protocol.md).
+is less to maintain, and local builds could not be signed. Run the tests with `python3 -m unittest discover -s tests -t .`. The mice's
+protocols are documented in [docs/endgame-protocol.md](docs/endgame-protocol.md),
+[docs/logitech-protocol.md](docs/logitech-protocol.md) and [docs/razer-protocol.md](docs/razer-protocol.md).
 
 </details>
 
 ---
 
 MIT licensed. Wheelguard is an independent project and is not affiliated with or endorsed by
-Endgame Gear.
+Endgame Gear, Logitech or Razer.

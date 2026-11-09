@@ -21,6 +21,10 @@ Messages are UTF-8 JSON objects, one per line (`\n`-terminated), both directions
 }
 ```
 
+`vendor` / `product` pick the mouse to filter. If it isn't connected, the daemon falls back to any
+other supported mouse (Endgame Gear XM2w 4k v2, Razer DeathAdder V4 Pro, Logitech G Pro X
+Superlight), so the defaults work for all of them.
+
 Click-Lock: with `clicklock: true`, holding the left button for `clicklock_ms` (500 to 30000) engages
 the lock. Mode `repeat` releases the button and clicks `clicklock_rate` times a second (1 to 30);
 mode `hold` keeps it pressed. Letting go is ignored while locked; the next click ends the lock and is

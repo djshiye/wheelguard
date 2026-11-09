@@ -10,7 +10,9 @@
       Wheelguard drops the bouncing, wrong-direction scroll-wheel ticks of a faulty encoder on
       GNOME, with a live view of the wheel. It also edits the on-board settings of the
       Endgame Gear XM2w 4k v2 (DPI, polling rate, lift-off distance, button filtering, sleep timers and
-      battery) and the GNOME pointer settings. Not affiliated with Endgame Gear.
+      battery), the Logitech G Pro X Superlight (DPI stages, polling rate, battery) and the Razer
+      DeathAdder V4 Pro (DPI stages, polling rate up to 8000 Hz, sleep timer, low-battery warning,
+      battery), and the GNOME pointer settings. Not affiliated with Endgame Gear, Logitech or Razer.
     </p>
   </description>
   <launchable type="desktop-id">io.github.djshiye.Wheelguard.desktop</launchable>
