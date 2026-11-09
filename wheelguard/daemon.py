@@ -85,7 +85,7 @@ def discover(vendor, product, mouse=None):
         ident = (dev.info.vendor, dev.info.product)
         caps = dev.capabilities()
         if (ident in ids and not any(n in name for n in _SKIP_NAMES) and not name.startswith(UI_PREFIX)
-                and e.REL_WHEEL in caps.get(e.EV_REL, [])):
+                and e.REL_WHEEL in caps.get(e.EV_REL, []) and not scan.has_letter_keys(caps)):
             # prefer the configured mouse, then the node that also has the buttons
             rank = (ids.index(ident), 0 if e.BTN_LEFT in caps.get(e.EV_KEY, []) else 1)
             if best is None or rank < best[0]:
@@ -226,16 +226,19 @@ def idle(ctl, server, seconds, watcher=None):
     extra = () if watcher is None else (watcher.fileno(),)
     while (left := end - time.monotonic()) > 0:
         if service(ctl, server, left, extra) and watcher.drain():
+            ctl.invalidate_mice()
             end = min(end, time.monotonic() + SETTLE_S)
 
 
 def buttons_down(dev):
-    """Mouse buttons the device reports as pressed right now (EVIOCGKEY)."""
-    return [code for code in dev.active_keys() if e.BTN_MOUSE <= code < e.BTN_JOYSTICK]
+    """Keys and buttons the device reports as pressed right now (EVIOCGKEY). Any key counts, not only
+    mouse buttons: a device that also has keyboard keys must not be grabbed while one is held, or the
+    desktop would never see its release."""
+    return list(dev.active_keys())
 
 
 def wait_for_buttons_up(dev, ctl, server):
-    """Don't grab the mouse while a button is held.
+    """Don't grab the mouse while a button (or key) is held.
 
     Until the grab, the desktop reads the mouse directly. If it saw a press there and the grab then
     swallowed the release (it would go only to us), the desktop would keep that button pressed until
@@ -288,8 +291,11 @@ def grab_when_buttons_up(dev, ctl, server):
         dev.ungrab()
 
 
-def run_session(dev, ctl, server, tick_log):
-    """Grab dev and filter until it disappears (OSError) or we are stopped."""
+def run_session(dev, ctl, server, tick_log, watcher=None):
+    """Grab dev and filter until it disappears (OSError) or we are stopped.
+
+    Returns True when it ended because the mouse choice changed (the caller searches again at once).
+    With a `watcher` (hotplug.DeviceWatcher) a change in /dev/input marks the mouse list stale."""
     try:
         ui = UInput.from_device(dev, name=UI_NAME)  # virtual device first, only then grab
     except (OSError, UInputError):
@@ -308,6 +314,11 @@ def run_session(dev, ctl, server, tick_log):
         grab_when_buttons_up(dev, ctl, server)
         grabbed = True
         cfg = ctl.cfg
+        pinned = mice.parse_choice(cfg.get("mouse"))
+        if pinned and pinned != _ident(dev):
+            # the choice changed between discover() and the grab (set_config only flags a running session)
+            log.info("mouse choice changed, switching")
+            return True
         log.info("filtering %s (%s), lock=%gms pre=%gms hold=%gms, click-lock %s", dev.name, dev.path,
                  cfg["lock_ms"], cfg["pre_ms"], cfg["hold_ms"],
                  f"after {cfg['clicklock_ms'] / 1000:g}s ({cfg['clicklock_mode']})" if cfg["clicklock"] else "off")
@@ -321,14 +332,20 @@ def run_session(dev, ctl, server, tick_log):
                 ctl.restart_requested = False
                 log.info("mouse choice changed, switching")
                 ctl.set_device(False, None, "switching mouse")
-                return
+                return True
             timeout = None
             now = time.time()
             if (deadline := ctl.deadline) is not None:
                 timeout = min(max(deadline - now, 0.0), ctl.cfg["hold_ms"] / 1000.0)
             if (deadline := ctl.clicklock_deadline) is not None:
                 timeout = min(timeout if timeout is not None else POLL_S, max(deadline - now, 0.0))
-            if service(ctl, server, timeout, (dev.fd,)):
+            if (deadline := ctl.debounce_deadline) is not None:
+                timeout = min(timeout if timeout is not None else POLL_S, max(deadline - now, 0.0))
+            extra = (dev.fd,) if watcher is None else (dev.fd, watcher.fileno())
+            readable = service(ctl, server, timeout, extra)
+            if watcher is not None and watcher.fileno() in readable and watcher.drain():
+                ctl.invalidate_mice()
+            if dev.fd in readable:
                 for ev in dev.read():
                     for frame in reader.feed(ev.type, ev.code, ev.value):
                         tick_log(ctl.handle_frame(frame, ev.timestamp(), write))
@@ -399,7 +416,8 @@ def main(argv=None):
             else:
                 last_err = None
                 try:
-                    run_session(dev, ctl, server, tick_log)
+                    if run_session(dev, ctl, server, tick_log, watcher):
+                        continue                    # the mouse choice changed: search again at once
                 except (OSError, UInputError) as ex:
                     msg = describe(ex)
                     log.warning("session ended: %s; retrying", msg)

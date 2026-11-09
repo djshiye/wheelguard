@@ -59,6 +59,16 @@ class Saving(Base):
         self.assertEqual([p.name for p in self.path.parent.iterdir()], ["history.json"])      # no temp file left
         self.assertEqual(self.make().to_list(), h.to_list())
 
+    def test_only_the_exit_save_flushes_to_disk(self):
+        h = self.make()
+        h.add(1, 0)
+        with mock.patch.object(H.os, "fsync") as fsync:
+            self.assertTrue(h.save())
+            fsync.assert_not_called()                   # periodic / disconnect saves run on the input thread
+            h.add(1, 0)
+            self.assertTrue(h.save(durable=True))
+            fsync.assert_called_once()
+
     def test_saves_at_most_every_few_minutes(self):
         h = self.make(save_every=300)
         h.add(1, 0)

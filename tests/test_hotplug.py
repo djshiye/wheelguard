@@ -78,8 +78,14 @@ class FakeServer:
 
 
 class FakeCtl:
+    def __init__(self):
+        self.invalidated = 0
+
     def poll_config(self):
         pass
+
+    def invalidate_mice(self):
+        self.invalidated += 1
 
 
 class Idle(unittest.TestCase):
@@ -90,8 +96,10 @@ class Idle(unittest.TestCase):
         with open(os.path.join(d, "event9"), "w"):
             pass
         t0 = time.monotonic()
-        daemon.idle(FakeCtl(), FakeServer(), 5.0, w)
+        ctl = FakeCtl()
+        daemon.idle(ctl, FakeServer(), 5.0, w)
         took = time.monotonic() - t0
+        self.assertEqual(ctl.invalidated, 1)             # the cached mouse list is stale now
         self.assertLess(took, 1.0)
         self.assertGreaterEqual(took, daemon.SETTLE_S * 0.9)
 
