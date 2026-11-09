@@ -252,6 +252,15 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(q.resolve({"type": "ok"}), ("reset_stats", None))
         self.assertEqual(q.resolve({"type": "ok"}), ("?", None))
 
+    def test_command_queue_settles_typed_replies(self):
+        q = protocol.CommandQueue()
+        for name in ("set", "history", "mice", "set"):
+            q.push(name)
+        q.settle("history")
+        q.settle("mice")
+        q.settle("mice")                                       # nothing left to settle: harmless
+        self.assertEqual(len(q), 2)
+
 
 @unittest.skipUnless(HAVE_QT, "PySide6 not installed")
 class DaemonClientTests(unittest.TestCase):
@@ -435,6 +444,59 @@ class DaemonClientTests(unittest.TestCase):
         self.client.setClickLockIgnoreDrag(False)
         self.assertFalse(self.client.clickLockIgnoreDrag)
         self.assertTrue(self.pump(lambda: {"cmd": "set", "config": {"clicklock_ignore_drag": False}} in self.received))
+
+    def test_an_old_daemons_unknown_command_error_does_not_revert_a_pending_set(self):
+        status = self.STATUS
+        answers = []
+
+        def reply(msg):
+            if msg["cmd"] == "subscribe":
+                return [status]
+            if msg["cmd"] in ("history", "mice"):
+                return [{"type": "error", "message": f"unknown command: {msg['cmd']}"}]
+            if msg["cmd"] == "set":
+                answers.append(msg)
+                return [{"type": "ok"}]
+            return []
+        self.reply_for = reply
+        self.client.start()
+        self.assertTrue(self.pump(lambda: self.client.state == "running"))
+        self.client.refreshHistory()
+        self.client.refreshMice()
+        self.client.setMs("pre_ms", 111)
+        self.assertTrue(self.pump(lambda: len(answers) == 1))
+        self.pump(lambda: False, 0.2)
+        self.assertEqual(self.client.editError, "")
+        self.assertEqual(self.client.preMs, 111)                 # not reverted
+        self.assertEqual(len(self.client._queue), 0)
+
+    def test_typed_replies_leave_nothing_in_the_queue(self):
+        status = self.STATUS
+
+        def reply(msg):
+            if msg["cmd"] == "subscribe":
+                return [status]
+            if msg["cmd"] == "history":
+                return [{"type": "history", "days": []}]
+            if msg["cmd"] == "mice":
+                return [{"type": "mice", "mice": []}]
+            return [{"type": "ok"}]
+        self.reply_for = reply
+        self.client.start()
+        self.assertTrue(self.pump(lambda: self.client.state == "running"))
+        self.client.refreshHistory()
+        self.client.refreshMice()
+        self.assertTrue(self.pump(lambda: {"cmd": "mice"} in self.received))
+        self.assertTrue(self.pump(lambda: len(self.client._queue) == 0))
+
+    def test_double_click_fix_remembers_the_daemons_window(self):
+        status = dict(self.STATUS, config=dict(self.STATUS["config"], debounce_ms=80))
+        self.reply_for = lambda m: ([status] if m["cmd"] == "subscribe" else [{"type": "ok"}])
+        self.client.start()
+        self.assertTrue(self.pump(lambda: self.client.state == "running"))
+        self.client.setDebounce(False)
+        self.client.setDebounce(True)                   # back to what the daemon had, not the default 40
+        self.assertTrue(self.pump(lambda: self.received.count({"cmd": "set", "config": {"debounce_ms": 80}}) == 1))
 
     def test_double_click_fix_setting_and_count(self):
         status = dict(self.STATUS, stats={"ticks": 5, "passed": 5, "dropped": 0, "debounced": 7, "since": 1.0})

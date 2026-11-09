@@ -14,6 +14,19 @@ except ImportError:
 
 
 @unittest.skipUnless(HAVE_QT, "PySide6 not installed")
+class NotifyTests(unittest.TestCase):
+    def test_returns_the_started_flag_not_the_pyside_tuple(self):
+        from unittest import mock
+        with mock.patch.object(batteryalert.shutil, "which", return_value="/usr/bin/gdbus"):
+            with mock.patch.object(batteryalert.QProcess, "startDetached", return_value=(False, 0)):
+                self.assertIs(batteryalert.notify("Low"), False)        # a tuple would be truthy
+            with mock.patch.object(batteryalert.QProcess, "startDetached", return_value=(True, 4242)):
+                self.assertIs(batteryalert.notify("Low"), True)
+        with mock.patch.object(batteryalert.shutil, "which", return_value=None):
+            self.assertIs(batteryalert.notify("Low"), False)
+
+
+@unittest.skipUnless(HAVE_QT, "PySide6 not installed")
 class TrackerTests(unittest.TestCase):
     def setUp(self):
         self.t = batteryalert.AlertTracker()

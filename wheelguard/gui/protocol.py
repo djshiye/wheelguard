@@ -235,9 +235,12 @@ def history_days(msg: dict) -> List[dict]:
     return [{"date": d, "ticks": t, "dropped": x} for d, (t, x) in sorted(days.items())]
 
 
+NO_RATE = -1.0      # `rate` of a day without ticks: QML gets Python's None as undefined, a number is unambiguous
+
+
 def history_series(days: List[dict], count: int, today: datetime.date) -> List[dict]:
     """The last `count` days up to and including `today`, oldest first, gaps filled with zeros.
-    `rate` is the block rate in percent, or None for a day without ticks."""
+    `rate` is the block rate in percent, or NO_RATE (-1) for a day without ticks."""
     by_date = {d["date"]: d for d in days}
     out = []
     for n in range(count - 1, -1, -1):
@@ -245,7 +248,7 @@ def history_series(days: List[dict], count: int, today: datetime.date) -> List[d
         row = by_date.get(day)
         ticks, dropped = (row["ticks"], row["dropped"]) if row else (0, 0)
         out.append({"date": day.isoformat(), "ticks": ticks, "dropped": dropped,
-                    "rate": block_rate(ticks, dropped) if ticks > 0 else None})
+                    "rate": block_rate(ticks, dropped) if ticks > 0 else NO_RATE})
     return out
 
 
@@ -276,7 +279,9 @@ def wear_hint(days: List[dict], today: datetime.date) -> bool:
 
 
 class CommandQueue:
-    """FIFO of commands awaiting an ok/error reply."""
+    """FIFO of commands awaiting a reply. Every command that gets one is pushed, so an "error" always
+    pairs with the right command: ok/error replies pop the oldest; commands answered with a reply of
+    their own type (history, mice) are removed by settle() when it arrives."""
 
     def __init__(self):
         self._q: Deque[str] = deque()
@@ -291,6 +296,13 @@ class CommandQueue:
             return None
         name = self._q.popleft() if self._q else "?"
         return (name, None) if t == "ok" else (name, str(msg.get("message", "Unknown error")))
+
+    def settle(self, name: str):
+        """The typed reply of command `name` arrived: its entry is done."""
+        try:
+            self._q.remove(name)
+        except ValueError:
+            pass
 
     def clear(self):
         self._q.clear()

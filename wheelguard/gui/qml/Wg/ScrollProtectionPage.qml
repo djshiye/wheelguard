@@ -501,7 +501,7 @@ WgScrollPage {
             Layout.fillWidth: true
             text: health.hovered
                   ? chart.dayLabel(health.hovered.date, true) + " · "
-                    + (health.hovered.rate === null ? "no scrolling"
+                    + (!chart.hasRate(health.hovered) ? "no scrolling"
                        : chart.pct(health.hovered.rate) + " blocked ("
                          + health.hovered.dropped.toLocaleString(Qt.locale(), "f", 0) + " of "
                          + health.hovered.ticks.toLocaleString(Qt.locale(), "f", 0) + " ticks)")

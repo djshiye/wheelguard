@@ -161,8 +161,10 @@ class DaemonClient(QObject):
                     self.statsChanged.emit()
                 self.tick.emit(tk.sign, tk.kind, tk.held, tk.t)
         elif t == "history":
+            self._queue.settle("history")
             self._set_history(protocol.history_days(msg))
         elif t == "mice":
+            self._queue.settle("mice")
             self._set_mice(msg.get("mice"))
         elif t == "status":
             self._on_status(msg)
@@ -206,7 +208,7 @@ class DaemonClient(QObject):
             return
         name, err = res
         if name != "set":
-            return
+            return              # optional queries (history, mice) may be unknown to an older daemon: ignore its error
         self._inflight = max(0, self._inflight - 1)
         if err is not None:
             self._staged.clear()
@@ -222,6 +224,8 @@ class DaemonClient(QObject):
     def _set_cfg(self, cfg: dict):
         if cfg != self._cfg:
             self._cfg = dict(cfg)
+            if cfg.get("debounce_ms", 0) > 0:
+                self._last_debounce_ms = cfg["debounce_ms"]     # what "on" returns to, also after a restart
             self.configChanged.emit()
             self.miceChanged.emit()         # the picker's selection follows the config
 
@@ -294,7 +298,7 @@ class DaemonClient(QObject):
     @Slot()
     def refreshHistory(self):
         """Ask the daemon for its daily wheel totals (the last 90 days)."""
-        self._send({"cmd": "history"})
+        self._send({"cmd": "history"}, track="history")
 
     @Slot(int, result="QVariantList")
     def historySeries(self, count: int):
@@ -308,7 +312,7 @@ class DaemonClient(QObject):
     @Slot()
     def refreshMice(self):
         """Ask the daemon which mice with a scroll wheel are connected (it rescans at most every few seconds)."""
-        self._send({"cmd": "mice"})
+        self._send({"cmd": "mice"}, track="mice")
 
     @Slot(str)
     def setMouse(self, choice: str):

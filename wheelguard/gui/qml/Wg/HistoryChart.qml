@@ -1,7 +1,8 @@
 import QtQuick
 
 // Daily block-rate bars (percent of wheel ticks blocked), oldest day on the left, today on the right.
-// series: [{ date: "2026-11-09", ticks, dropped, rate }]; rate is null for a day without ticks.
+// series: [{ date: "2026-11-09", ticks, dropped, rate }]; rate is -1 (protocol.NO_RATE) for a day without ticks;
+// null or undefined count as "no data" too, so a missing rate never turns into NaN bars.
 Item {
     id: root
     property var series: []
@@ -18,7 +19,7 @@ Item {
     readonly property real maxRate: {
         var m = 0
         for (var i = 0; i < series.length; i++)
-            if (series[i].rate !== null && series[i].rate > m)
+            if (hasRate(series[i]) && series[i].rate > m)
                 m = series[i].rate
         return m
     }
@@ -43,7 +44,12 @@ Item {
         var d = new Date(parseInt(p[0]), parseInt(p[1]) - 1, parseInt(p[2]))
         return Qt.locale().toString(d, withWeekday ? "ddd d MMM" : "d MMM")
     }
-    function pct(v) { return v.toLocaleString(Qt.locale(), "f", v < 10 ? 1 : 0) + "%" }
+    function hasRate(day) { return !!day && typeof day.rate === "number" && isFinite(day.rate) && day.rate >= 0 }
+    function pct(v) {
+        if (typeof v !== "number" || !isFinite(v))
+            return "–"
+        return v.toLocaleString(Qt.locale(), "f", v < 10 ? 1 : 0) + "%"
+    }
 
     implicitHeight: 170
     implicitWidth: 400
@@ -82,7 +88,7 @@ Item {
             id: slot
             required property int index
             required property var modelData
-            readonly property bool has: modelData.rate !== null
+            readonly property bool has: root.hasRate(modelData)
             readonly property real bw: Math.max(3, Math.min(28, root.slotW * 0.62))
             readonly property real bh: has ? Math.max(2, modelData.rate / root.ceiling * root.plotH) : 0
             x: root.axisW + index * root.slotW
