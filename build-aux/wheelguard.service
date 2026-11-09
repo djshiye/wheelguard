@@ -14,8 +14,9 @@ RestartSec=2
 # reachable as before: access to them is granted by the udev rule, not by this unit.
 # ~/.config/wheelguard (created if missing, writable):
 ConfigurationDirectory=wheelguard
-ExecStartPre=+/usr/bin/mkdir -p %h/.local/share/wheelguard
-ReadWritePaths=%t %h/.local/share/wheelguard
+# Optional: if this fails, the filter still starts (the history folder just stays unwritable).
+ExecStartPre=-+/usr/bin/mkdir -p %h/.local/share/wheelguard
+ReadWritePaths=%t -%h/.local/share/wheelguard
 ProtectSystem=strict
 ProtectHome=read-only
 PrivateTmp=yes
