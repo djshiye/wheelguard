@@ -1,5 +1,5 @@
 """Wheelguard's own app settings (not the daemon's config and not GNOME's): a small JSON file in
-~/.config/wheelguard. Holds the low-battery alert switch and the first-run welcome flag."""
+~/.config/wheelguard. Holds the low-battery alert switch, the per-game profiles switch and the first-run welcome flag."""
 import json
 import os
 import tempfile
@@ -9,7 +9,7 @@ from typing import Dict, Optional
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
 FILE = "app.json"
-DEFAULTS: Dict[str, bool] = {"battery_alerts": True, "welcome_seen": False}
+DEFAULTS: Dict[str, bool] = {"battery_alerts": True, "welcome_seen": False, "profiles_enabled": False}
 
 
 def config_dir() -> Path:
@@ -68,6 +68,10 @@ class AppSettings(QObject):
     def setBatteryAlerts(self, on: bool):
         self._set("battery_alerts", bool(on))
 
+    @Slot(bool)
+    def setProfilesEnabled(self, on: bool):
+        self._set("profiles_enabled", bool(on))
+
     @Slot()
     def finishWelcome(self):
         self._set("welcome_seen", True)
@@ -77,4 +81,5 @@ class AppSettings(QObject):
         self._set("welcome_seen", False)
 
     batteryAlerts = Property(bool, lambda s: s._v["battery_alerts"], notify=changed)
+    profilesEnabled = Property(bool, lambda s: s._v["profiles_enabled"], notify=changed)
     welcomeSeen = Property(bool, lambda s: s._v["welcome_seen"] or not s._welcome_enabled, notify=changed)

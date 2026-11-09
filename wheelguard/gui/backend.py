@@ -316,6 +316,16 @@ class DaemonClient(QObject):
         if choice == "auto" or protocol.mouse_ids.parse_choice(choice):
             self._stage({"mouse": choice}, immediate=True)
 
+    def setProtectionValues(self, pre: int, hold: int, lock: int):
+        """Per-game profiles: set the three scroll-protection values at once, sent right away."""
+        self._stage({"pre_ms": int(pre), "hold_ms": int(hold), "lock_ms": int(lock)}, immediate=True)
+
+    def flushSocket(self):
+        """Push what was written out before the app exits."""
+        if self._sock.state() == QLocalSocket.LocalSocketState.ConnectedState:
+            self._sock.flush()
+            self._sock.waitForBytesWritten(300)
+
     @Slot(bool)
     def setClickLockIgnoreDrag(self, on: bool):
         self._stage({"clicklock_ignore_drag": bool(on)}, immediate=True)

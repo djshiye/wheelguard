@@ -9,6 +9,7 @@ import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
+import Shell from 'gi://Shell';
 import St from 'gi://St';
 
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
@@ -22,6 +23,8 @@ const APP_ICON = 'io.github.djshiye.Wheelguard';
 const MAX_SETUP_CHIPS = 4;               // the popup stays small: the app lists them all
 const START_COMMAND = ['wheelguard-settings', '--tray'];
 const START_TIMEOUT_S = 10;
+const FOCUS_DEBOUNCE_MS = 300;           // per-game profiles: a focus change must settle before the app is told
+const MAX_APP_ID = 200;                  // longer ids are not sent (the app would refuse them anyway)
 
 // Click-Lock hold-time slider: 1 to 15 s in half-second steps (wheelguard/gui/protocol.py, CLICKLOCK_MS_*).
 const CLICKLOCK_MIN_MS = 1000;
@@ -40,6 +43,7 @@ const IFACE_XML = `
     <method name="SetClickLockMs"><arg type="i" direction="in" name="ms"/></method>
     <method name="SetClickLockMode"><arg type="s" direction="in" name="mode"/></method>
     <method name="ApplySetup"><arg type="s" direction="in" name="name"/></method>
+    <method name="FocusChanged"><arg type="s" direction="in" name="app_id"/></method>
     <method name="ShowWindow"/>
     <method name="Refresh"/>
     <signal name="StateChanged"><arg type="a{sv}" name="state"/></signal>
@@ -54,6 +58,7 @@ const EMPTY_STATE = {
     StatusLabel: 'Connecting…', StatusTone: 'muted', ProtectionDetail: '', BatteryNote: 'Mouse not connected',
     ClickLockEnabled: false, ClickLockMs: 5000, ClickLockActive: false, ClickLockDetail: 'Off',
     ClickLockMode: 'repeat', BatteryLow: false, OfflineNote: 'Mouse asleep or not connected', SetupNames: [], ActiveSetup: '',
+    ProfilesEnabled: false, ActiveProfile: '',
 };
 
 function msToFraction(ms) {
@@ -110,6 +115,9 @@ class WheelguardIndicator extends PanelMenu.Button {
         this._watchId = 0;
         this._startTimeout = 0;
         this._clickLockTimeout = 0;
+        this._focusId = 0;                  // per-game profiles: notify::focus-window handler
+        this._focusTimeout = 0;
+        this._lastFocusApp = null;          // the id the app was last told; null = tell it again
         this._clickLockSending = false;     // the slider shows the user's value until the app confirms it
         this._sliderDragging = false;
         this._settingSlider = false;
@@ -150,6 +158,7 @@ class WheelguardIndicator extends PanelMenu.Button {
 
         this._render();
         this.connect('destroy', () => this._cleanup());
+        this._focusId = global.display.connect('notify::focus-window', () => this._focusSoon());
         this._watchId = Gio.bus_watch_name(Gio.BusType.SESSION, BUS_NAME, Gio.BusNameWatcherFlags.NONE,
             () => this._appeared(), () => this._vanished());
     }
@@ -194,6 +203,7 @@ class WheelguardIndicator extends PanelMenu.Button {
 
         this._body = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, style_class: 'wg-body'});
         this._root.add_child(this._body);
+        this._buildProfile();
         this._buildAsleep();
         this._buildBattery();
         this._buildProtection();
@@ -217,6 +227,16 @@ class WheelguardIndicator extends PanelMenu.Button {
 
     _card() {
         return new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, style_class: 'wg-card'});
+    }
+
+    // "Profile: <app>" while a per-game profile is engaged.
+    _buildProfile() {
+        const card = this._card();
+        this._profileLabel = makeLabel('', 'wg-card-sub');
+        this._profileLabel.clutter_text.ellipsize = 3;      // Pango.EllipsizeMode.END
+        card.add_child(this._profileLabel);
+        this._profileCard = card;
+        this._body.add_child(card);
     }
 
     // One calm row instead of an empty battery card and an empty DPI card.
@@ -516,6 +536,8 @@ class WheelguardIndicator extends PanelMenu.Button {
             this._batteryNote.remove_style_class_name('wg-good');
         this._battery.queue_repaint();
 
+        this._profileCard.visible = s.ProfilesEnabled && s.ActiveProfile !== '';
+        this._profileLabel.text = `Profile: ${s.ActiveProfile}`;
         this._protectDetail.text = s.ProtectionDetail;
         const canSwitch = s.DaemonState === 'running' || s.DaemonState === 'waiting';
         this._switch.reactive = canSwitch;
@@ -755,6 +777,8 @@ class WheelguardIndicator extends PanelMenu.Button {
             this._proxy.disconnectSignal(this._signalId);
         this._signalId = 0;
         this._proxy = null;
+        this._lastFocusApp = null;
+        this._clearFocusTimeout();
     }
 
     _pull() {
@@ -767,8 +791,53 @@ class WheelguardIndicator extends PanelMenu.Button {
     }
 
     _setState(state) {
+        const was = this._state.ProfilesEnabled;
         this._state = {...EMPTY_STATE, ...state};
         this._render();
+        if (this._state.ProfilesEnabled !== was)
+            this._lastFocusApp = null;      // just switched on (or off): the app needs the current answer
+        if (this._state.ProfilesEnabled && this._lastFocusApp === null)
+            this._focusSoon();
+    }
+
+    // ------------------------------------------------------------------ per-game profiles
+    // Only the focused app's id goes to the app, and only while "Per-game profiles" is on: no titles, no
+    // other windows. Changes are debounced and an unchanged id is not sent again.
+    _focusSoon() {
+        if (this._destroyed || !this._proxy || !this._state.ProfilesEnabled)
+            return;
+        if (this._focusTimeout)
+            GLib.source_remove(this._focusTimeout);
+        this._focusTimeout = GLib.timeout_add(GLib.PRIORITY_DEFAULT, FOCUS_DEBOUNCE_MS, () => {
+            this._focusTimeout = 0;
+            this._sendFocus();
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    _focusedAppId() {
+        const win = global.display.focus_window;
+        if (!win)
+            return '';
+        const id = Shell.WindowTracker.get_default().get_window_app(win)?.get_id() ?? '';
+        return id.length <= MAX_APP_ID ? id : '';
+    }
+
+    _sendFocus() {
+        if (!this._proxy || !this._state.ProfilesEnabled)
+            return;
+        const id = this._focusedAppId();
+        if (id === this._lastFocusApp)
+            return;
+        this._lastFocusApp = id;
+        this._proxy.FocusChangedRemote(id, () => {});
+    }
+
+    _clearFocusTimeout() {
+        if (this._focusTimeout) {
+            GLib.source_remove(this._focusTimeout);
+            this._focusTimeout = 0;
+        }
     }
 
     _clearStartTimeout() {
@@ -784,6 +853,10 @@ class WheelguardIndicator extends PanelMenu.Button {
         this._cancellable.cancel();
         this._clearStartTimeout();
         this._clearClickLockTimeout();
+        this._clearFocusTimeout();
+        if (this._focusId)
+            global.display.disconnect(this._focusId);
+        this._focusId = 0;
         if (this._watchId)
             Gio.bus_unwatch_name(this._watchId);
         this._watchId = 0;

@@ -15,6 +15,7 @@ panel extension talks to the running app through it.
         ToggleClickLock() -> s           flip Click-Lock; "ok:Click-Lock on" or "error:<why>" (commands.py)
         NextDpiStage() -> s              switch to the next DPI stage, wrapping round; same reply format
         ApplySetup(s)                    apply a saved mouse setup by name (the guarded MouseController path)
+        FocusChanged(s)                  the shell's focused app id ("" = none); per-game profiles (profilectl.py)
         ShowWindow()                     bring the settings window forward
         Refresh()                        re-read the mouse quietly (rate-limited)
         read-only properties             the same keys, with org.freedesktop.DBus.Properties.PropertiesChanged
@@ -24,7 +25,7 @@ from typing import Dict, Optional
 from PySide6.QtCore import ClassInfo, Property, QObject, QTimer, Signal, Slot
 from PySide6.QtDBus import QDBus, QDBusAbstractAdaptor, QDBusConnection, QDBusMessage
 
-from . import commands, protocol, traymodel
+from . import commands, profiles, protocol, traymodel
 
 BUS_NAME = "io.github.djshiye.Wheelguard"
 OBJECT_PATH = "/io/github/djshiye/Wheelguard"
@@ -33,8 +34,9 @@ PROPS_IFACE = "org.freedesktop.DBus.Properties"
 
 PROPERTIES = ("Online", "Battery", "Charging", "StageLabels", "ActiveStage", "StageReason",
               "ProtectionEnabled", "DaemonState", "Preset", "Dropped",
-              "ClickLockEnabled", "ClickLockMs", "ClickLockActive", "ClickLockMode", "BatteryLow", "SetupNames", "ActiveSetup")
-IDLE_STATE = traymodel.state_dict(traymodel.TrayState())
+              "ClickLockEnabled", "ClickLockMs", "ClickLockActive", "ClickLockMode", "BatteryLow", "SetupNames", "ActiveSetup",
+              "ProfilesEnabled", "ActiveProfile")
+IDLE_STATE = {**traymodel.state_dict(traymodel.TrayState()), "ProfilesEnabled": False, "ActiveProfile": ""}
 
 
 def claim(bus: Optional[QDBusConnection] = None) -> bool:
@@ -63,11 +65,12 @@ class Service(QObject):
 
     stateChanged = Signal("QVariantMap")
     showRequested = Signal()
+    focusChanged = Signal(str)          # a validated app id, or "" for no app
 
     def __init__(self, parent=None, bus: Optional[QDBusConnection] = None):
         super().__init__(parent)
         self._bus = bus
-        self._daemon = self._mouse = None
+        self._daemon = self._mouse = self._profiles = None
         self.pending_show = False           # ShowWindow arrived before the window existed
         self._attached = False
         self._registered = False            # only an exported object may emit PropertiesChanged
@@ -92,6 +95,12 @@ class Service(QObject):
             sig.connect(self._timer.start)
         self.publish()
 
+    def attach_profiles(self, ctrl):
+        """Per-game profiles: the popup shows when they are on and which one is engaged."""
+        self._profiles = ctrl
+        ctrl.changed.connect(self._timer.start)
+        self.publish()
+
     # ---- state
     def current(self) -> Dict[str, object]:
         return dict(self._state)
@@ -101,6 +110,9 @@ class Service(QObject):
         if self._daemon is None:
             return
         new = traymodel.state_dict(traymodel.snapshot(self._daemon, self._mouse))
+        p = self._profiles
+        new["ProfilesEnabled"] = bool(p is not None and p.enabled)
+        new["ActiveProfile"] = str(p.activeName) if p is not None and p.enabled else ""
         changed = {k: v for k, v in new.items() if self._state.get(k) != v}
         if not changed:
             return
@@ -142,6 +154,10 @@ class Service(QObject):
     def apply_setup(self, name: str):
         if self._mouse is not None and name in list(getattr(self._mouse, "setupNames", ())):
             self._mouse.applySetup(str(name))
+
+    def focus_changed(self, app_id: str):
+        """The shell reports the focused app's id (nothing else). Anything that isn't a plausible id is "none"."""
+        self.focusChanged.emit(profiles.clean_app_id(app_id))
 
     def toggle_clicklock(self) -> str:
         d = self._daemon
@@ -224,6 +240,10 @@ class Adaptor(QDBusAbstractAdaptor):
     def ApplySetup(self, name):
         self.parent().apply_setup(name)
 
+    @Slot(str)
+    def FocusChanged(self, app_id):
+        self.parent().focus_changed(app_id)
+
     @Slot()
     def StopClickLock(self):
         self.parent().stop_clicklock()
@@ -258,3 +278,5 @@ class Adaptor(QDBusAbstractAdaptor):
     BatteryLow = _prop("BatteryLow", bool)
     SetupNames = _prop("SetupNames", "QStringList")
     ActiveSetup = _prop("ActiveSetup", str)
+    ProfilesEnabled = _prop("ProfilesEnabled", bool)
+    ActiveProfile = _prop("ActiveProfile", str)

@@ -9,7 +9,7 @@ APP_ID = "io.github.djshiye.Wheelguard"
 HERE = Path(__file__).resolve().parent
 QML_DIR = HERE / "qml"
 ICON_NAME = APP_ID + ".svg"
-PAGES = {"scroll": 0, "mouse": 1, "pointer": 2, "about": 3}     # sidebar order
+PAGES = {"scroll": 0, "mouse": 1, "pointer": 2, "profiles": 3, "about": 4}     # sidebar order
 
 
 def find_icon() -> Path:
@@ -33,7 +33,7 @@ def parse_args(argv):
     keys.add_argument("--next-dpi-stage", action="store_true", help="switch the mouse to its next DPI stage")
     shot = ap.add_argument_group("screenshots (development)")
     shot.add_argument("--screenshot", metavar="PNG", help="render the window to PNG after a delay, then quit")
-    shot.add_argument("--page", choices=("scroll", "mouse", "pointer", "about"), default="scroll")
+    shot.add_argument("--page", choices=tuple(PAGES), default="scroll")
     shot.add_argument("--advanced", action="store_true", help="open the Advanced expander")
     shot.add_argument("--theme", choices=("dark", "light"), help="force a theme instead of following GNOME")
     shot.add_argument("--text-scale", type=float, help="force a text size factor (GNOME Large Text is 1.25)")
@@ -44,6 +44,9 @@ def parse_args(argv):
                       help="on the Mouse page, stage two edits once the mouse has been read")
     shot.add_argument("--setups-demo", action="store_true",
                       help="on the Mouse page, save two example setups once the mouse has been read")
+    shot.add_argument("--profiles-demo", nargs="?", const="list", choices=("list", "pick", "edit"),
+                      help="on the Profiles page, show the switch on with a few example profiles, one engaged "
+                           "(optionally the app picker or the editor)")
     shot.add_argument("--hot-button", type=int, metavar="N",
                       help="on the Mouse page, light up button N (0 to 4) on the drawing")
     shot.add_argument("--delay-ms", type=int, default=1500)
@@ -90,7 +93,7 @@ def main(argv=None):
     os.environ.setdefault("QML_DISK_CACHE_PATH", str(cache_root / "Wheelguard" / f"qmlcache-{__version__}"))
 
     try:
-        from PySide6.QtCore import QEventLoop, QObject, QTimer, QUrl
+        from PySide6.QtCore import QEventLoop, QMetaObject, QObject, QTimer, QUrl
         from PySide6.QtGui import QFont, QGuiApplication, QIcon
         from PySide6.QtWidgets import QApplication
     except ImportError:
@@ -125,6 +128,7 @@ def main(argv=None):
     from .diagnostics import Diagnostics
     from .shortcuts import ShortcutsBackend
     from .mouse import MouseController
+    from .profilectl import PROVIDER_ID, AppIconProvider, ProfileController
 
     QQuickStyle.setStyle("Basic")
     if os.environ.get("QT_QPA_PLATFORM") == "offscreen":
@@ -174,6 +178,12 @@ def main(argv=None):
     if not shot:
         BatteryAlerts(mouse, app_settings, parent=engine)
 
+    profile_ctl = ProfileController(daemon, mouse, app_settings, ext, parent=engine)
+    engine.addImageProvider(PROVIDER_ID, AppIconProvider())
+    if args.profiles_demo:
+        app_settings.setProfilesEnabled(True)
+        profile_ctl.demo()
+
     engine.addImportPath(str(QML_DIR))
     ctx = engine.rootContext()
     ctx.setContextProperty("daemon", daemon)
@@ -184,6 +194,7 @@ def main(argv=None):
     ctx.setContextProperty("shell", shell)
     ctx.setContextProperty("autoTune", auto_tune)
     ctx.setContextProperty("appSettings", app_settings)
+    ctx.setContextProperty("profiles", profile_ctl)
     ctx.setContextProperty("shortcuts", ShortcutsBackend(parent=engine))
     ctx.setContextProperty("diagnostics", Diagnostics(daemon, mouse, ext, app_settings, engine))
     ctx.setContextProperty("autostart", Autostart(engine))
@@ -202,6 +213,8 @@ def main(argv=None):
     shell.attach(win, ext, sni)
     if svc is not None:
         svc.attach(daemon, mouse)
+        svc.attach_profiles(profile_ctl)
+        svc.focusChanged.connect(profile_ctl.focusChanged)
         svc.showRequested.connect(shell.showMain)
         from .screenlock import ScreenLockWatcher
         ScreenLockWatcher(daemon, engine)       # a screen lock ends a running Click-Lock
@@ -210,6 +223,17 @@ def main(argv=None):
     win.setWidth(w)
     win.setHeight(h)
     win.setProperty("pageIndex", PAGES[args.page])
+    if args.profiles_demo in ("pick", "edit"):
+        page = win.findChild(QObject, "profilesPage")
+        if page is not None:
+            if args.profiles_demo == "pick":
+                QMetaObject.invokeMethod(page, "startPick")
+            else:
+                page.setProperty("editName", "Counter-Strike 2")
+                page.setProperty("protIndex", 3)
+                page.setProperty("lockIndex", 2)
+                page.setProperty("stageIndex", 2)
+                page.setProperty("mode", "edit")
     if args.hot_button is not None:
         page = win.findChild(QObject, "mousePage")
         if page is not None:
@@ -247,6 +271,7 @@ def main(argv=None):
         win.show()
 
     signal.signal(signal.SIGINT, signal.SIG_DFL)
+    app.aboutToQuit.connect(profile_ctl.shutdown)       # hands the user's settings back before the mouse goes
     app.aboutToQuit.connect(pointer.flush)
     app.aboutToQuit.connect(appearance.shutdown)
     app.aboutToQuit.connect(mouse.shutdown)

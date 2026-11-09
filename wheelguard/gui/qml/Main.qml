@@ -187,6 +187,7 @@ Window {
                     { label: "Scroll protection", icon: "shield" },
                     { label: "Mouse", icon: "mouse" },
                     { label: "Pointer", icon: "cursor" },
+                    { label: "Profiles", icon: "apps" },
                     { label: "About", icon: "info" }
                 ]
                 delegate: Item {
@@ -206,7 +207,7 @@ Window {
                     Keys.onSpacePressed: win.pageIndex = nav.index
                     Keys.onReturnPressed: win.pageIndex = nav.index
                     Keys.onUpPressed: if (nav.index > 0) { win.pageIndex = nav.index - 1; nav.nextItemInFocusChain(false).forceActiveFocus() }
-                    Keys.onDownPressed: if (nav.index < 3) { win.pageIndex = nav.index + 1; nav.nextItemInFocusChain(true).forceActiveFocus() }
+                    Keys.onDownPressed: if (nav.index < 4) { win.pageIndex = nav.index + 1; nav.nextItemInFocusChain(true).forceActiveFocus() }
                     WgFocusRing {}
 
                     Rectangle {
@@ -316,11 +317,19 @@ Window {
                     transform: Translate { y: win.pageIndex === 2 ? 0 : 12; Behavior on y { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutCubic } } }
                     Behavior on opacity { NumberAnimation { duration: Theme.normal } }
                 }
-                AboutPage {
+                ProfilesPage {
                     anchors.fill: parent
                     opacity: win.pageIndex === 3 ? 1 : 0
                     visible: opacity > 0
+                    enabled: visible
                     transform: Translate { y: win.pageIndex === 3 ? 0 : 12; Behavior on y { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutCubic } } }
+                    Behavior on opacity { NumberAnimation { duration: Theme.normal } }
+                }
+                AboutPage {
+                    anchors.fill: parent
+                    opacity: win.pageIndex === 4 ? 1 : 0
+                    visible: opacity > 0
+                    transform: Translate { y: win.pageIndex === 4 ? 0 : 12; Behavior on y { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutCubic } } }
                     Behavior on opacity { NumberAnimation { duration: Theme.normal } }
                 }
             }
