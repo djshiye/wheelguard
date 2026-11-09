@@ -22,9 +22,14 @@ Rectangle {
         if (daemonState === "stopped") return compact ? "Stopped" : "Service not running"
         return "Connecting…"
     }
-    readonly property string detail: daemonState === "running" ? device : ""
+    // At Large Text the connection suffix ("· dongle") goes, so the model name still fits.
+    readonly property string detail: {
+        if (daemonState !== "running")
+            return ""
+        return Theme.textScale > 1.2 ? device.split(" · ")[0] : device
+    }
 
-    implicitHeight: 34
+    implicitHeight: Theme.px(34)
     implicitWidth: row.implicitWidth + 28
     radius: height / 2
     color: Theme.alpha(tone, Theme.dark ? 0.12 : 0.14)
@@ -64,7 +69,7 @@ Rectangle {
         }
         Text {
             visible: root.detail !== ""
-            Layout.maximumWidth: 240
+            Layout.maximumWidth: Theme.px(240)
             text: root.detail
             elide: Text.ElideRight
             font.pixelSize: Theme.fsSmall

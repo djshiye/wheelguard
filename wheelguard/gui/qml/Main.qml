@@ -7,6 +7,7 @@ Window {
     id: win
     property int pageIndex: 0
     property alias advancedOpen: scrollPage.advancedOpen
+    property alias welcomeStep: welcome.step
 
     readonly property bool maximized: visibility === Window.Maximized || visibility === Window.FullScreen
     readonly property int margin: maximized ? 0 : 14
@@ -21,6 +22,8 @@ Window {
     title: "Wheelguard"
 
     Binding { target: Theme; property: "dark"; value: appearance.dark }
+    Binding { target: Theme; property: "textScale"; value: appearance.textScale }
+    Binding { target: Theme; property: "motion"; value: appearance.motion }
     Binding { target: Theme; property: "glass"; value: liquidGlass }
 
     onActiveChanged: if (active) pointer.refresh()
@@ -107,7 +110,7 @@ Window {
 
                 StatusPill {
                     daemonState: daemon.state
-                    device: daemon.device
+                    device: daemon.deviceLabel
                     protecting: daemon.enabled
                 }
 
@@ -120,6 +123,14 @@ Window {
                             id: wb
                             required property var modelData
                             width: 34; height: 34; radius: 10
+                            activeFocusOnTab: true
+                            Accessible.role: Accessible.Button
+                            Accessible.name: wb.modelData.close ? "Close" : "Minimize"
+                            function press() { wb.modelData.close ? win.close() : win.showMinimized() }
+                            Accessible.onPressAction: press()
+                            Keys.onSpacePressed: press()
+                            Keys.onReturnPressed: press()
+                            WgFocusRing {}
                             color: ma.pressed ? (modelData.close ? Theme.alpha(Theme.coral, 0.35) : Theme.border)
                                    : (ma.containsMouse ? (modelData.close ? Theme.alpha(Theme.coral, 0.2) : Theme.hover) : "transparent")
                             Behavior on color { ColorAnimation { duration: Theme.fast } }
@@ -148,7 +159,7 @@ Window {
             id: sidebar
             x: 12
             y: header.height
-            width: 204
+            width: Math.round(204 + (Theme.textScale - 1) * 170)     // wider with Large Text so labels keep their margin
             height: parent.height - header.height - 12
 
             Rectangle {   // moving selection highlight
@@ -176,6 +187,7 @@ Window {
                     { label: "Scroll protection", icon: "shield" },
                     { label: "Mouse", icon: "mouse" },
                     { label: "Pointer", icon: "cursor" },
+                    { label: "Profiles", icon: "apps" },
                     { label: "About", icon: "info" }
                 ]
                 delegate: Item {
@@ -186,6 +198,17 @@ Window {
                     y: 4 + index * 52
                     width: sidebar.width
                     height: 44
+                    property real radius: Theme.radiusSm      // read by the focus ring
+                    activeFocusOnTab: true
+                    Accessible.role: Accessible.PageTab
+                    Accessible.name: nav.modelData.label
+                    Accessible.selected: nav.current
+                    Accessible.onPressAction: win.pageIndex = nav.index
+                    Keys.onSpacePressed: win.pageIndex = nav.index
+                    Keys.onReturnPressed: win.pageIndex = nav.index
+                    Keys.onUpPressed: if (nav.index > 0) { win.pageIndex = nav.index - 1; nav.nextItemInFocusChain(false).forceActiveFocus() }
+                    Keys.onDownPressed: if (nav.index < 4) { win.pageIndex = nav.index + 1; nav.nextItemInFocusChain(true).forceActiveFocus() }
+                    WgFocusRing {}
 
                     Rectangle {
                         anchors.fill: parent
@@ -260,6 +283,8 @@ Window {
                 detail: daemon.detail
                 busy: daemon.serviceBusy
                 serviceError: daemon.serviceError
+                chosenDenied: daemon.mouseChoice !== "auto" && !daemon.mouseChoiceSupported
+                onAutomaticRequested: daemon.setMouse("auto")
                 onStartRequested: daemon.startService()
                 onRetryRequested: daemon.refreshStatus()
             }
@@ -280,6 +305,7 @@ Window {
                     Behavior on opacity { NumberAnimation { duration: Theme.normal } }
                 }
                 MousePage {
+                    objectName: "mousePage"
                     anchors.fill: parent
                     opacity: win.pageIndex === 1 ? 1 : 0
                     visible: opacity > 0
@@ -293,15 +319,33 @@ Window {
                     transform: Translate { y: win.pageIndex === 2 ? 0 : 12; Behavior on y { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutCubic } } }
                     Behavior on opacity { NumberAnimation { duration: Theme.normal } }
                 }
-                AboutPage {
+                ProfilesPage {
                     anchors.fill: parent
                     opacity: win.pageIndex === 3 ? 1 : 0
                     visible: opacity > 0
+                    enabled: visible
                     transform: Translate { y: win.pageIndex === 3 ? 0 : 12; Behavior on y { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutCubic } } }
+                    Behavior on opacity { NumberAnimation { duration: Theme.normal } }
+                }
+                AboutPage {
+                    anchors.fill: parent
+                    opacity: win.pageIndex === 4 ? 1 : 0
+                    visible: opacity > 0
+                    transform: Translate { y: win.pageIndex === 4 ? 0 : 12; Behavior on y { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutCubic } } }
                     Behavior on opacity { NumberAnimation { duration: Theme.normal } }
                 }
             }
         }
+    }
+
+    // ------------------------------------------------------------ first-run welcome (over everything but the header)
+    WelcomeOverlay {
+        id: welcome
+        x: win.margin
+        y: win.margin + header.height
+        width: win.width - 2 * win.margin
+        height: win.height - 2 * win.margin - header.height
+        cornerRadius: win.cornerRadius
     }
 
     // ------------------------------------------------------------ edge resize handles

@@ -19,7 +19,47 @@
   <url type="homepage">https://github.com/djshiye/wheelguard</url>
   <developer id="io.github.djshiye"><name>djshiye</name></developer>
   <content_rating type="oars-1.1"/>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Scroll protection with the live wheel monitor</caption>
+      <image type="source" width="1008" height="708">https://raw.githubusercontent.com/djshiye/wheelguard/main/docs/screenshots/scroll-dark.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>The mouse's own settings: battery, DPI stages and more</caption>
+      <image type="source" width="1008" height="708">https://raw.githubusercontent.com/djshiye/wheelguard/main/docs/screenshots/mouse-light.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Pointer settings and Click-Lock</caption>
+      <image type="source" width="1008" height="708">https://raw.githubusercontent.com/djshiye/wheelguard/main/docs/screenshots/pointer-dark.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Per-game profiles</caption>
+      <image type="source" width="1008" height="708">https://raw.githubusercontent.com/djshiye/wheelguard/main/docs/screenshots/profiles-light.png</image>
+    </screenshot>
+  </screenshots>
   <releases>
+    <release version="1.6.0" date="2026-11-09">
+      <description>
+        <ul>
+          <li>Per-game profiles: pick an app, such as a game, and Wheelguard switches scroll protection, Click-Lock and the DPI stage while it is in front, then back to your settings</li>
+          <li>Double-click fix: ignores the extra click a worn mouse button sends, for every mouse</li>
+          <li>Scroll protection works with any mouse that has a wheel; pick it in the new Mouse box</li>
+          <li>Wheel health: a 7 and 30 day chart of how often the wheel needed blocking, with a warning if it starts bouncing more</li>
+          <li>Click-Lock lets go by itself after 10 minutes (adjustable), and when the computer sleeps or the screen locks</li>
+          <li>Click-Lock in Repeat mode no longer starts while you are dragging</li>
+          <li>Low-battery alerts at 20% and 5%, with an amber dot on the panel icon</li>
+          <li>Keyboard shortcuts for Click-Lock and the next DPI stage, added from the About page</li>
+          <li>A drawing of your mouse on the Mouse page that lights up the button you are editing</li>
+          <li>A short welcome for new users that checks the mouse, permissions and protection strength</li>
+          <li>The status pill shows your mouse's real name and how it is connected</li>
+          <li>Calmer panel popup when the mouse is asleep; hover the icon to see the battery</li>
+          <li>Copy diagnostics: one click on About copies a privacy-safe report for bug reports</li>
+          <li>Works with screen readers and the keyboard, and follows GNOME's Large Text and Reduce Animation settings</li>
+          <li>The mouse is picked up the moment it wakes or is plugged in</li>
+          <li>The background service runs in a tight sandbox: read-only system and home folder, no network</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.5.1" date="2026-11-09">
       <description>
         <ul>

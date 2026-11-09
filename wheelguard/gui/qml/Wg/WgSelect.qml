@@ -8,12 +8,48 @@ Item {
     property int currentIndex: -1
     property string placeholder: "Custom"
     property bool edited: false
+    property string accessibleName: ""
+    // false: Up/Down on the closed control open the list instead of changing the value, so only Return,
+    // Space or a click commits (for choices with side effects, like which mouse to protect)
+    property bool commitOnArrow: true
     signal activated(int index)
-    function open() { popup.open() }
+    function open() { popup.highlighted = Math.max(0, currentIndex); popup.open() }
+
+    activeFocusOnTab: enabled
+    Accessible.role: Accessible.ComboBox
+    Accessible.name: accessibleName
+    Accessible.description: currentIndex >= 0 ? model[currentIndex] : placeholder
+    Accessible.onPressAction: open()
+    function move(d) {
+        if (popup.opened) {
+            popup.highlighted = Math.max(0, Math.min(model.length - 1, popup.highlighted + d))
+        } else if (!commitOnArrow) {
+            open()
+        } else if (model.length > 0) {
+            const i = currentIndex < 0 ? 0 : Math.max(0, Math.min(model.length - 1, currentIndex + d))
+            if (i !== currentIndex)
+                activated(i)
+        }
+    }
+    function confirm() {
+        if (!popup.opened) {
+            open()
+        } else {
+            popup.close()
+            if (popup.highlighted >= 0 && popup.highlighted !== currentIndex)
+                activated(popup.highlighted)
+        }
+    }
+    Keys.onUpPressed: move(-1)
+    Keys.onDownPressed: move(1)
+    Keys.onSpacePressed: confirm()
+    Keys.onReturnPressed: confirm()
+    Keys.onEnterPressed: confirm()
+    Keys.onEscapePressed: (event) => { event.accepted = popup.opened; popup.close() }
 
     implicitWidth: 180
-    implicitHeight: 36
-    opacity: enabled ? 1 : 0.5
+    implicitHeight: Math.max(36, Theme.px(36))
+    opacity: enabled ? 1 : 0.6
     Behavior on opacity { NumberAnimation { duration: Theme.fast } }
 
     Rectangle {
@@ -57,11 +93,12 @@ Item {
         anchors.fill: parent
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
-        onClicked: popup.opened ? popup.close() : popup.open()
+        onClicked: popup.opened ? popup.close() : root.open()
     }
 
     C.Popup {
         id: popup
+        property int highlighted: -1
         y: root.height + 4
         width: root.width
         padding: 5
@@ -83,9 +120,9 @@ Item {
                     required property int index
                     required property var modelData
                     width: parent.width
-                    height: 34
+                    height: Math.max(34, Theme.px(34))
                     radius: Theme.radiusSm - 4
-                    color: optMa.containsMouse ? Theme.hover : "transparent"
+                    color: optMa.containsMouse || opt.index === popup.highlighted ? Theme.hover : "transparent"
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
                         x: 12

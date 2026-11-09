@@ -24,12 +24,14 @@ Item {
         return out
     }
     readonly property string countWord: ["zero", "one", "two", "three", "four", "five", "six"][mouse.maxStages] || ("" + mouse.maxStages)
-    readonly property color valueTint: Theme.dark ? "#B79DFF" : Theme.accentA
+    readonly property color valueTint: Theme.accentValue
 
     // The editor's stage selection is view state only; the unlink toggles are too.
     property int editStage: 0
     property var unlinked: ({})
     property bool confirmRestore: false
+    property int hotButton: -1         // button row under the pointer or focus (lights it on the drawing)
+    function setHot(i, on) { if (on) hotButton = i; else if (hotButton === i) hotButton = -1 }
 
     function isEdited(key) { return edited.indexOf(key) >= 0 }
     function anyEdited(prefix) {
@@ -197,6 +199,16 @@ Item {
         property bool edited: false
         property string label: ""
         signal clicked()
+        activeFocusOnTab: inUse
+        Accessible.role: Accessible.RadioButton
+        Accessible.name: "Stage " + (idx + 1) + ", " + label + " DPI" + (active ? ", active" : "")
+        Accessible.checkable: true
+        Accessible.checked: selected
+        Accessible.onPressAction: if (inUse) clicked()
+        Keys.onSpacePressed: if (inUse) clicked()
+        Keys.onReturnPressed: if (inUse) clicked()
+        Keys.onEnterPressed: if (inUse) clicked()
+        WgFocusRing {}
         radius: Theme.radiusSm
         opacity: inUse ? 1 : 0.38
         color: selected ? "transparent" : (scMa.containsMouse && inUse ? Theme.cardHi : Theme.inset)
@@ -242,8 +254,8 @@ Item {
                 Rectangle {
                     visible: sc.active
                     Layout.preferredWidth: activeRow.implicitWidth + 14
-                    Layout.preferredHeight: 18
-                    radius: 9
+                    Layout.preferredHeight: Theme.px(18)
+                    radius: height / 2
                     color: Theme.alpha(Theme.accentB, 0.18)
                     Row {
                         id: activeRow
@@ -251,6 +263,7 @@ Item {
                         spacing: 5
                         Rectangle { width: 6; height: 6; radius: 3; color: Theme.accentB; anchors.verticalCenter: parent.verticalCenter }
                         Text {
+                            visible: Theme.textScale <= 1.2     // at Large Text the dot alone marks it: the card is too narrow
                             anchors.verticalCenter: parent.verticalCenter
                             text: "Active"
                             font.pixelSize: Theme.fsSmall - 2
@@ -295,6 +308,7 @@ Item {
             color: Theme.textMuted
         }
         WgSlider {
+            Accessible.name: (dr.axis ? dr.axis + " " : "") + "DPI"
             Layout.fillWidth: true
             enabled: root.editable
             from: 0
@@ -311,6 +325,7 @@ Item {
             }
         }
         WgSpinBox {
+            Accessible.name: (dr.axis ? dr.axis + " " : "") + "DPI"
             Layout.preferredWidth: 138
             enabled: root.editable
             suffix: " DPI"
@@ -358,16 +373,12 @@ Item {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 18
-                Rectangle {
-                    Layout.preferredWidth: 56
-                    Layout.preferredHeight: 56
+                MouseArt {
                     Layout.alignment: Qt.AlignTop
-                    radius: 18
-                    gradient: Gradient {
-                        GradientStop { position: 0.0; color: Theme.accentA }
-                        GradientStop { position: 1.0; color: Theme.accentB }
-                    }
-                    WgIcon { anchors.centerIn: parent; name: "mouse"; size: 28; color: "white"; strokeWidth: 1.9 }
+                    unit: 0.95
+                    modelKey: mouse.modelKey
+                    highlight: root.hotButton
+                    dim: !root.shown
                 }
                 ColumnLayout {
                     Layout.fillWidth: true
@@ -380,37 +391,47 @@ Item {
                             font.pixelSize: Theme.fsH2 + 3
                             font.weight: Font.DemiBold
                             color: Theme.text
+                            wrapMode: Text.WordWrap
                         }
                         WgButton {
+                            Layout.alignment: Qt.AlignTop
                             text: "Refresh"
                             iconName: "reset"
                             enabled: !mouse.busy
                             onClicked: mouse.refresh()
                         }
                     }
+                    RowLayout {   // battery and connection, big enough to read at a glance
+                        Layout.fillWidth: true
+                        spacing: 36
+                        ColumnLayout {
+                            visible: mouse.battery >= 0
+                            Layout.alignment: Qt.AlignTop
+                            spacing: 4
+                            Text { text: "BATTERY"; font.pixelSize: Theme.fsSmall - 1; font.weight: Font.DemiBold; font.letterSpacing: 0.8; color: Theme.textMuted }
+                            RowLayout {
+                                spacing: 10
+                                BatteryGlyph { Layout.preferredWidth: 38; Layout.preferredHeight: 18; percent: mouse.battery; charging: mouse.charging }
+                                Text { text: mouse.battery + "%"; font.pixelSize: Theme.fsH2 + 7; font.weight: Font.DemiBold; color: Theme.text }
+                                Text { visible: mouse.charging; text: "Charging"; font.pixelSize: Theme.fsSmall; color: Theme.good }
+                            }
+                        }
+                        ColumnLayout {
+                            visible: mouse.connection !== ""
+                            Layout.alignment: Qt.AlignTop
+                            spacing: 4
+                            Text { text: "CONNECTION"; font.pixelSize: Theme.fsSmall - 1; font.weight: Font.DemiBold; font.letterSpacing: 0.8; color: Theme.textMuted }
+                            RowLayout {
+                                spacing: 10
+                                WgIcon { name: mouse.connection === "wired" ? "plug" : "wireless"; size: 22; color: Theme.textMuted }
+                                Text { text: mouse.connection === "wired" ? "Wired" : mouse.wirelessText; font.pixelSize: Theme.fsBody + 1; font.weight: Font.DemiBold; color: Theme.text }
+                            }
+                        }
+                        Item { Layout.fillWidth: true }
+                    }
                     Flow {
                         Layout.fillWidth: true
                         spacing: 8
-                        Chip {
-                            visible: mouse.connection !== ""
-                            icon: mouse.connection === "wired" ? "plug" : "wireless"
-                            text: mouse.connection === "wired" ? "Wired" : mouse.wirelessText
-                        }
-                        Chip {
-                            visible: mouse.battery >= 0
-                            BatteryGlyph {
-                                anchors.verticalCenter: parent.verticalCenter
-                                percent: mouse.battery
-                                charging: mouse.charging
-                            }
-                            Text {
-                                anchors.verticalCenter: parent.verticalCenter
-                                text: mouse.charging ? mouse.battery + "% · Charging" : mouse.battery + "%"
-                                font.pixelSize: Theme.fsSmall
-                                font.weight: Font.Medium
-                                color: Theme.text
-                            }
-                        }
                         Chip { visible: mouse.mouseFw !== ""; text: "Mouse FW " + mouse.mouseFw }
                         Chip { visible: mouse.dongleFw !== ""; text: "Dongle FW " + mouse.dongleFw }
                     }
@@ -556,7 +577,7 @@ Item {
                     delegate: StageChip {
                         required property int index
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 72
+                        Layout.preferredHeight: Theme.px(72)
                         idx: index
                         inUse: index < root.v.stage_count
                         selected: index === root.editStage && inUse
@@ -669,6 +690,7 @@ Item {
                     }
                 }
                 WgSegmented {
+                    accessibleName: "Number of stages"
                     Layout.preferredWidth: 55 * mouse.maxStages
                     Layout.preferredHeight: 40
                     model: root.stageNumbers
@@ -690,6 +712,7 @@ Item {
             Heading { title: "Performance"; badge: root.polling[mouse.pollingCodes.indexOf(root.v.polling)] || "" }
             Hint { text: "Polling rate: how often the mouse reports its position. Higher is smoother but uses more battery." }
             WgSegmented {
+                accessibleName: "Polling rate"
                 Layout.fillWidth: true
                 model: root.polling
                 subLabels: root.hasSubs ? root.pollingSub : []
@@ -747,6 +770,7 @@ Item {
             Heading { title: "Lift-off distance"; badge: root.lodMm() }
             Hint { text: "How high you can lift the mouse before it stops tracking. A lower value stops tracking sooner, which helps when you reposition on the pad." }
             WgSegmented {
+                accessibleName: "Lift-off distance"
                 Layout.fillWidth: true
                 model: root.lodModel()
                 currentIndex: root.lodIndex()
@@ -787,11 +811,12 @@ Item {
                     readonly property bool hasGx: index < 2
                     Layout.fillWidth: true
                     spacing: 8
-                    RowLayout {
-                        visible: fr.hasGx
+                    HoverHandler { onHoveredChanged: root.setHot(fr.index, hovered) }
+                    RowLayout {     // the same three columns on every row: label, slider, value
                         Layout.fillWidth: true
-                        spacing: 12
+                        spacing: 14
                         RowLayout {
+                            Layout.preferredWidth: Theme.px(130)
                             spacing: 8
                             Text {
                                 text: mouse.buttonNames[fr.index]
@@ -803,31 +828,10 @@ Item {
                                 Layout.preferredWidth: 6; Layout.preferredHeight: 6; radius: 3
                                 color: Theme.accentB
                             }
-                        }
-                        Item { Layout.fillWidth: true }
-                        WgSegmented {
-                            Layout.preferredWidth: 270
-                            Layout.preferredHeight: 36
-                            model: ["Filter", "GX Speed", "GX Safe"]
-                            currentIndex: fr.mode
-                            onActivated: (i) => {
-                                if (i === fr.mode) return
-                                var key = "filter" + fr.index
-                                mouse.setValue(key, i === 1 ? mouse.gxSpeed : (i === 2 ? mouse.gxSafe
-                                                   : (mouse.baseline[key] <= mouse.filterMax ? mouse.baseline[key] : mouse.filterDefault)))
-                            }
-                        }
-                    }
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 14
-                        Text {
-                            Layout.preferredWidth: 130
-                            text: fr.hasGx ? "" : mouse.buttonNames[fr.index]
-                            font.pixelSize: Theme.fsBody
-                            color: Theme.text
+                            Item { Layout.fillWidth: true }
                         }
                         WgSlider {
+                            Accessible.name: "Click filter, " + mouse.buttonNames[fr.index]
                             Layout.fillWidth: true
                             enabled: fr.mode === 0
                             opacity: enabled ? 1 : 0.4
@@ -839,12 +843,26 @@ Item {
                             onMoved: mouse.setValue("filter" + fr.index, Math.round(value))
                         }
                         Text {
-                            Layout.preferredWidth: 72
+                            Layout.preferredWidth: Theme.px(72)
                             horizontalAlignment: Text.AlignRight
                             text: fr.mode === 1 ? "GX Speed" : (fr.mode === 2 ? "GX Safe" : "" + root.v["filter" + fr.index])
                             font.pixelSize: Theme.fsBody
                             font.weight: Font.DemiBold
                             color: root.valueTint
+                        }
+                    }
+                    WgSegmented {     // Left and Right only: the mode sits on its own line under the label
+                        visible: fr.hasGx
+                        accessibleName: "Click filter mode, " + mouse.buttonNames[fr.index]
+                        Layout.preferredWidth: Theme.px(300)
+                        Layout.preferredHeight: Theme.px(36)
+                        model: ["Filter", "GX Speed", "GX Safe"]
+                        currentIndex: fr.mode
+                        onActivated: (i) => {
+                            if (i === fr.mode) return
+                            var key = "filter" + fr.index
+                            mouse.setValue(key, i === 1 ? mouse.gxSpeed : (i === 2 ? mouse.gxSafe
+                                               : (mouse.baseline[key] <= mouse.filterMax ? mouse.baseline[key] : mouse.filterDefault)))
                         }
                     }
                 }
@@ -858,10 +876,13 @@ Item {
                 color: Theme.text
             }
             Hint { text: "Pick what each button does. Only mouse buttons and wheel actions are supported; keyboard keys and macros can't be set here." }
+            RowLayout {     // the rows on the left, the mouse on the right: the row you touch lights its button
+                Layout.fillWidth: true
+                spacing: 28
             GridLayout {
                 Layout.fillWidth: true
-                columns: 2
-                columnSpacing: 28
+                Layout.alignment: Qt.AlignTop
+                columns: 1
                 rowSpacing: 10
                 Repeater {
                     model: 5
@@ -870,8 +891,8 @@ Item {
                         required property int index
                         readonly property int idx: mouse.actionCodes.indexOf(root.v["button" + index])
                         Layout.fillWidth: true
-                        Layout.preferredWidth: 1
                         spacing: 10
+                        HoverHandler { onHoveredChanged: root.setHot(br.index, hovered) }
                         Text {
                             Layout.fillWidth: true
                             text: mouse.buttonNames[br.index]
@@ -880,8 +901,10 @@ Item {
                             elide: Text.ElideRight
                         }
                         WgSelect {
-                            Layout.preferredWidth: 170
+                            accessibleName: "Action for " + mouse.buttonNames[br.index]
+                            Layout.preferredWidth: 190
                             model: mouse.actionNames
+                            onActiveFocusChanged: root.setHot(br.index, activeFocus)
                             currentIndex: br.idx
                             placeholder: "Custom (unchanged)"
                             enabled: br.idx >= 0
@@ -890,6 +913,13 @@ Item {
                         }
                     }
                 }
+            }
+            MouseArt {
+                Layout.alignment: Qt.AlignVCenter
+                unit: 0.9
+                modelKey: mouse.modelKey
+                highlight: root.hotButton
+            }
             }
             RowLayout {
                 Layout.fillWidth: true
@@ -924,6 +954,7 @@ Item {
                 switchVisible: false
                 edited: root.isEdited("idle_min")
                 WgSpinBox {
+                    Accessible.name: "Sleep after"
                     suffix: " min"
                     from: mouse.idleMin
                     to: mouse.idleMax
@@ -939,6 +970,7 @@ Item {
                 switchVisible: false
                 edited: root.isEdited("low_battery")
                 WgSelect {
+                    accessibleName: "Low-battery warning"
                     implicitWidth: 120
                     model: mouse.lowBatteryLabels
                     // The nearest preset, so a level set elsewhere (e.g. in Synapse) never shows a blank box.
@@ -962,6 +994,7 @@ Item {
                 edited: root.anyEdited("sleep_")
                 onToggled: (on) => mouse.setValue("sleep_on", on)
                 WgSpinBox {
+                    Accessible.name: "Sleep after"
                     enabled: root.v.sleep_on
                     opacity: enabled ? 1 : 0.45
                     suffix: " min"
@@ -980,6 +1013,7 @@ Item {
                 edited: root.anyEdited("deep_")
                 onToggled: (on) => mouse.setValue("deep_on", on)
                 WgSpinBox {
+                    Accessible.name: "Deep sleep after"
                     enabled: root.v.deep_on
                     opacity: enabled ? 1 : 0.45
                     suffix: " min"

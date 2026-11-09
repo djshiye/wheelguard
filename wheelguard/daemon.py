@@ -13,28 +13,28 @@ import evdev
 from evdev import UInput, UInputError, ecodes as e
 
 from . import config as C
+from . import mice, scan
 from .control import POLL_S, Controller
 from .core import DROP, EMIT, HOLD
+from .hotplug import DeviceWatcher
 from .ipc import AlreadyRunning, Server
 
 log = logging.getLogger("wheelguard")
 UI_NAME = "wheelguard Endgame Gear"     # unchanged for every mouse, so existing setups see the same virtual device
 UI_PREFIX = "wheelguard"
+SETTLE_S = 0.25     # after a /dev/input change, let udev finish (permissions, sibling nodes) before searching
 
 
-# Mice Wheelguard knows, as (vendor, product) of their wheel-bearing input device. The configured
-# vendor/product (config.json) is tried first; these are the fallbacks, so any supported mouse gets the
-# scroll filter without editing the config. The Superlight's wireless ID is the one hid-logitech-dj
-# gives the mouse behind its receiver.
-KNOWN_MICE = (
-    (0x3367, 0x1970),       # Endgame Gear XM2w 4k v2, dongle
-    (0x3367, 0x1982),       # Endgame Gear XM2w 4k v2, cable
-    (0x1532, 0x00BF),       # Razer DeathAdder V4 Pro, dongle
-    (0x1532, 0x00BE),       # Razer DeathAdder V4 Pro, cable
-    (0x046D, 0x4093),       # Logitech G Pro X Superlight, LIGHTSPEED receiver
-    (0x046D, 0xC094),       # Logitech G Pro X Superlight, cable
-)
+# Mice Wheelguard knows, as (vendor, product) of their wheel-bearing input device (see mice.py for their
+# names). The configured vendor/product (config.json) is tried first; these are the fallbacks, so any
+# supported mouse gets the scroll filter without editing the config.
+KNOWN_MICE = mice.KNOWN_MICE
 _SKIP_NAMES = ("Keyboard", "Consumer Control", "System Control")
+
+
+def _ident(dev):
+    info = getattr(dev, "info", None)
+    return (info.vendor, info.product) if info else None
 
 
 def _wanted(vendor, product):
@@ -63,10 +63,12 @@ def _sysfs_is_wheel_mouse(path, vendor, product):
         return False
 
 
-def discover(vendor, product):
+def discover(vendor, product, mouse=None):
     """(device, error): the wheel-bearing event node of the configured mouse or, failing that, of the
-    first supported mouse found (KNOWN_MICE order); or a reason."""
-    ids = _wanted(vendor, product)
+    first supported mouse found (KNOWN_MICE order); or a reason. `mouse` ("vvvv:pppp") pins one mouse
+    instead (default: the config's "mouse" setting; "auto" = the behaviour above)."""
+    pinned = mice.parse_choice(scan.selected() if mouse is None else mouse)
+    ids = [pinned] if pinned else _wanted(vendor, product)
     denied = None
     best = None                 # (rank, device)
     # not evdev.list_devices(): that silently skips nodes we are not allowed to open
@@ -83,7 +85,7 @@ def discover(vendor, product):
         ident = (dev.info.vendor, dev.info.product)
         caps = dev.capabilities()
         if (ident in ids and not any(n in name for n in _SKIP_NAMES) and not name.startswith(UI_PREFIX)
-                and e.REL_WHEEL in caps.get(e.EV_REL, [])):
+                and e.REL_WHEEL in caps.get(e.EV_REL, []) and not scan.has_letter_keys(caps)):
             # prefer the configured mouse, then the node that also has the buttons
             rank = (ids.index(ident), 0 if e.BTN_LEFT in caps.get(e.EV_KEY, []) else 1)
             if best is None or rank < best[0]:
@@ -96,7 +98,7 @@ def discover(vendor, product):
         return best[1], None
     if denied:
         return None, f"permission denied: {denied}"
-    return None, "mouse not found"
+    return None, "selected mouse not found" if pinned else "mouse not found"
 
 
 def describe(ex):
@@ -214,20 +216,29 @@ def service(ctl, server, timeout, extra=()):
     return [fd for fd in readable if fd in extra]
 
 
-def idle(ctl, server, seconds):
-    """Wait `seconds` (the retry interval) while still answering IPC clients."""
+def idle(ctl, server, seconds, watcher=None):
+    """Wait `seconds` (the retry interval) while still answering IPC clients.
+
+    With a `watcher` (hotplug.DeviceWatcher) the wait ends early, SETTLE_S after an input device
+    appears or becomes accessible, so a mouse that wakes up or is plugged in is picked up at once.
+    """
     end = time.monotonic() + seconds
+    extra = () if watcher is None else (watcher.fileno(),)
     while (left := end - time.monotonic()) > 0:
-        service(ctl, server, left)
+        if service(ctl, server, left, extra) and watcher.drain():
+            ctl.invalidate_mice()
+            end = min(end, time.monotonic() + SETTLE_S)
 
 
 def buttons_down(dev):
-    """Mouse buttons the device reports as pressed right now (EVIOCGKEY)."""
-    return [code for code in dev.active_keys() if e.BTN_MOUSE <= code < e.BTN_JOYSTICK]
+    """Keys and buttons the device reports as pressed right now (EVIOCGKEY). Any key counts, not only
+    mouse buttons: a device that also has keyboard keys must not be grabbed while one is held, or the
+    desktop would never see its release."""
+    return list(dev.active_keys())
 
 
 def wait_for_buttons_up(dev, ctl, server):
-    """Don't grab the mouse while a button is held.
+    """Don't grab the mouse while a button (or key) is held.
 
     Until the grab, the desktop reads the mouse directly. If it saw a press there and the grab then
     swallowed the release (it would go only to us), the desktop would keep that button pressed until
@@ -280,8 +291,11 @@ def grab_when_buttons_up(dev, ctl, server):
         dev.ungrab()
 
 
-def run_session(dev, ctl, server, tick_log):
-    """Grab dev and filter until it disappears (OSError) or we are stopped."""
+def run_session(dev, ctl, server, tick_log, watcher=None):
+    """Grab dev and filter until it disappears (OSError) or we are stopped.
+
+    Returns True when it ended because the mouse choice changed (the caller searches again at once).
+    With a `watcher` (hotplug.DeviceWatcher) a change in /dev/input marks the mouse list stale."""
     try:
         ui = UInput.from_device(dev, name=UI_NAME)  # virtual device first, only then grab
     except (OSError, UInputError):
@@ -300,21 +314,38 @@ def run_session(dev, ctl, server, tick_log):
         grab_when_buttons_up(dev, ctl, server)
         grabbed = True
         cfg = ctl.cfg
+        pinned = mice.parse_choice(cfg.get("mouse"))
+        if pinned and pinned != _ident(dev):
+            # the choice changed between discover() and the grab (set_config only flags a running session)
+            log.info("mouse choice changed, switching")
+            return True
         log.info("filtering %s (%s), lock=%gms pre=%gms hold=%gms, click-lock %s", dev.name, dev.path,
                  cfg["lock_ms"], cfg["pre_ms"], cfg["hold_ms"],
                  f"after {cfg['clicklock_ms'] / 1000:g}s ({cfg['clicklock_mode']})" if cfg["clicklock"] else "off")
         ctl.reset_filter()
-        ctl.set_device(True, dev.name, None)
+        ctl.restart_requested = False
+        ctl.set_device(True, dev.name, None, ident=_ident(dev))
         reader = FrameReader(dev.active_keys)
         reader.state.down = set(dev.active_keys())   # normally empty (see grab_when_buttons_up)
         while True:
+            if ctl.restart_requested is True:
+                ctl.restart_requested = False
+                log.info("mouse choice changed, switching")
+                ctl.set_device(False, None, "switching mouse")
+                return True
             timeout = None
             now = time.time()
             if (deadline := ctl.deadline) is not None:
                 timeout = min(max(deadline - now, 0.0), ctl.cfg["hold_ms"] / 1000.0)
             if (deadline := ctl.clicklock_deadline) is not None:
                 timeout = min(timeout if timeout is not None else POLL_S, max(deadline - now, 0.0))
-            if service(ctl, server, timeout, (dev.fd,)):
+            if (deadline := ctl.debounce_deadline) is not None:
+                timeout = min(timeout if timeout is not None else POLL_S, max(deadline - now, 0.0))
+            extra = (dev.fd,) if watcher is None else (dev.fd, watcher.fileno())
+            readable = service(ctl, server, timeout, extra)
+            if watcher is not None and watcher.fileno() in readable and watcher.drain():
+                ctl.invalidate_mice()
+            if dev.fd in readable:
                 for ev in dev.read():
                     for frame in reader.feed(ev.type, ev.code, ev.value):
                         tick_log(ctl.handle_frame(frame, ev.timestamp(), write))
@@ -371,6 +402,7 @@ def main(argv=None):
         sys.exit(f"wheelguard: cannot create socket {server.path}: {ex}")
 
     tick_log = TickLogger(args.log)
+    watcher = DeviceWatcher.open()
     last_err = None
     try:
         while True:
@@ -384,14 +416,17 @@ def main(argv=None):
             else:
                 last_err = None
                 try:
-                    run_session(dev, ctl, server, tick_log)
+                    if run_session(dev, ctl, server, tick_log, watcher):
+                        continue                    # the mouse choice changed: search again at once
                 except (OSError, UInputError) as ex:
                     msg = describe(ex)
                     log.warning("session ended: %s; retrying", msg)
                     ctl.set_device(False, None, msg)
                     last_err = msg
-            idle(ctl, server, ctl.cfg["retry_s"])
+            idle(ctl, server, ctl.cfg["retry_s"], watcher)
     except KeyboardInterrupt:
         pass
     finally:
+        if watcher is not None:
+            watcher.close()
         server.close()

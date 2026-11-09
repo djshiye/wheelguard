@@ -27,14 +27,14 @@
 
 /* ---- header */
 .wg-header {
-  spacing: 10px; }
+  spacing: 8px; }
 .wg-home {
   border-radius: 9px;
   padding: 0; }
 .wg-home:hover, .wg-home:focus {
   background-color: rgba(255, 255, 255, 0.06); }
 .wg-home-row {
-  spacing: 10px; }
+  spacing: 8px; }
 .wg-logo {
   width: 28px;
   height: 28px; }
@@ -45,8 +45,8 @@
 
 .wg-pill {
   height: 28px;
-  padding: 0 12px 0 8px;
-  spacing: 6px;
+  padding: 0 10px 0 7px;
+  spacing: 5px;
   border-radius: 14px;
   background-color: rgba(144, 151, 168, 0.12);
   border: 1px solid rgba(144, 151, 168, 0.38); }
@@ -304,3 +304,18 @@
   border-color: rgba(95, 101, 117, 0.38); }
 .wg-light .wg-tone-muted .wg-dot {
   background-color: #5F6575; }
+
+/* Low battery: a small amber dot in the corner of the panel icon (the panel is dark in every GNOME theme) */
+.wg-low-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 4px;
+  background-color: #FFB547;
+  border: 1px solid #1B1D24;
+  margin: 1px 0 0 0; }
+
+/* Battery percentage shown beside the panel icon on hover */
+.wg-hover-label {
+  margin-left: 5px;
+  font-size: 13px;
+  font-weight: 600; }

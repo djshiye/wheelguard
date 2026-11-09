@@ -44,6 +44,9 @@ if HAVE_QT:
         def setClickLockMode(self, mode):
             self.calls.append(("clicklock_mode", mode))
 
+        def stopClickLock(self):
+            self.calls.append(("clicklock_stop",))
+
     class FakeMouse(QObject):
         trayChanged = Signal()
 
@@ -51,6 +54,7 @@ if HAVE_QT:
             super().__init__()
             self.online, self.battery, self.charging = True, 80, False
             self.stageLabels, self.activeStage, self.stageReason = ["400", "800"], 1, ""
+            self.stagesEnabled = True
             self.calls = []
 
         def setActiveStage(self, i):
@@ -120,6 +124,16 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(self.m.calls, [("stage", 0), ("refresh",)])
         self.assertEqual(self.d.calls, [("enabled", False), ("clicklock", True), ("clicklock_ms", 7000)])
 
+    def test_stop_clicklock_is_routed_and_the_screen_lock_watcher_calls_it(self):
+        from wheelguard.gui.screenlock import ScreenLockWatcher
+        self.svc.attach(self.d, self.m)
+        self.svc.stop_clicklock()
+        self.svc.adaptor.StopClickLock()
+        w = ScreenLockWatcher(self.d)
+        w.onActiveChanged(False)                        # the screen unlocking does nothing
+        w.onActiveChanged(True)
+        self.assertEqual(self.d.calls, [("clicklock_stop",)] * 3)
+
     def test_protection_needs_the_service(self):
         self.d.state = "stopped"
         self.svc.attach(self.d, self.m)
@@ -127,6 +141,36 @@ class ServiceTests(unittest.TestCase):
         self.svc.set_clicklock(True)
         self.svc.set_clicklock_ms(7000)
         self.assertEqual(self.d.calls, [])
+
+    def test_toggle_clicklock_flips_and_reports(self):
+        self.svc.attach(self.d, self.m)
+        self.assertEqual(self.svc.toggle_clicklock(), "ok:Click-Lock on")
+        self.d.clickLock = True
+        self.assertEqual(self.svc.toggle_clicklock(), "ok:Click-Lock off")
+        self.assertEqual(self.d.calls, [("clicklock", True), ("clicklock", False)])
+
+    def test_toggle_clicklock_needs_the_service(self):
+        self.assertTrue(self.svc.toggle_clicklock().startswith("error:"))       # not attached yet
+        self.d.state = "stopped"
+        self.svc.attach(self.d, self.m)
+        self.assertTrue(self.svc.toggle_clicklock().startswith("error:"))
+        self.assertEqual(self.d.calls, [])
+
+    def test_next_dpi_stage_wraps_round(self):
+        self.svc.attach(self.d, self.m)
+        self.assertEqual(self.svc.next_dpi_stage(), "ok:DPI 400")       # stage 1 of 2 -> back to the first
+        self.m.activeStage = 0
+        self.assertEqual(self.svc.next_dpi_stage(), "ok:DPI 800")
+        self.assertEqual(self.m.calls, [("stage", 0), ("stage", 1)])
+
+    def test_next_dpi_stage_says_why_not(self):
+        self.assertTrue(self.svc.next_dpi_stage().startswith("error:"))
+        self.svc.attach(self.d, self.m)
+        self.m.stageReason = "Unsaved changes on the Mouse page"
+        self.assertEqual(self.svc.next_dpi_stage(), "error:Unsaved changes on the Mouse page")
+        self.m.stageReason, self.m.stageLabels = "", []
+        self.assertTrue(self.svc.next_dpi_stage().startswith("error:"))
+        self.assertEqual(self.m.calls, [])
 
     def test_show_window_after_attach_is_signalled(self):
         self.svc.attach(self.d, self.m)
@@ -201,6 +245,52 @@ def private_bus():
 
 
 @unittest.skipUnless(HAVE_QT and shutil.which("dbus-daemon"), "needs PySide6 and dbus-daemon")
+class ScreenLockBusTests(unittest.TestCase):
+    """The real signal over a real (private) bus: a plain-string slot silently never connected."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QCoreApplication.instance() or QCoreApplication([])
+
+    def setUp(self):
+        self.proc, self.addr = private_bus()
+        self.addCleanup(self.proc.stdout.close)
+        self.addCleanup(self.proc.wait)
+        self.addCleanup(self.proc.terminate)
+        self.listener = QDBusConnection.connectToBus(self.addr, "wg-lock-listener")
+        self.addCleanup(QDBusConnection.disconnectFromBus, "wg-lock-listener")
+        self.shell = QDBusConnection.connectToBus(self.addr, "wg-lock-shell")
+        self.addCleanup(QDBusConnection.disconnectFromBus, "wg-lock-shell")
+
+    def emit(self, svc, path, iface, active):
+        from PySide6.QtDBus import QDBusMessage
+        self.assertTrue(self.shell.registerService(svc))
+        msg = QDBusMessage.createSignal(path, iface, "ActiveChanged")
+        msg.setArguments([active])
+        self.assertTrue(self.shell.send(msg))
+        pump(200)
+
+    def test_the_screensaver_signal_stops_click_lock(self):
+        from wheelguard.gui.screenlock import SERVICES, ScreenLockWatcher
+        d = FakeDaemon()
+        w = ScreenLockWatcher(d, bus=self.listener)
+        self.assertEqual(w.connected, [True] * len(SERVICES))
+        svc, path, iface = SERVICES[0]
+        self.emit(svc, path, iface, False)
+        self.assertEqual(d.calls, [])
+        self.emit(svc, path, iface, True)
+        self.assertEqual(d.calls, [("clicklock_stop",)])
+
+    def test_the_freedesktop_screensaver_works_too(self):
+        from wheelguard.gui.screenlock import SERVICES, ScreenLockWatcher
+        d = FakeDaemon()
+        w = ScreenLockWatcher(d, bus=self.listener)
+        self.emit(*SERVICES[1], True)
+        self.assertEqual(d.calls, [("clicklock_stop",)])
+        del w
+
+
+@unittest.skipUnless(HAVE_QT and shutil.which("dbus-daemon"), "needs PySide6 and dbus-daemon")
 class SingleInstanceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -271,6 +361,24 @@ class SingleInstanceTests(unittest.TestCase):
         self.assertEqual(out.split(), ["80", "True"])
         self.assertEqual(m.calls, [("stage", 0)])
         self.assertEqual(d.calls, [("enabled", False)])
+
+
+    def test_shortcut_commands_over_the_bus(self):
+        svc = service.Service(bus=self.first)
+        self.assertTrue(service.claim(self.first) and svc.register())
+        d, m = FakeDaemon(), FakeMouse()
+        svc.attach(d, m)
+        out = self.other_process(self.PRELUDE + (
+            "from wheelguard.gui import commands\n"
+            "print(commands.run_action('toggle-clicklock', service.call_remote_text, lambda: (False, 'x')))\n"
+            "print(commands.run_action('next-dpi-stage', service.call_remote_text, lambda: (False, 'x')))\n"))
+        self.assertEqual(out.splitlines(), ["(True, 'Click-Lock on')", "(True, 'DPI 400')"])
+        self.assertEqual(d.calls, [("clicklock", True)])
+        self.assertEqual(m.calls, [("stage", 0)])
+
+    def test_no_app_means_no_answer(self):
+        out = self.other_process(self.PRELUDE + "print(service.call_remote_text('NextDpiStage'))")
+        self.assertEqual(out.split(), ["None"])
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from . import clicklock, core
+from . import clicklock, core, mice
 
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "wheelguard"
 CONFIG_PATH = CONFIG_DIR / "config.json"
@@ -25,13 +25,20 @@ DEFAULTS = {
     "clicklock_ms": clicklock.DEFAULT_HOLD_MS,
     "clicklock_mode": clicklock.REPEAT,
     "clicklock_rate": clicklock.DEFAULT_RATE,
+    "clicklock_max_s": clicklock.DEFAULT_MAX_S,
+    "clicklock_ignore_drag": True,
+    "debounce_ms": 0,
+    "mouse": mice.AUTO,
 }
 MS_KEYS = ("lock_ms", "pre_ms", "hold_ms")
 MAX_MS = 2000
 MAX_RETRY_S = 3600
 CLICKLOCK_MS = (500, 30000)     # how long the button must be held before Click-Lock engages
 CLICKLOCK_RATE = (1, 30)        # repeat clicks per second
-CLICKLOCK_KEYS = ("clicklock", "clicklock_ms", "clicklock_mode", "clicklock_rate")
+CLICKLOCK_MAX_S = (10, 3600)    # safety timer: a running lock stops by itself after this long (0 = never)
+DEBOUNCE_MS = (10, 150)         # "Double-click fix": ignore a second press this soon after a release (0 = off)
+CLICKLOCK_KEYS = ("clicklock", "clicklock_ms", "clicklock_mode", "clicklock_rate", "clicklock_max_s",
+                  "clicklock_ignore_drag")
 
 
 def _number(key, v):
@@ -57,6 +64,16 @@ def _usb_id(key, v):
     return v
 
 
+def _mouse(v):
+    """"auto" or the "vvvv:pppp" hex IDs of the mouse to filter (lower case)."""
+    if v == mice.AUTO:
+        return v
+    ids = mice.parse_choice(v)
+    if ids is None:
+        raise ValueError('mouse must be "auto" or the hex IDs of a mouse like "3367:1970"')
+    return mice.format_choice(*ids)
+
+
 def normalize(partial, base=None):
     """Merge `partial` over `base` (default: DEFAULTS), validate, return a new full config.
 
@@ -68,7 +85,7 @@ def normalize(partial, base=None):
     for k, v in partial.items():
         if k not in DEFAULTS:
             raise ValueError(f"unknown key {k!r}")
-        if k in ("enabled", "clicklock"):
+        if k in ("enabled", "clicklock", "clicklock_ignore_drag"):
             if not isinstance(v, bool):
                 raise ValueError(f"{k} must be true or false")
             cfg[k] = v
@@ -76,6 +93,8 @@ def normalize(partial, base=None):
             if v not in clicklock.MODES:
                 raise ValueError("clicklock_mode must be " + " or ".join(f'"{m}"' for m in clicklock.MODES))
             cfg[k] = v
+        elif k == "mouse":
+            cfg[k] = _mouse(v)
         elif k in ("vendor", "product"):
             cfg[k] = _usb_id(k, v)
         else:
@@ -93,6 +112,12 @@ def normalize(partial, base=None):
     lo, hi = CLICKLOCK_RATE
     if not lo <= cfg["clicklock_rate"] <= hi:
         raise ValueError(f"clicklock_rate must be between {lo} and {hi}")
+    lo, hi = CLICKLOCK_MAX_S
+    if cfg["clicklock_max_s"] != 0 and not lo <= cfg["clicklock_max_s"] <= hi:
+        raise ValueError(f"clicklock_max_s must be 0 (never) or between {lo} and {hi}")
+    lo, hi = DEBOUNCE_MS
+    if cfg["debounce_ms"] != 0 and not lo <= cfg["debounce_ms"] <= hi:
+        raise ValueError(f"debounce_ms must be 0 (off) or between {lo} and {hi}")
     if not 0 < cfg["retry_s"] <= MAX_RETRY_S:
         raise ValueError(f"retry_s must be > 0 and <= {MAX_RETRY_S}")
     return cfg

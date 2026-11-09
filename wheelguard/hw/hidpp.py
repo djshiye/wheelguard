@@ -17,6 +17,7 @@ Not verified on hardware.
 """
 import errno
 import time
+from itertools import pairwise
 from typing import Callable, Dict, Optional, Set
 
 from .endgame import LinkError, Rejected, StatusError, WriteBlocked
@@ -264,7 +265,7 @@ def voltage_percent(mv: int) -> int:
         return 100
     if mv <= _VOLTAGE_CURVE[-1][0]:
         return 0
-    for (v_hi, p_hi), (v_lo, p_lo) in zip(_VOLTAGE_CURVE, _VOLTAGE_CURVE[1:]):
+    for (v_hi, p_hi), (v_lo, p_lo) in pairwise(_VOLTAGE_CURVE):
         if v_lo <= mv <= v_hi:
             return round(p_lo + (p_hi - p_lo) * (mv - v_lo) / (v_hi - v_lo))
     return 0

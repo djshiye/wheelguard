@@ -11,7 +11,6 @@ ever created when WHEELGUARD_HW_MOCK is set (see session.default_opener) or by t
 FakeRazer and FakeLogitech do the same for the other two mice: they sit under razer.RazerDevice and
 hidpp.HidppDevice and answer like the real protocol (as documented by OpenRazer, libratbag and Solaar).
 """
-import errno
 import os
 from collections import deque
 from typing import Deque, Dict, List, Optional

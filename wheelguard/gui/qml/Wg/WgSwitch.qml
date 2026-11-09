@@ -21,7 +21,7 @@ C.Switch {
         radius: height / 2
         color: Theme.track
         border.width: 1
-        border.color: control.visualFocus ? Theme.accentB
+        border.color: control.visualFocus ? Theme.focusRing
                       : (control.hovered && !control.checked ? Theme.borderHi : Theme.border)
         Behavior on border.color { ColorAnimation { duration: Theme.fast } }
 

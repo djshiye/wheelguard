@@ -150,6 +150,19 @@ class GsettingsParseTests(unittest.TestCase):
         self.assertFalse(gsettings.prefers_dark("'default'"))
         self.assertFalse(gsettings.prefers_dark("'prefer-light'"))
 
+    def test_text_scale(self):
+        self.assertEqual(gsettings.text_scale("1.25\n"), 1.25)
+        self.assertEqual(gsettings.text_scale("text-scaling-factor: 1.5"), 1.5)
+        self.assertEqual(gsettings.text_scale("1"), 1.0)
+        self.assertEqual(gsettings.text_scale("9.0"), 3.0)            # clamped
+        self.assertEqual(gsettings.text_scale(""), 1.0)
+        self.assertEqual(gsettings.text_scale("garbage"), 1.0)
+
+    def test_animations(self):
+        self.assertTrue(gsettings.animations("true"))
+        self.assertFalse(gsettings.animations("enable-animations: false"))
+        self.assertTrue(gsettings.animations(""))                     # unknown: keep animations
+
     def test_write_readonly_does_not_spawn(self):
         old = os.environ.get("WHEELGUARD_GSETTINGS_READONLY")
         os.environ["WHEELGUARD_GSETTINGS_READONLY"] = "1"
@@ -212,15 +225,16 @@ class ProtocolTests(unittest.TestCase):
               "stats": {"ticks": 100, "passed": 91, "dropped": 9, "since": 1.0}}
         self.assertEqual(protocol.status_config(st),
                          {"enabled": False, "pre_ms": 90, "hold_ms": 35, "lock_ms": 400, "clicklock": False,
-                          "clicklock_ms": 5000, "clicklock_mode": "repeat", "clicklock_rate": 10})
+                          "clicklock_ms": 5000, "clicklock_mode": "repeat", "clicklock_rate": 10,
+                          "clicklock_max_s": 600, "clicklock_ignore_drag": True, "debounce_ms": 0, "mouse": "auto"})
         st["config"].update(clicklock=True, clicklock_ms=7500, clicklock_mode=3)
         cfg = protocol.status_config(st)
         self.assertEqual((cfg["clicklock"], cfg["clicklock_ms"], cfg["clicklock_mode"]), (True, 7500, "repeat"))
         self.assertTrue(protocol.clicklock_active({"clicklock_active": True}))
         self.assertFalse(protocol.clicklock_active({}))
-        self.assertEqual(protocol.status_stats(st), {"ticks": 100, "dropped": 9})
+        self.assertEqual(protocol.status_stats(st), {"ticks": 100, "dropped": 9, "debounced": 0})
         self.assertIsNone(protocol.status_config({}))
-        self.assertEqual(protocol.status_stats({}), {"ticks": 0, "dropped": 0})
+        self.assertEqual(protocol.status_stats({}), {"ticks": 0, "dropped": 0, "debounced": 0})
         self.assertEqual(protocol.status_config({"config": {}})["lock_ms"], 300)
 
     def test_block_rate(self):
@@ -237,6 +251,15 @@ class ProtocolTests(unittest.TestCase):
                          ("set", "hold_ms must be < lock_ms"))
         self.assertEqual(q.resolve({"type": "ok"}), ("reset_stats", None))
         self.assertEqual(q.resolve({"type": "ok"}), ("?", None))
+
+    def test_command_queue_settles_typed_replies(self):
+        q = protocol.CommandQueue()
+        for name in ("set", "history", "mice", "set"):
+            q.push(name)
+        q.settle("history")
+        q.settle("mice")
+        q.settle("mice")                                       # nothing left to settle: harmless
+        self.assertEqual(len(q), 2)
 
 
 @unittest.skipUnless(HAVE_QT, "PySide6 not installed")
@@ -404,6 +427,119 @@ class DaemonClientTests(unittest.TestCase):
         self.assertTrue(self.pump(lambda: self.client.clickLockMs == 15000))
         self.assertEqual(self.client.presetName, "Balanced")     # wheel settings untouched
 
+    def test_safety_timer_setting_and_stop_command(self):
+        status = self.STATUS
+        self.reply_for = lambda m: ([status] if m["cmd"] == "subscribe" else [{"type": "ok"}])
+        self.client.start()
+        self.assertTrue(self.pump(lambda: self.client.state == "running"))
+        self.assertEqual(self.client.clickLockMaxS, 600)
+        self.client.setClickLockMaxS(0)                 # "Never"
+        self.client.setClickLockMaxS(99999)             # clamped to the daemon's limit
+        self.assertTrue(self.pump(lambda: len([m for m in self.received if m["cmd"] == "set"]) == 2))
+        self.assertEqual([m["config"] for m in self.received if m["cmd"] == "set"],
+                         [{"clicklock_max_s": 0}, {"clicklock_max_s": 3600}])
+        self.client.stopClickLock()
+        self.assertTrue(self.pump(lambda: {"cmd": "clicklock_stop"} in self.received))
+        self.assertTrue(self.client.clickLockIgnoreDrag)
+        self.client.setClickLockIgnoreDrag(False)
+        self.assertFalse(self.client.clickLockIgnoreDrag)
+        self.assertTrue(self.pump(lambda: {"cmd": "set", "config": {"clicklock_ignore_drag": False}} in self.received))
+
+    def test_an_old_daemons_unknown_command_error_does_not_revert_a_pending_set(self):
+        status = self.STATUS
+        answers = []
+
+        def reply(msg):
+            if msg["cmd"] == "subscribe":
+                return [status]
+            if msg["cmd"] in ("history", "mice"):
+                return [{"type": "error", "message": f"unknown command: {msg['cmd']}"}]
+            if msg["cmd"] == "set":
+                answers.append(msg)
+                return [{"type": "ok"}]
+            return []
+        self.reply_for = reply
+        self.client.start()
+        self.assertTrue(self.pump(lambda: self.client.state == "running"))
+        self.client.refreshHistory()
+        self.client.refreshMice()
+        self.client.setMs("pre_ms", 111)
+        self.assertTrue(self.pump(lambda: len(answers) == 1))
+        self.pump(lambda: False, 0.2)
+        self.assertEqual(self.client.editError, "")
+        self.assertEqual(self.client.preMs, 111)                 # not reverted
+        self.assertEqual(len(self.client._queue), 0)
+
+    def test_typed_replies_leave_nothing_in_the_queue(self):
+        status = self.STATUS
+
+        def reply(msg):
+            if msg["cmd"] == "subscribe":
+                return [status]
+            if msg["cmd"] == "history":
+                return [{"type": "history", "days": []}]
+            if msg["cmd"] == "mice":
+                return [{"type": "mice", "mice": []}]
+            return [{"type": "ok"}]
+        self.reply_for = reply
+        self.client.start()
+        self.assertTrue(self.pump(lambda: self.client.state == "running"))
+        self.client.refreshHistory()
+        self.client.refreshMice()
+        self.assertTrue(self.pump(lambda: {"cmd": "mice"} in self.received))
+        self.assertTrue(self.pump(lambda: len(self.client._queue) == 0))
+
+    def test_double_click_fix_remembers_the_daemons_window(self):
+        status = dict(self.STATUS, config=dict(self.STATUS["config"], debounce_ms=80))
+        self.reply_for = lambda m: ([status] if m["cmd"] == "subscribe" else [{"type": "ok"}])
+        self.client.start()
+        self.assertTrue(self.pump(lambda: self.client.state == "running"))
+        self.client.setDebounce(False)
+        self.client.setDebounce(True)                   # back to what the daemon had, not the default 40
+        self.assertTrue(self.pump(lambda: self.received.count({"cmd": "set", "config": {"debounce_ms": 80}}) == 1))
+
+    def test_double_click_fix_setting_and_count(self):
+        status = dict(self.STATUS, stats={"ticks": 5, "passed": 5, "dropped": 0, "debounced": 7, "since": 1.0})
+        self.reply_for = lambda m: ([status] if m["cmd"] == "subscribe" else [{"type": "ok"}])
+        self.client.start()
+        self.assertTrue(self.pump(lambda: self.client.state == "running"))
+        self.assertEqual((self.client.debounceOn, self.client.debounceMs, self.client.debouncedClicks), (False, 0, 7))
+        self.client.setDebounce(True)                   # switching on starts at the default
+        self.assertTrue(self.pump(lambda: {"cmd": "set", "config": {"debounce_ms": 40}} in self.received))
+        self.assertTrue(self.client.debounceOn)
+        self.client.setDebounceMs(5)                    # clamped into the slider range
+        self.assertTrue(self.pump(lambda: {"cmd": "set", "config": {"debounce_ms": 10}} in self.received))
+        self.client.setDebounce(False)
+        self.assertTrue(self.pump(lambda: {"cmd": "set", "config": {"debounce_ms": 0}} in self.received))
+        self.client.setDebounce(True)                   # remembers the last value used
+        self.assertTrue(self.pump(lambda: self.received.count({"cmd": "set", "config": {"debounce_ms": 10}}) == 2))
+
+    def test_mouse_picker_state_and_commands(self):
+        mice = [{"name": "Endgame Gear XM2w 4k v2", "vendor": "3367", "product": "1970", "supported": True,
+                 "connection": "dongle"},
+                {"name": "Acme Mouse", "vendor": "1111", "product": "2222", "supported": False}]
+        status = dict(self.STATUS, mice=mice[:1])
+
+        def reply(m):
+            if m["cmd"] == "subscribe":
+                return [status]
+            if m["cmd"] == "mice":
+                return [{"type": "mice", "mice": mice}]
+            return [{"type": "ok"}]
+        self.reply_for = reply
+        self.client.start()
+        self.assertTrue(self.pump(lambda: len(self.client.mouseIds) == 2))
+        self.assertEqual(list(self.client.mouseIds), ["auto", "3367:1970"])
+        self.assertEqual(self.client.mouseIndex, 0)
+        self.client.refreshMice()
+        self.assertTrue(self.pump(lambda: len(self.client.mouseIds) == 3))
+        self.assertEqual(list(self.client.mouseLabels)[2], "Acme Mouse (not tested)")
+        self.client.setMouse("nonsense")                # never sent
+        self.client.setMouse("1111:2222")
+        self.assertTrue(self.pump(lambda: {"cmd": "set", "config": {"mouse": "1111:2222"}} in self.received))
+        self.assertEqual([m for m in self.received if m.get("config", {}).get("mouse") == "nonsense"], [])
+        self.assertEqual(self.client.mouseIndex, 2)     # the picker follows the choice at once
+
     def test_status_does_not_clobber_pending_edit(self):
         status = self.STATUS
         self.reply_for = lambda m: [status] if m["cmd"] == "subscribe" else []
@@ -490,3 +626,40 @@ class LiquidGlassTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AppearanceTests(unittest.TestCase):
+    """Live GNOME look and accessibility settings, as `gsettings monitor` reports them."""
+
+    def setUp(self):
+        from wheelguard.gui.backend import Appearance
+        self.a = Appearance(override=None, text_scale=None, motion=None)
+        self.a._update(dark=False, scale=1.0, motion=True)
+        self.changes = []
+        self.a.changed.connect(lambda: self.changes.append(1))
+
+    def test_large_text(self):
+        self.a.apply_line("text-scaling-factor: 1.25")
+        self.assertEqual(self.a.textScale, 1.25)
+        self.assertEqual(len(self.changes), 1)
+
+    def test_reduce_animation(self):
+        self.a.apply_line("enable-animations: false")
+        self.assertFalse(self.a.motion)
+
+    def test_dark(self):
+        self.a.apply_line("color-scheme: 'prefer-dark'")
+        self.assertTrue(self.a.dark)
+
+    def test_unrelated_key_and_no_change_are_quiet(self):
+        self.a.apply_line("cursor-size: 32")
+        self.a.apply_line("text-scaling-factor: 1.0")
+        self.assertEqual(self.changes, [])
+
+    def test_overrides_win(self):
+        from wheelguard.gui.backend import Appearance
+        a = Appearance(override=True, text_scale=1.5, motion=False)
+        a.apply_line("color-scheme: 'default'")
+        a.apply_line("text-scaling-factor: 1.0")
+        a.apply_line("enable-animations: true")
+        self.assertEqual((a.dark, a.textScale, a.motion), (True, 1.5, False))

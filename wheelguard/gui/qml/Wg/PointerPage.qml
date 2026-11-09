@@ -64,10 +64,11 @@ WgScrollPage {
                 text: Math.round((pointer.speed + 1) * 50) + "%"
                 font.pixelSize: Theme.fsH2
                 font.weight: Font.DemiBold
-                color: Theme.dark ? "#B79DFF" : Theme.accentA
+                color: Theme.accentValue
             }
         }
         WgSlider {
+            Accessible.name: "Pointer speed"
             Layout.fillWidth: true
             from: -1
             to: 1
@@ -99,6 +100,7 @@ WgScrollPage {
             color: Theme.text
         }
         WgSegmented {
+            accessibleName: "Acceleration"
             Layout.fillWidth: true
             model: ["System default", "Off", "On"]
             subLabels: ["GNOME's choice", "raw, best for games", "speeds up with motion"]
@@ -144,6 +146,8 @@ WgScrollPage {
                 }
             }
             WgSwitch {
+                Accessible.name: tr.title
+                Accessible.description: tr.description
                 checked: tr.checked
                 onToggled: tr.toggled(checked)
             }
@@ -177,7 +181,7 @@ WgScrollPage {
         width: parent.width
         spacing: 14
         readonly property bool reachable: daemon.state === "running" || daemon.state === "waiting"
-        readonly property color valueColor: Theme.dark ? "#B79DFF" : Theme.accentA
+        readonly property color valueColor: Theme.accentValue
         function seconds(ms) { return (ms / 1000).toLocaleString(Qt.locale(), "f", ms % 1000 ? 1 : 0) + " s" }
 
         RowLayout {
@@ -199,7 +203,7 @@ WgScrollPage {
                         visible: opacity > 0
                         opacity: daemon.clickLockActive ? 1 : 0
                         Behavior on opacity { NumberAnimation { duration: Theme.normal } }
-                        Layout.preferredHeight: 22
+                        Layout.preferredHeight: Theme.px(22)
                         Layout.preferredWidth: liveRow.implicitWidth + 18
                         radius: 11
                         color: Theme.alpha(Theme.good, 0.16)
@@ -210,11 +214,13 @@ WgScrollPage {
                             anchors.centerIn: parent
                             spacing: 6
                             Rectangle {
+                                id: liveDot
                                 anchors.verticalCenter: parent.verticalCenter
                                 width: 7; height: 7; radius: 3.5
                                 color: Theme.good
                                 SequentialAnimation on opacity {
-                                    running: daemon.clickLockActive
+                                    running: daemon.clickLockActive && Theme.motion
+                                    onRunningChanged: if (!running) liveDot.opacity = 1
                                     loops: Animation.Infinite
                                     NumberAnimation { to: 0.3; duration: 500 }
                                     NumberAnimation { to: 1; duration: 500 }
@@ -242,8 +248,9 @@ WgScrollPage {
             }
             WgSwitch {
                 Layout.alignment: Qt.AlignTop
+                Accessible.name: "Click-Lock"
                 enabled: clCard.reachable
-                opacity: enabled ? 1 : 0.5
+                opacity: enabled ? 1 : 0.6
                 checked: daemon.clickLock
                 onToggled: daemon.setClickLock(checked)
             }
@@ -253,10 +260,11 @@ WgScrollPage {
             Layout.fillWidth: true
             spacing: 10
             enabled: clCard.reachable
-            opacity: daemon.clickLock && clCard.reachable ? 1 : 0.55
-            Behavior on opacity { NumberAnimation { duration: Theme.normal } }
 
             WgSegmented {
+                opacity: daemon.clickLock && clCard.reachable ? 1 : 0.6     // dim the control, never its label
+                accessibleName: "Click-Lock mode"
+                muted: !daemon.clickLock
                 Layout.fillWidth: true
                 model: ["Repeat clicks", "Hold down"]
                 subLabels: ["keeps clicking for you", "keeps the button pressed"]
@@ -282,6 +290,8 @@ WgScrollPage {
                 }
             }
             WgSlider {
+                opacity: daemon.clickLock && clCard.reachable ? 1 : 0.6     // dim the control, never its label
+                Accessible.name: "Click-Lock hold time"
                 Layout.fillWidth: true
                 from: 1000
                 to: 15000
@@ -300,6 +310,15 @@ WgScrollPage {
                 Text { text: "15 s"; font.pixelSize: Theme.fsSmall; color: Theme.textFaint }
             }
 
+            WgToggleRow {
+                visible: daemon.clickLockMode !== "hold"
+                Layout.topMargin: 10
+                Layout.bottomMargin: 6
+                title: "Ignore drags"
+                description: "Only start clicking when the pointer stays still while you hold. Dragging a window or selecting text won't start Click-Lock by accident."
+                checked: daemon.clickLockIgnoreDrag
+                onToggled: (v) => daemon.setClickLockIgnoreDrag(v)
+            }
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 10
@@ -322,6 +341,8 @@ WgScrollPage {
                     }
                 }
                 WgSlider {
+                    opacity: daemon.clickLock && clCard.reachable ? 1 : 0.6     // dim the control, never its label
+                    Accessible.name: "Click-Lock click speed"
                     Layout.fillWidth: true
                     from: 1
                     to: 30
@@ -332,11 +353,155 @@ WgScrollPage {
                     onMoved: daemon.setClickLockRate(Math.round(value))
                 }
             }
+            RowLayout {   // safety timer
+                Layout.fillWidth: true
+                Layout.topMargin: 4
+                spacing: 16
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 2
+                    Text {
+                        text: "Stop automatically after"
+                        font.pixelSize: Theme.fsBody
+                        font.weight: Font.DemiBold
+                        color: Theme.text
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: "A safety net: if you forget about a lock, it lets go by itself. It also stops when the computer sleeps or the screen locks."
+                        font.pixelSize: Theme.fsSmall
+                        color: Theme.textMuted
+                        wrapMode: Text.WordWrap
+                    }
+                }
+                WgSelect {
+                    opacity: daemon.clickLock && clCard.reachable ? 1 : 0.6     // dim the control, never its label
+                    Layout.alignment: Qt.AlignTop
+                    Layout.preferredWidth: 150
+                    Accessible.name: "Stop Click-Lock automatically after"
+                    readonly property var values: [0, 60, 300, 600, 1800]
+                    model: ["Never", "1 minute", "5 minutes", "10 minutes", "30 minutes"]
+                    currentIndex: values.indexOf(daemon.clickLockMaxS)
+                    placeholder: daemon.clickLockMaxS >= 120 ? Math.round(daemon.clickLockMaxS / 60) + " minutes"
+                                                             : daemon.clickLockMaxS + " seconds"
+                    onActivated: (i) => daemon.setClickLockMaxS(values[i])
+                }
+            }
             Text {
                 Layout.fillWidth: true
                 text: "Also in the Wheelguard menu in the top bar, for switching it on and off quickly."
                 font.pixelSize: Theme.fsSmall
                 color: Theme.textFaint
+                wrapMode: Text.WordWrap
+            }
+        }
+    }
+
+    // Double-click fix (done by the Wheelguard service: drops the second press of a worn switch's chatter)
+    WgCard {
+        id: dbCard
+        width: parent.width
+        spacing: 14
+        readonly property bool reachable: daemon.state === "running" || daemon.state === "waiting"
+        readonly property color valueColor: Theme.accentValue
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 16
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 4
+                Text {
+                    text: "Double-click fix"
+                    font.pixelSize: Theme.fsH2
+                    font.weight: Font.DemiBold
+                    color: Theme.text
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: "Worn switches can let go for a moment mid-click. Wheelguard waits that long before releasing, so a bounce can't turn a click into a double-click or break a drag."
+                    font.pixelSize: Theme.fsBody - 1
+                    color: Theme.textMuted
+                    wrapMode: Text.WordWrap
+                }
+            }
+            WgSwitch {
+                Layout.alignment: Qt.AlignTop
+                Accessible.name: "Double-click fix"
+                enabled: dbCard.reachable
+                opacity: enabled ? 1 : 0.6
+                checked: daemon.debounceOn
+                onToggled: daemon.setDebounce(checked)
+            }
+        }
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 10
+            enabled: dbCard.reachable && daemon.debounceOn
+
+            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.border }
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.topMargin: 4
+                Text {
+                    Layout.fillWidth: true
+                    text: "Ignore a bounce within"
+                    font.pixelSize: Theme.fsBody
+                    font.weight: Font.DemiBold
+                    color: Theme.text
+                }
+                Text {
+                    text: daemon.debounceOn ? daemon.debounceMs + " ms" : "Off"
+                    font.pixelSize: Theme.fsBody
+                    font.weight: Font.DemiBold
+                    color: dbCard.valueColor
+                }
+            }
+            WgSlider {
+                opacity: daemon.debounceOn && dbCard.reachable ? 1 : 0.6     // dim the control, never its label
+                Layout.fillWidth: true
+                Accessible.name: "Ignore a bounce within, in milliseconds"
+                from: 10
+                to: 150
+                stepSize: 5
+                snapMode: WgSlider.SnapAlways
+                value: daemon.debounceOn ? daemon.debounceMs : 40
+                valueText: Math.round(value) + " ms"
+                onMoved: daemon.setDebounceMs(Math.round(value))
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.leftMargin: 4
+                Layout.rightMargin: 4
+                Text { text: "10 ms"; font.pixelSize: Theme.fsSmall; color: Theme.textFaint }
+                Item { Layout.fillWidth: true }
+                Text { text: "150 ms"; font.pixelSize: Theme.fsSmall; color: Theme.textFaint }
+            }
+            Text {
+                Layout.fillWidth: true
+                text: "Start around 40 ms. Raise it only if stray double-clicks continue. Letting go of a button is delayed by up to this long, and too high a value merges a genuinely fast double-click into one."
+                font.pixelSize: Theme.fsSmall
+                color: Theme.textFaint
+                wrapMode: Text.WordWrap
+            }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            visible: dbCard.reachable && (daemon.debounceOn || daemon.debouncedClicks > 0)
+            spacing: 10
+            WgIcon { name: "check"; size: 16; color: daemon.debouncedClicks > 0 ? Theme.good : Theme.textFaint }
+            Text {
+                Layout.fillWidth: true
+                text: daemon.debouncedClicks === 0
+                      ? "No stray clicks caught yet"
+                      : daemon.debouncedClicks.toLocaleString(Qt.locale(), "f", 0)
+                        + (daemon.debouncedClicks === 1 ? " stray click fixed" : " stray clicks fixed")
+                        + " since the counters were last reset"
+                font.pixelSize: Theme.fsBody - 1
+                font.weight: Font.Medium
+                color: daemon.debouncedClicks > 0 ? Theme.text : Theme.textMuted
                 wrapMode: Text.WordWrap
             }
         }
@@ -356,8 +521,8 @@ WgScrollPage {
         SequentialAnimation {
             id: flash
             NumberAnimation { target: dcCard; property: "lit"; to: 1; duration: Theme.fast; easing.type: Easing.OutCubic }
-            PauseAnimation { duration: 350 }
-            NumberAnimation { target: dcCard; property: "lit"; to: 0; duration: 520; easing.type: Easing.InOutQuad }
+            PauseAnimation { duration: Theme.motion ? 350 : 0 }
+            NumberAnimation { target: dcCard; property: "lit"; to: 0; duration: Theme.motion ? 520 : 0; easing.type: Easing.InOutQuad }
         }
         Timer {
             id: reset
@@ -378,7 +543,7 @@ WgScrollPage {
                 text: pointer.doubleClick + " ms"
                 font.pixelSize: Theme.fsH2
                 font.weight: Font.DemiBold
-                color: Theme.dark ? "#B79DFF" : Theme.accentA
+                color: Theme.accentValue
             }
         }
         Text {
@@ -389,6 +554,7 @@ WgScrollPage {
             wrapMode: Text.WordWrap
         }
         WgSlider {
+            Accessible.name: "Double-click speed"
             Layout.fillWidth: true
             from: 100
             to: 1000
@@ -401,7 +567,7 @@ WgScrollPage {
         Rectangle {
             id: target
             Layout.fillWidth: true
-            Layout.preferredHeight: 76
+            Layout.preferredHeight: Theme.px(76)
             radius: Theme.radius - 2
             color: Theme.inset
             border.width: 1
@@ -474,7 +640,7 @@ WgScrollPage {
                 text: pointer.dragThreshold + " px"
                 font.pixelSize: Theme.fsH2
                 font.weight: Font.DemiBold
-                color: Theme.dark ? "#B79DFF" : Theme.accentA
+                color: Theme.accentValue
             }
         }
         Text {
@@ -485,6 +651,7 @@ WgScrollPage {
             wrapMode: Text.WordWrap
         }
         WgSlider {
+            Accessible.name: "Drag threshold"
             Layout.fillWidth: true
             from: 1
             to: 64

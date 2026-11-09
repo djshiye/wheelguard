@@ -1,4 +1,5 @@
 """QObject backends exposed to QML: daemon client, GNOME pointer settings, appearance, Liquid Glass."""
+import datetime
 import json
 import os
 from typing import Optional
@@ -36,6 +37,8 @@ class DaemonClient(QObject):
     editErrorChanged = Signal()
     serviceChanged = Signal()
     clickLockActiveChanged = Signal()
+    miceChanged = Signal()
+    historyChanged = Signal()
     tick = Signal(int, str, bool, float)     # sign, kind, held, t
 
     def __init__(self, path: Optional[str] = None, parent=None):
@@ -43,15 +46,20 @@ class DaemonClient(QObject):
         self._path = path or default_socket_path()
         self._state = "connecting"
         self._device = ""
+        self._label = ""
         self._detail = ""
         self._version = ""
         self._server_cfg = dict(protocol.CONFIG_DEFAULTS)
         self._clicklock_active = False
+        self._mice: list = []
+        self._history: list = []
         self._cfg = dict(self._server_cfg)
         self._staged: dict = {}
         self._inflight = 0
         self._ticks = 0
         self._dropped = 0
+        self._debounced = 0
+        self._last_debounce_ms = protocol.DEBOUNCE_DEFAULT_ON_MS
         self._edit_error = ""
         self._service_busy = False
         self._service_error = ""
@@ -121,9 +129,10 @@ class DaemonClient(QObject):
             self._attempt += 1
             self._retry.start(int(delay * 1000))
 
-    def _set_state(self, state, device, detail):
-        if (state, device, detail) != (self._state, self._device, self._detail):
-            self._state, self._device, self._detail = state, device, detail
+    def _set_state(self, state, device, detail, label=None):
+        label = device if label is None else label
+        if (state, device, detail, label) != (self._state, self._device, self._detail, self._label):
+            self._state, self._device, self._detail, self._label = state, device, detail, label
             self.stateChanged.emit()
 
     def _send(self, msg: dict, track: Optional[str] = None):
@@ -151,6 +160,12 @@ class DaemonClient(QObject):
                     self._dropped += tk.kind == "drop"
                     self.statsChanged.emit()
                 self.tick.emit(tk.sign, tk.kind, tk.held, tk.t)
+        elif t == "history":
+            self._queue.settle("history")
+            self._set_history(protocol.history_days(msg))
+        elif t == "mice":
+            self._queue.settle("mice")
+            self._set_mice(msg.get("mice"))
         elif t == "status":
             self._on_status(msg)
         elif t in ("ok", "error"):
@@ -159,20 +174,33 @@ class DaemonClient(QObject):
     def _on_status(self, msg: dict):
         ds = protocol.device_state(msg)
         self._version = str(msg.get("version") or "")
-        self._set_state(ds.state, ds.device, ds.error)
+        self._set_state(ds.state, ds.device, ds.error, ds.label)
         cfg = protocol.status_config(msg)
         if cfg is not None:
             self._server_cfg = cfg
             if not self._dirty():
                 self._set_cfg(cfg)
+        if "mice" in msg:
+            self._set_mice(msg.get("mice"))
         active = protocol.clicklock_active(msg)
         if active != self._clicklock_active:
             self._clicklock_active = active
             self.clickLockActiveChanged.emit()
         st = protocol.status_stats(msg)
-        if (st["ticks"], st["dropped"]) != (self._ticks, self._dropped):
-            self._ticks, self._dropped = st["ticks"], st["dropped"]
+        if (st["ticks"], st["dropped"], st["debounced"]) != (self._ticks, self._dropped, self._debounced):
+            self._ticks, self._dropped, self._debounced = st["ticks"], st["dropped"], st["debounced"]
             self.statsChanged.emit()
+
+    def _set_history(self, days: list):
+        if days != self._history:
+            self._history = days
+            self.historyChanged.emit()
+
+    def _set_mice(self, mice):
+        mice = mice if isinstance(mice, list) else []       # raw dicts from the daemon; protocol.mouse_options vets them
+        if mice != self._mice:
+            self._mice = mice
+            self.miceChanged.emit()
 
     def _on_reply(self, msg: dict):
         res = self._queue.resolve(msg)
@@ -180,7 +208,7 @@ class DaemonClient(QObject):
             return
         name, err = res
         if name != "set":
-            return
+            return              # optional queries (history, mice) may be unknown to an older daemon: ignore its error
         self._inflight = max(0, self._inflight - 1)
         if err is not None:
             self._staged.clear()
@@ -196,7 +224,10 @@ class DaemonClient(QObject):
     def _set_cfg(self, cfg: dict):
         if cfg != self._cfg:
             self._cfg = dict(cfg)
+            if cfg.get("debounce_ms", 0) > 0:
+                self._last_debounce_ms = cfg["debounce_ms"]     # what "on" returns to, also after a restart
             self.configChanged.emit()
+            self.miceChanged.emit()         # the picker's selection follows the config
 
     def _stage(self, patch: dict, immediate=False):
         if self._state == "stopped":
@@ -249,6 +280,70 @@ class DaemonClient(QObject):
     @Slot(int)
     def setClickLockRate(self, value: int):
         self._stage({"clicklock_rate": max(1, min(30, int(value)))})
+
+    @Slot(int)
+    def setDebounceMs(self, value: int, immediate=False):
+        """The Double-click fix window in ms: 0 is off, otherwise clamped to the slider range."""
+        v = int(value)
+        lo, hi = protocol.DEBOUNCE_MS_RANGE
+        v = 0 if v <= 0 else max(lo, min(hi, v))
+        if v:
+            self._last_debounce_ms = v
+        self._stage({"debounce_ms": v}, immediate=immediate or v == 0)
+
+    @Slot(bool)
+    def setDebounce(self, on: bool):
+        self.setDebounceMs(self._last_debounce_ms if on else 0, immediate=True)
+
+    @Slot()
+    def refreshHistory(self):
+        """Ask the daemon for its daily wheel totals (the last 90 days)."""
+        self._send({"cmd": "history"}, track="history")
+
+    @Slot(int, result="QVariantList")
+    def historySeries(self, count: int):
+        """The last `count` days for the chart, zero-filled: [{date, ticks, dropped, rate (None = no ticks)}]."""
+        return protocol.history_series(self._history, max(1, min(90, int(count))), datetime.date.today())
+
+    @Slot(result=bool)
+    def hasHistory(self):
+        return protocol.has_history(protocol.history_series(self._history, 30, datetime.date.today()))
+
+    @Slot()
+    def refreshMice(self):
+        """Ask the daemon which mice with a scroll wheel are connected (it rescans at most every few seconds)."""
+        self._send({"cmd": "mice"}, track="mice")
+
+    @Slot(str)
+    def setMouse(self, choice: str):
+        """"auto" or the "vvvv:pppp" id of a mouse from the list."""
+        if choice == "auto" or protocol.mouse_ids.parse_choice(choice):
+            self._stage({"mouse": choice}, immediate=True)
+
+    def setValues(self, patch: dict):
+        """Per-game profiles: stage several config keys and send them as ONE set command, right away."""
+        if patch:
+            self._stage(dict(patch), immediate=True)
+
+    def flushSocket(self):
+        """Push what was written out before the app exits."""
+        if self._sock.state() == QLocalSocket.LocalSocketState.ConnectedState:
+            self._sock.flush()
+            self._sock.waitForBytesWritten(300)
+
+    @Slot(bool)
+    def setClickLockIgnoreDrag(self, on: bool):
+        self._stage({"clicklock_ignore_drag": bool(on)}, immediate=True)
+
+    @Slot(int)
+    def setClickLockMaxS(self, seconds: int):
+        self._stage({"clicklock_max_s": 0 if int(seconds) <= 0 else max(10, min(3600, int(seconds)))},
+                    immediate=True)
+
+    @Slot()
+    def stopClickLock(self):
+        """End a running Click-Lock now (screen lock, or the user asking). Harmless when none runs."""
+        self._send({"cmd": "clicklock_stop"}, track="clicklock_stop")
 
     @Slot(str)
     def setClickLockMode(self, mode: str):
@@ -317,6 +412,7 @@ class DaemonClient(QObject):
     # --- properties
     state = Property(str, lambda s: s._state, notify=stateChanged)
     device = Property(str, lambda s: s._device, notify=stateChanged)
+    deviceLabel = Property(str, lambda s: s._label, notify=stateChanged)   # "Endgame Gear XM2w 4k v2 · dongle"
     detail = Property(str, lambda s: s._detail, notify=stateChanged)
     version = Property(str, lambda s: s._version, notify=stateChanged)
     enabled = Property(bool, lambda s: s._cfg["enabled"], notify=configChanged)
@@ -333,6 +429,25 @@ class DaemonClient(QObject):
     clickLockMs = Property(int, lambda s: s._cfg["clicklock_ms"], notify=configChanged)
     clickLockMode = Property(str, lambda s: s._cfg["clicklock_mode"], notify=configChanged)
     clickLockRate = Property(int, lambda s: s._cfg["clicklock_rate"], notify=configChanged)
+    debounceMs = Property(int, lambda s: s._cfg["debounce_ms"], notify=configChanged)
+    debounceOn = Property(bool, lambda s: s._cfg["debounce_ms"] > 0, notify=configChanged)
+    debouncedClicks = Property(int, lambda s: s._debounced, notify=statsChanged)
+    wearHint = Property(bool, lambda s: protocol.wear_hint(s._history, datetime.date.today()),
+                        notify=historyChanged)
+    mouseChoice = Property(str, lambda s: s._cfg["mouse"], notify=configChanged)
+    mouseLabels = Property("QStringList",
+                           lambda s: [o["label"] for o in protocol.mouse_options(s._mice, s._cfg["mouse"])],
+                           notify=miceChanged)
+    mouseIds = Property("QStringList",
+                        lambda s: [o["id"] for o in protocol.mouse_options(s._mice, s._cfg["mouse"])],
+                        notify=miceChanged)
+    mouseIndex = Property(int, lambda s: protocol.mouse_index(protocol.mouse_options(s._mice, s._cfg["mouse"]),
+                                                              s._cfg["mouse"]), notify=miceChanged)
+    mouseNoAccess = Property(bool, lambda s: protocol.mouse_no_access(s._mice, s._cfg["mouse"]), notify=miceChanged)
+    mouseChoiceSupported = Property(bool, lambda s: protocol.mouse_choice_supported(s._cfg["mouse"]),
+                                    notify=configChanged)
+    clickLockIgnoreDrag = Property(bool, lambda s: s._cfg["clicklock_ignore_drag"], notify=configChanged)
+    clickLockMaxS = Property(int, lambda s: s._cfg["clicklock_max_s"], notify=configChanged)
     clickLockActive = Property(bool, lambda s: s._clicklock_active, notify=clickLockActiveChanged)
     ticks = Property(int, lambda s: s._ticks, notify=statsChanged)
     dropped = Property(int, lambda s: s._dropped, notify=statsChanged)
@@ -442,36 +557,58 @@ class Autostart(QObject):
 
 
 class Appearance(QObject):
-    """Follows org.gnome.desktop.interface color-scheme (live, via `gsettings monitor`)."""
+    """Follows GNOME's look and accessibility settings live (via `gsettings monitor`): the light/dark
+    color-scheme, the text size (Large Text) and Reduce Animation."""
 
     changed = Signal()
 
-    def __init__(self, override: Optional[bool] = None, parent=None):
+    def __init__(self, override: Optional[bool] = None, parent=None, text_scale: Optional[float] = None,
+                 motion: Optional[bool] = None):
         super().__init__(parent)
         self._override = override
-        self._dark = override if override is not None else (
-            gsettings.prefers_dark() if gsettings.available() else True)
+        self._scale_override = text_scale
+        self._motion_override = motion
+        have = gsettings.available()
+        self._dark = override if override is not None else (gsettings.prefers_dark() if have else True)
+        self._scale = text_scale if text_scale is not None else (gsettings.text_scale() if have else 1.0)
+        self._motion = motion if motion is not None else (gsettings.animations() if have else True)
         self._proc: Optional[QProcess] = None
 
     @Slot()
     def watch(self):
-        if self._override is not None or not gsettings.available() or self._proc:
+        if not gsettings.available() or self._proc:
+            return
+        if None not in (self._override, self._scale_override, self._motion_override):
             return
         p = QProcess(self)
         p.readyReadStandardOutput.connect(self._on_output)
-        p.start("gsettings", ["monitor", gsettings.INTERFACE_SCHEMA, "color-scheme"])
+        p.start("gsettings", ["monitor", gsettings.INTERFACE_SCHEMA])     # every key of the schema
         self._proc = p
 
     def _on_output(self):
         text = bytes(self._proc.readAllStandardOutput()).decode(errors="replace")
         for line in text.splitlines():
-            if "color-scheme" in line:
-                self._set(gsettings.prefers_dark(line))
+            self.apply_line(line)
+
+    def apply_line(self, line: str):
+        """One `gsettings monitor` line, e.g. "text-scaling-factor: 1.25"."""
+        key = line.split(":", 1)[0].strip()
+        if key == "color-scheme" and self._override is None:
+            self._update(dark=gsettings.prefers_dark(line))
+        elif key == "text-scaling-factor" and self._scale_override is None:
+            self._update(scale=gsettings.text_scale(line))
+        elif key == "enable-animations" and self._motion_override is None:
+            self._update(motion=gsettings.animations(line))
+
+    def _update(self, dark=None, scale=None, motion=None):
+        new = (self._dark if dark is None else dark, self._scale if scale is None else scale,
+               self._motion if motion is None else motion)
+        if new != (self._dark, self._scale, self._motion):
+            self._dark, self._scale, self._motion = new
+            self.changed.emit()
 
     def _set(self, dark: bool):
-        if dark != self._dark:
-            self._dark = dark
-            self.changed.emit()
+        self._update(dark=dark)
 
     def shutdown(self):
         if self._proc:
@@ -479,6 +616,8 @@ class Appearance(QObject):
             self._proc.waitForFinished(500)
 
     dark = Property(bool, lambda s: s._dark, notify=changed)
+    textScale = Property(float, lambda s: s._scale, notify=changed)
+    motion = Property(bool, lambda s: s._motion, notify=changed)
 
 
 class LiquidGlass(QObject):
@@ -528,7 +667,7 @@ class LiquidGlass(QObject):
     @Slot()
     def reload(self):
         tokens = {}
-        for scheme, path in zip(("dark", "light"), self._files()):
+        for scheme, path in zip(("dark", "light"), self._files(), strict=True):
             try:
                 with open(path, encoding="utf-8") as f:
                     data = json.load(f)

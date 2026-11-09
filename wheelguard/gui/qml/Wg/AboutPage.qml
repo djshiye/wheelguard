@@ -3,11 +3,36 @@ import QtQuick.Layouts
 
 WgScrollPage {
     id: page
-    maxContentWidth: 640
+
+    property bool copied: false
+    Timer { id: copiedTimer; interval: 2500; onTriggered: page.copied = false }
+
+    // A title and a sentence on the left, one button on the right.
+    component ActionRow: RowLayout {
+        id: actionRow
+        property string title
+        property string description
+        default property alias button: buttonSlot.data
+        Layout.fillWidth: true
+        spacing: 16
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 2
+            Text { text: actionRow.title; font.pixelSize: Theme.fsBody; font.weight: Font.DemiBold; color: Theme.text }
+            Text {
+                Layout.fillWidth: true
+                text: actionRow.description
+                font.pixelSize: Theme.fsSmall
+                color: Theme.textMuted
+                wrapMode: Text.WordWrap
+            }
+        }
+        RowLayout { id: buttonSlot }
+    }
 
     Item {
         width: parent.width
-        height: 132
+        height: Theme.px(132)
 
         Row {
             anchors.verticalCenter: parent.verticalCenter
@@ -25,7 +50,7 @@ WgScrollPage {
                 spacing: 6
                 Text {
                     text: "Wheelguard"
-                    font.pixelSize: 32
+                    font.pixelSize: Theme.px(32)
                     font.weight: Font.DemiBold
                     color: Theme.text
                 }
@@ -54,6 +79,58 @@ WgScrollPage {
             description: "Keep the panel icon running in the background. Closing the window hides it there."
             checked: autostart.enabled
             onToggled: (value) => autostart.setEnabled(value)
+        }
+    }
+
+    WgCard {
+        width: parent.width
+        spacing: 14
+        WgToggleRow {
+            Layout.topMargin: 0
+            Layout.bottomMargin: 0
+            title: "Low-battery alerts"
+            description: "Get a desktop notification when the mouse battery drops to 20% and again at 5%. The panel icon also shows an amber dot at 20% or below."
+            checked: appSettings.batteryAlerts
+            onToggled: (value) => appSettings.setBatteryAlerts(value)
+        }
+        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.border }
+        ActionRow {
+            visible: shortcuts.available
+            title: "Keyboard shortcuts"
+            description: shortcuts.message !== "" ? shortcuts.message
+                         : (shortcuts.installed ? shortcuts.keys[0] + " toggles Click-Lock and " + shortcuts.keys[1] + " switches to the next DPI stage. Change the keys in GNOME Settings > Keyboard > Custom Shortcuts."
+                            : "Adds two GNOME shortcuts: Super+Alt+C toggles Click-Lock and Super+Alt+D switches to the next DPI stage. Your own shortcuts are left alone.")
+            WgButton {
+                text: shortcuts.installed ? "Added" : "Add keyboard shortcuts"
+                iconName: shortcuts.installed ? "check" : "keyboard"
+                enabled: !shortcuts.installed
+                onClicked: shortcuts.add()
+            }
+        }
+        Rectangle { visible: shortcuts.available; Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.border }
+        ActionRow {
+            title: "Welcome tour"
+            description: "The short setup that appears the first time you open Wheelguard: service, permissions and protection strength."
+            WgButton {
+                text: "Show welcome again"
+                iconName: "sparkle"
+                onClicked: appSettings.resetWelcome()
+            }
+        }
+        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.border }
+        ActionRow {
+            title: "Diagnostics"
+            description: "Copies a short report for bug reports: versions, your mouse model and what the Mouse page says. It has no names, folders or serial numbers."
+            WgButton {
+                text: page.copied ? "Copied" : "Copy diagnostics"
+                iconName: page.copied ? "check" : "copy"
+                onClicked: {
+                    if (diagnostics.copy()) {
+                        page.copied = true
+                        copiedTimer.restart()
+                    }
+                }
+            }
         }
     }
 

@@ -112,10 +112,43 @@ class GrabWhileHeld(unittest.TestCase):
             daemon.wait_for_buttons_up(dev, ctl=None, server=None)
         service.assert_not_called()
 
-    def test_keyboard_keys_dont_count(self):
+    def test_keyboard_keys_count_too(self):
         dev = FakeDevice(held_polls=0)
         dev.active_keys = lambda: [e.KEY_A]
-        self.assertEqual(daemon.buttons_down(dev), [])
+        self.assertEqual(daemon.buttons_down(dev), [e.KEY_A])
+
+    def test_waits_for_a_held_key(self):
+        keys = iter([[e.KEY_A], [e.KEY_A], []])
+
+        class Dev(FakeDevice):
+            def active_keys(self):
+                return next(keys)
+        dev = Dev(held_polls=0)
+        with mock.patch.object(daemon, "service", return_value=[]) as service:
+            daemon.wait_for_buttons_up(dev, ctl=None, server=None)
+        self.assertEqual(service.call_count, 2)
+
+    def test_key_held_at_the_grab_lets_go_again(self):
+        keys = iter([[], [e.KEY_A], [e.KEY_A], [], []])
+        calls = []
+
+        class Dev:
+            fd = 99
+
+            def active_keys(self):
+                return next(keys)
+
+            def read(self):
+                raise BlockingIOError(errno.EAGAIN, "empty")
+
+            def grab(self):
+                calls.append("grab")
+
+            def ungrab(self):
+                calls.append("ungrab")
+        with mock.patch.object(daemon, "service", return_value=[]):
+            daemon.grab_when_buttons_up(Dev(), ctl=None, server=None)
+        self.assertEqual(calls, ["grab", "ungrab", "grab"])
 
 
 class GrabRace(unittest.TestCase):
@@ -164,7 +197,7 @@ class GrabRace(unittest.TestCase):
         dev.ungrab = dev.close = lambda: None
         ui = FakeUInput()
         ctl = mock.MagicMock()
-        ctl.deadline = ctl.clicklock_deadline = None
+        ctl.deadline = ctl.clicklock_deadline = ctl.debounce_deadline = None
         ctl.cfg = {"lock_ms": 300, "pre_ms": 60, "hold_ms": 25, "clicklock": False,
                    "clicklock_ms": 5000, "clicklock_mode": "repeat"}
         ctl.handle_frame.side_effect = lambda frame, t, write: write([frame]) or []
@@ -214,7 +247,7 @@ class SessionEnd(unittest.TestCase):
         dev.ungrab = dev.close = lambda: None
         ui = FakeUInput()
         ctl = mock.MagicMock()
-        ctl.deadline = ctl.clicklock_deadline = None
+        ctl.deadline = ctl.clicklock_deadline = ctl.debounce_deadline = None
         ctl.cfg = {"lock_ms": 300, "pre_ms": 60, "hold_ms": 25, "clicklock": False,
                    "clicklock_ms": 5000, "clicklock_mode": "repeat"}
         ctl.handle_frame.side_effect = lambda frame, t, write: write([frame]) or []

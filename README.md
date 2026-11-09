@@ -30,11 +30,17 @@ installs its own `/etc/yum.repos.d/wheelguard.repo`, so the repository stays con
     polling rate up to 1000 Hz, battery
   - Razer DeathAdder V4 Pro: DPI stages with separate X/Y, polling rate up to 8000 Hz, sleep timer,
     low-battery warning, battery
-- **Scroll filter for every supported mouse**: the daemon picks up whichever one is connected
+- **Scroll filter for any mouse with a wheel**: supported mice are picked up automatically, any other
+  mouse can be chosen on the Scroll protection page
+- **Wheel health**: a 7 and 30 day chart of how often the wheel needed blocking, a warning
+  if it starts bouncing more
+- **Double-click fix** for any mouse: ignores the extra click a worn button sends
+- **Per-game profiles**: switch scroll protection, Click-Lock and the DPI stage while a chosen app is in front
+- **Low-battery alerts** and keyboard shortcuts for Click-Lock and the DPI stage
 - **Click-Lock**: hold the left button for a few seconds (5 s by default, adjustable) and Wheelguard keeps
   clicking for you, or keeps the button pressed for long drags, until your next click (any other mouse
-  button ends it too). Switch it on and off
-  from the panel popup
+  button ends it too). It lets go by itself after 10 minutes (adjustable) and when the screen locks or the
+  computer sleeps. Switch it on and off from the panel popup or a keyboard shortcut
 - **GNOME pointer settings** (speed, acceleration, scrolling) in the same app
 - **Panel icon** with an instant popup (battery, scroll protection, DPI stage); closing the window keeps
   it running there, and it starts at login (switch on the About page). The icon is a GNOME Shell

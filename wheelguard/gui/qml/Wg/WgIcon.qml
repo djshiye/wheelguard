@@ -11,7 +11,9 @@ Item {
     property bool filled: false
 
     // The layer gives smooth edges and makes the icon obey ancestor clipping (CurveRenderer ignores it).
-    layer.enabled: true
+    // Only at 1x: at fractional and 2x display scales the layer renders clipped or blank (seen with
+    // QT_SCALE_FACTOR 1.25 and 2), and high-DPI pixels give smooth enough edges on their own.
+    layer.enabled: Screen.devicePixelRatio === 1
     layer.samples: 4
     implicitWidth: size
     implicitHeight: size
@@ -45,7 +47,12 @@ Item {
         "wireless": "M4.5 9.5 A10 10 0 0 1 19.5 9.5 M7.5 13 A5.8 5.8 0 0 1 16.5 13 M12 17.2 V17.3",
         "plug": "M9 3 V8 M15 3 V8 M6.5 8 H17.5 V12 A5.5 5.5 0 0 1 6.5 12 Z M12 17.5 V21",
         "save": "M5 4 H16.5 L19.5 7 V20 H5 Z M8 4 V9 H15 V4 M8 20 V14 H16 V20",
+        "copy": "M9 9 H19.5 V20 H9 Z M15.5 9 V4.5 H4.5 V15.5 H9",
+        "keyboard": "M3 6.5 H21 V17.5 H3 Z M7 10.5 H7.1 M11 10.5 H11.1 M15 10.5 H15.1 M17.5 10.5 H17.6 M8 14 H16",
+        "sparkle": "M12 3.5 L13.9 10.1 L20.5 12 L13.9 13.9 L12 20.5 L10.1 13.9 L3.5 12 L10.1 10.1 Z",
         "external": "M14 4 H20 V10 M20 4 L11 13 M18 14 V19 H5 V6 H10",
+        "apps": "M4.5 4.5 H10.5 V10.5 H4.5 Z M13.5 4.5 H19.5 V10.5 H13.5 Z M4.5 13.5 H10.5 V19.5 H4.5 Z M13.5 13.5 H19.5 V19.5 H13.5 Z",
+        "trash": "M5 7 H19 M9.5 7 V4.5 H14.5 V7 M7 7 L8 19.5 H16 L17 7 M10.5 11 V16 M13.5 11 V16",
         "hand": "M7 12 V6.5 A1.5 1.5 0 0 1 10 6.5 V11 M10 10.5 V5 A1.5 1.5 0 0 1 13 5 V11 M13 10.5 V6 A1.5 1.5 0 0 1 16 6 V13 C16 17 14 20 11 20 C8.5 20 7.5 18.5 6.5 16 L5 13.5 A1.4 1.4 0 0 1 7.3 12.2 Z"
     })
 

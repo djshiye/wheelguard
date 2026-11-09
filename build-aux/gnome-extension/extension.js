@@ -9,6 +9,7 @@ import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
+import Shell from 'gi://Shell';
 import St from 'gi://St';
 
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
@@ -21,6 +22,9 @@ const OBJECT_PATH = '/io/github/djshiye/Wheelguard';
 const APP_ICON = 'io.github.djshiye.Wheelguard';
 const START_COMMAND = ['wheelguard-settings', '--tray'];
 const START_TIMEOUT_S = 10;
+const FOCUS_DEBOUNCE_MS = 300;           // per-game profiles: a focus change must settle before the app is told
+const STEAM_CLASS_RE = /^steam_app_\d+$/;   // a Steam game's window class
+const MAX_APP_ID = 200;                  // longer ids are not sent (the app would refuse them anyway)
 
 // Click-Lock hold-time slider: 1 to 15 s in half-second steps (wheelguard/gui/protocol.py, CLICKLOCK_MS_*).
 const CLICKLOCK_MIN_MS = 1000;
@@ -38,6 +42,7 @@ const IFACE_XML = `
     <method name="SetClickLock"><arg type="b" direction="in" name="on"/></method>
     <method name="SetClickLockMs"><arg type="i" direction="in" name="ms"/></method>
     <method name="SetClickLockMode"><arg type="s" direction="in" name="mode"/></method>
+    <method name="FocusChanged"><arg type="s" direction="in" name="app_id"/></method>
     <method name="ShowWindow"/>
     <method name="Refresh"/>
     <signal name="StateChanged"><arg type="a{sv}" name="state"/></signal>
@@ -51,7 +56,8 @@ const EMPTY_STATE = {
     ProtectionEnabled: true, DaemonState: 'connecting', Preset: '', Dropped: 0,
     StatusLabel: 'Connecting…', StatusTone: 'muted', ProtectionDetail: '', BatteryNote: 'Mouse not connected',
     ClickLockEnabled: false, ClickLockMs: 5000, ClickLockActive: false, ClickLockDetail: 'Off',
-    ClickLockMode: 'repeat',
+    ClickLockMode: 'repeat', BatteryLow: false, OfflineNote: 'Mouse asleep or not connected',
+    ProfilesEnabled: false, ActiveProfile: '',
 };
 
 function msToFraction(ms) {
@@ -108,6 +114,9 @@ class WheelguardIndicator extends PanelMenu.Button {
         this._watchId = 0;
         this._startTimeout = 0;
         this._clickLockTimeout = 0;
+        this._focusId = 0;                  // per-game profiles: notify::focus-window handler
+        this._focusTimeout = 0;
+        this._lastFocusApp = null;          // the id the app was last told; null = tell it again
         this._clickLockSending = false;     // the slider shows the user's value until the app confirms it
         this._sliderDragging = false;
         this._settingSlider = false;
@@ -117,7 +126,20 @@ class WheelguardIndicator extends PanelMenu.Button {
             gicon: fileIcon(`${extension.path}/icons/wheelguard-symbolic.svg`),
             style_class: 'system-status-icon wg-panel-icon',
         });
-        this.add_child(this._icon);
+        // The icon with a small amber dot in its corner while the battery is low.
+        const iconBox = new St.Widget({layout_manager: new Clutter.BinLayout(), y_align: Clutter.ActorAlign.CENTER});
+        iconBox.add_child(this._icon);
+        this._lowDot = new St.Widget({style_class: 'wg-low-dot', visible: false, x_expand: true, y_expand: true,
+            x_align: Clutter.ActorAlign.END, y_align: Clutter.ActorAlign.START});
+        iconBox.add_child(this._lowDot);
+        // On hover (menu closed) the battery percentage shows next to the icon: shell panel buttons have no tooltips.
+        this._hoverLabel = new St.Label({style_class: 'wg-hover-label', visible: false,
+            y_align: Clutter.ActorAlign.CENTER});
+        const panelRow = new St.BoxLayout({y_align: Clutter.ActorAlign.CENTER});
+        panelRow.add_child(iconBox);
+        panelRow.add_child(this._hoverLabel);
+        this.add_child(panelRow);
+        this.connect('notify::hover', () => this._updateHover());
 
         this.menu.actor.add_style_class_name('wg-boxpointer');
         this.menu.box.add_style_class_name('wg-menu');
@@ -128,12 +150,14 @@ class WheelguardIndicator extends PanelMenu.Button {
         this._applyScheme();
 
         this.menu.connect('open-state-changed', (_menu, open) => {
+            this._updateHover();
             if (open && this._proxy)
                 this._proxy.RefreshRemote(() => {});          // fire and forget: the signal brings the result
         });
 
         this._render();
         this.connect('destroy', () => this._cleanup());
+        this._focusId = global.display.connect('notify::focus-window', () => this._focusSoon());
         this._watchId = Gio.bus_watch_name(Gio.BusType.SESSION, BUS_NAME, Gio.BusNameWatcherFlags.NONE,
             () => this._appeared(), () => this._vanished());
     }
@@ -151,7 +175,9 @@ class WheelguardIndicator extends PanelMenu.Button {
             gicon: new Gio.ThemedIcon({name: APP_ICON}), icon_size: 28, style_class: 'wg-logo',
             y_align: Clutter.ActorAlign.CENTER,
         }));
-        homeRow.add_child(makeLabel('Wheelguard', 'wg-title'));
+        const title = makeLabel('Wheelguard', 'wg-title');
+        title.clutter_text.ellipsize = 0;       // Pango.EllipsizeMode.NONE: the name keeps its natural width
+        homeRow.add_child(title);
         home.set_child(homeRow);
         home.connect('clicked', () => this._showWindow());
         header.add_child(home);
@@ -163,6 +189,7 @@ class WheelguardIndicator extends PanelMenu.Button {
             y_align: Clutter.ActorAlign.CENTER}));
         this._pill.add_child(glow);
         this._pillLabel = makeLabel('', 'wg-pill-label');
+        this._pillLabel.clutter_text.ellipsize = 0;
         this._pill.add_child(this._pillLabel);
         header.add_child(this._pill);
 
@@ -178,6 +205,8 @@ class WheelguardIndicator extends PanelMenu.Button {
 
         this._body = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, style_class: 'wg-body'});
         this._root.add_child(this._body);
+        this._buildProfile();
+        this._buildAsleep();
         this._buildBattery();
         this._buildProtection();
         this._buildClickLock();
@@ -201,8 +230,38 @@ class WheelguardIndicator extends PanelMenu.Button {
         return new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, style_class: 'wg-card'});
     }
 
+    // "Profile: <app>" while a per-game profile is engaged.
+    _buildProfile() {
+        const card = this._card();
+        this._profileLabel = makeLabel('', 'wg-card-sub');
+        this._profileLabel.clutter_text.ellipsize = 3;      // Pango.EllipsizeMode.END
+        card.add_child(this._profileLabel);
+        this._profileCard = card;
+        this._body.add_child(card);
+    }
+
+    // One calm row instead of an empty battery card and an empty DPI card.
+    _buildAsleep() {
+        const card = this._card();
+        const row = new St.BoxLayout({style_class: 'wg-row'});
+        this._asleepGlyph = new St.DrawingArea({style_class: 'wg-battery', width: 42, height: 20,
+            y_align: Clutter.ActorAlign.CENTER, opacity: 120});
+        this._asleepGlyph.connect('repaint', area => this._paintBattery(area, true));
+        row.add_child(this._asleepGlyph);
+        this._asleepText = makeLabel(EMPTY_STATE.OfflineNote, 'wg-card-title');
+        // Wrap instead of cutting the note off: it is too long for one line beside the glyph.
+        this._asleepText.x_expand = true;
+        this._asleepText.clutter_text.line_wrap = true;
+        this._asleepText.clutter_text.ellipsize = 0;   // Pango.EllipsizeMode.NONE
+        row.add_child(this._asleepText);
+        card.add_child(row);
+        this._asleepCard = card;
+        this._body.add_child(card);
+    }
+
     _buildBattery() {
         const card = this._card();
+        this._batteryCard = card;
         const row = new St.BoxLayout({style_class: 'wg-row'});
         this._battery = new St.DrawingArea({style_class: 'wg-battery', width: 42, height: 20,
             y_align: Clutter.ActorAlign.CENTER});
@@ -326,9 +385,9 @@ class WheelguardIndicator extends PanelMenu.Button {
     }
 
     // ------------------------------------------------------------------ painting
-    _paintBattery(area) {
+    _paintBattery(area, dimmed = false) {
         const palette = PALETTE[this._light ? 'light' : 'dark'];
-        const s = this._state;
+        const s = dimmed ? EMPTY_STATE : this._state;
         const known = s.Online && s.Battery >= 0;
         const tone = !known ? palette.faint
             : (s.Battery <= 15 ? palette.coral : (s.Battery <= 30 ? palette.amber : palette.good));
@@ -379,6 +438,16 @@ class WheelguardIndicator extends PanelMenu.Button {
         else
             this.menu.box.remove_style_class_name('wg-light');
         this._battery.queue_repaint();
+        this._asleepGlyph.queue_repaint();
+    }
+
+    // Percentage beside the panel icon while hovering it (and the same words for screen readers).
+    _updateHover() {
+        const s = this._state;
+        const known = this._running && s.DaemonState === 'running' && s.Online && s.Battery >= 0;
+        this._hoverLabel.text = known ? `${s.Battery}%` : '';
+        this._hoverLabel.visible = known && this.hover && !this.menu.isOpen;
+        this.accessible_name = known ? `Wheelguard, mouse battery ${s.Battery}%` : 'Wheelguard';
     }
 
     // ------------------------------------------------------------------ rendering the cached state
@@ -386,6 +455,8 @@ class WheelguardIndicator extends PanelMenu.Button {
         const s = this._state;
         const running = this._running;
         this._icon.opacity = running ? 255 : 110;
+        this._lowDot.visible = running && s.BatteryLow;
+        this._updateHover();
         this._body.visible = running;
         this._offline.visible = !running;
 
@@ -404,7 +475,12 @@ class WheelguardIndicator extends PanelMenu.Button {
             return;
         }
 
-        const known = s.Online && s.Battery >= 0;
+        const mouseHere = s.Online && s.DaemonState === 'running';     // never show a stale battery
+        this._batteryCard.visible = mouseHere;
+        this._dpiCard.visible = mouseHere;
+        this._asleepCard.visible = !mouseHere;
+        this._asleepText.text = s.OfflineNote || EMPTY_STATE.OfflineNote;
+        const known = mouseHere && s.Battery >= 0;
         this._percent.text = known ? `${s.Battery}%` : '—';
         if (known)
             this._percent.remove_style_class_name('wg-faint');
@@ -417,6 +493,8 @@ class WheelguardIndicator extends PanelMenu.Button {
             this._batteryNote.remove_style_class_name('wg-good');
         this._battery.queue_repaint();
 
+        this._profileCard.visible = s.ProfilesEnabled && s.ActiveProfile !== '';
+        this._profileLabel.text = `Profile: ${s.ActiveProfile}`;
         this._protectDetail.text = s.ProtectionDetail;
         const canSwitch = s.DaemonState === 'running' || s.DaemonState === 'waiting';
         this._switch.reactive = canSwitch;
@@ -655,6 +733,8 @@ class WheelguardIndicator extends PanelMenu.Button {
             this._proxy.disconnectSignal(this._signalId);
         this._signalId = 0;
         this._proxy = null;
+        this._lastFocusApp = null;
+        this._clearFocusTimeout();
     }
 
     _pull() {
@@ -667,8 +747,62 @@ class WheelguardIndicator extends PanelMenu.Button {
     }
 
     _setState(state) {
+        const was = this._state.ProfilesEnabled;
         this._state = {...EMPTY_STATE, ...state};
         this._render();
+        if (this._state.ProfilesEnabled !== was)
+            this._lastFocusApp = null;      // just switched on (or off): the app needs the current answer
+        if (this._state.ProfilesEnabled && this._lastFocusApp === null)
+            this._focusSoon();
+    }
+
+    // ------------------------------------------------------------------ per-game profiles
+    // Only the focused app's id goes to the app, and only while "Per-game profiles" is on: no titles, no
+    // other windows. Changes are debounced and an unchanged id is not sent again.
+    _focusSoon() {
+        if (this._destroyed || !this._proxy || !this._state.ProfilesEnabled)
+            return;
+        if (this._focusTimeout)
+            GLib.source_remove(this._focusTimeout);
+        this._focusTimeout = GLib.timeout_add(GLib.PRIORITY_DEFAULT, FOCUS_DEBOUNCE_MS, () => {
+            this._focusTimeout = 0;
+            this._sendFocus();
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    // The focused app's desktop-file id. Proton and Steam games rarely match a desktop file, so the
+    // tracker gives a window-backed app ("window:NN"); the window's WM class (never its title) is sent
+    // when it is a Steam game's "steam_app_<n>", and for any other window-backed app nothing is sent.
+    _focusedAppId() {
+        const win = global.display.focus_window;
+        if (!win)
+            return '';
+        const wmClass = win.get_wm_class?.() ?? '';
+        if (STEAM_CLASS_RE.test(wmClass))
+            return wmClass;
+        const app = Shell.WindowTracker.get_default().get_window_app(win);
+        const id = app?.get_id() ?? '';
+        if (!app || app.is_window_backed?.() || id.startsWith('window:'))
+            return '';
+        return id.length <= MAX_APP_ID ? id : '';
+    }
+
+    _sendFocus() {
+        if (!this._proxy || !this._state.ProfilesEnabled)
+            return;
+        const id = this._focusedAppId();
+        if (id === this._lastFocusApp)
+            return;
+        this._lastFocusApp = id;
+        this._proxy.FocusChangedRemote(id, () => {});
+    }
+
+    _clearFocusTimeout() {
+        if (this._focusTimeout) {
+            GLib.source_remove(this._focusTimeout);
+            this._focusTimeout = 0;
+        }
     }
 
     _clearStartTimeout() {
@@ -684,6 +818,10 @@ class WheelguardIndicator extends PanelMenu.Button {
         this._cancellable.cancel();
         this._clearStartTimeout();
         this._clearClickLockTimeout();
+        this._clearFocusTimeout();
+        if (this._focusId)
+            global.display.disconnect(this._focusId);
+        this._focusId = 0;
         if (this._watchId)
             Gio.bus_unwatch_name(this._watchId);
         this._watchId = 0;

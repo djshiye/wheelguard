@@ -12,6 +12,11 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Least privilege: every job can only read the repository unless it asks for more (only publish
+# writes, to gh-pages). Third-party code is pinned to exact commits; Dependabot proposes updates.
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -24,6 +29,7 @@ jobs:
   build:
     name: Build and test RPM
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     container:
       image: fedora:44
     outputs:
@@ -34,14 +40,14 @@ jobs:
       - name: Install git
         run: dnf install -y git
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0
 
       - name: Install build dependencies
         run: |
           dnf install -y rpm-build rpmdevtools rpmlint python3 python3-evdev python3-pyside6 \
-            desktop-file-utils appstream systemd-rpm-macros tar gnupg2
+            desktop-file-utils appstream systemd-rpm-macros tar gnupg2 ruff qt6-qtdeclarative-devel
 
       # The only step that sees the signing secret, before any project code
       # runs: it exports the public half for the package and forgets the rest.
@@ -68,10 +74,47 @@ jobs:
       - name: Syntax check
         run: python3 -m compileall -q wheelguard tests tools
 
+      # Fast static checks: Python (ruff.toml) and QML. qmllint's "unqualified" check is off because
+      # the pages deliberately reach outer ids from delegates; any other warning fails the build.
+      - name: Lint
+        run: |
+          ruff check wheelguard tests tools
+          cd wheelguard/gui/qml
+          out=$(/usr/lib64/qt6/bin/qmllint --unqualified disable -I . Main.qml $(ls Wg/*.qml | grep -v Theme.qml) 2>&1)
+          echo "$out"
+          if echo "$out" | grep -q '^Warning'; then
+            echo "::error::qmllint found problems in the QML files."
+            exit 1
+          fi
+
       - name: Unit tests
         env:
           QT_QPA_PLATFORM: offscreen
         run: python3 -m unittest discover -s tests -t . -v
+
+      # Load the real window on every page from the mock mouse and daemon: catches QML errors that
+      # only show up at run time (a typo in a binding, a missing component).
+      - name: Render every page
+        env:
+          QT_QPA_PLATFORM: offscreen
+          WHEELGUARD_HW_MOCK: connected
+          WHEELGUARD_GSETTINGS_READONLY: "1"
+        run: |
+          export XDG_RUNTIME_DIR=$(mktemp -d) HOME=$(mktemp -d)
+          python3 tools/mock_daemon.py --scenario connected --socket "$XDG_RUNTIME_DIR/mock.sock" &
+          mock=$!
+          trap 'kill "$mock"' EXIT
+          sleep 1
+          for page in scroll mouse pointer profiles about; do
+            for scale in 1 1.5; do
+              timeout 60 python3 wheelguard-settings --socket "$XDG_RUNTIME_DIR/mock.sock" --page "$page" --text-scale "$scale" \
+                --screenshot "$RUNNER_TEMP/$page-$scale.png" --delay-ms 2000 > "$RUNNER_TEMP/log" 2>&1 || { cat "$RUNNER_TEMP/log"; exit 1; }
+              if grep -E '\.qml:[0-9]+' "$RUNNER_TEMP/log"; then
+                echo "::error::QML errors on the $page page (text size $scale)"
+                exit 1
+              fi
+            done
+          done
 
       - name: Build RPM
         id: rpm
@@ -96,15 +139,30 @@ jobs:
           fi
 
       - name: Upload RPMs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: wheelguard-rpms
           path: out/*.rpm
           if-no-files-found: error
 
+  # The package runs on every Fedora's own Python; also run the tests on the newest one.
+  test-newest:
+    name: Unit tests on Fedora 45
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Install test dependencies
+        run: dnf install -y python3 python3-evdev python3-pyside6
+      - name: Unit tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python3 -m unittest discover -s tests -t .
+
   publish:
     name: Sign and publish repository
-    needs: build
+    needs: [build, test-newest]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     container:
@@ -117,13 +175,13 @@ jobs:
     steps:
       - name: Install tools
         run: dnf install -y git rpm-sign createrepo_c python3-rpm gnupg2
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       # The published repository; its rpm/ holds the builds to keep.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: gh-pages
           path: pages
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
         with:
           name: wheelguard-rpms
           path: new
@@ -136,7 +194,7 @@ jobs:
           gpg --batch --armor --export-options export-minimal --export "$FPR" > "$RUNNER_TEMP/key.asc"
           rpmsign --define "_gpg_name $FPR" --addsign new/*.rpm
           python3 build-aux/dnf-repo.py --app "$APP" --url "$SITE_URL" --title Wheelguard \
-            --summary "Scroll bounce filter and settings for the Endgame Gear XM2w 4k v2" \
+            --summary "Scroll bounce filter and mouse settings (Endgame Gear, Logitech, Razer)" \
             --icon build-aux/io.github.djshiye.Wheelguard.svg \
             --new new --site site --prev pages/rpm \
             --repo-file build-aux/wheelguard.repo --key "$RUNNER_TEMP/key.asc"
@@ -167,7 +225,7 @@ jobs:
     container:
       image: fedora:${{ matrix.fedora }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           sparse-checkout: build-aux/verify-install.sh
           sparse-checkout-cone-mode: false

@@ -5,6 +5,9 @@ QtObject {
     id: t
 
     property bool dark: true
+    // GNOME accessibility settings (backend.Appearance): Large Text and Reduce Animation.
+    property real textScale: 1.0
+    property bool motion: true
     // Liquid Glass theme tokens (backend.LiquidGlass); null or inactive keeps Wheelguard's own look.
     property var glass: null
     readonly property bool glassy: glass !== null && glass.active
@@ -35,6 +38,7 @@ QtObject {
     // Accent: electric violet to cyan
     readonly property color accentA: pick("accentA", dark ? "#8B5CF6" : "#7C4DFF")
     readonly property color accentB: pick("accentB", dark ? "#22D3EE" : "#0BB5D6")
+    readonly property color accentValue: dark ? "#B79DFF" : accentA   // numbers and values that sit on a card (lighter violet in dark)
     readonly property color coral:   pick("coral", dark ? "#FF6B7A" : "#E8455A")
     readonly property color amber:   pick("amber", dark ? "#FFB547" : "#E39A1B")
     readonly property color good:    pick("good", dark ? "#3DDC97" : "#16A870")
@@ -42,15 +46,21 @@ QtObject {
     // Metrics (8 px grid)
     readonly property int radius: glassy ? glass.number(dark, "radius", 16) : 16
     readonly property int radiusSm: glassy ? glass.number(dark, "radius_small", 12) : 12
-    readonly property int fast: 150
-    readonly property int normal: 220
-    readonly property int slow: 280
+    // Animation lengths drop to 0 when GNOME's "Reduce Animation" is on.
+    readonly property int fast: motion ? 150 : 0
+    readonly property int normal: motion ? 220 : 0
+    readonly property int slow: motion ? 280 : 0
 
-    // Typography
-    readonly property int fsTitle: 26
-    readonly property int fsH2: 17
-    readonly property int fsBody: 14
-    readonly property int fsSmall: 12
+    // Typography, scaled by GNOME's text size (Large Text = 1.25). Every font size goes through these
+    // or through px(), never a bare number, so the whole app follows the setting.
+    readonly property int fsTitle: px(26)
+    readonly property int fsH2: px(17)
+    readonly property int fsBody: px(14)
+    readonly property int fsSmall: px(12)
+    function px(n) { return Math.round(n * textScale) }
+
+    // Keyboard focus ring (Tab navigation), shared by every control.
+    readonly property color focusRing: accentB
 
     readonly property var ease: Easing.OutCubic
 
