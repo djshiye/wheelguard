@@ -1,7 +1,10 @@
 """Per-game profiles: validation, the store, the decision engine and the installed-app listing (no Qt)."""
 import json
+import sys
 import tempfile
+import types
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from wheelguard.gui import desktopapps, profiles
@@ -313,6 +316,11 @@ class EngineTests(unittest.TestCase):
 
 
 class DesktopAppTests(unittest.TestCase):
+    def test_a_broken_pygobject_falls_back_to_the_desktop_file_scan(self):
+        # Fedora 45 CI had a `gi` module without require_version; that must not take the page down.
+        with mock.patch.dict(sys.modules, {"gi": types.ModuleType("gi")}):
+            self.assertIsNone(desktopapps._gio_apps())
+
     def write(self, root, name, text):
         p = Path(root) / name
         p.parent.mkdir(parents=True, exist_ok=True)

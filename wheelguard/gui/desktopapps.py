@@ -74,7 +74,7 @@ def _gio_apps() -> Optional[List[Dict[str, str]]]:
         import gi
         gi.require_version("Gio", "2.0")
         from gi.repository import Gio
-    except (ImportError, ValueError):
+    except Exception:           # missing or broken PyGObject (seen on Fedora 45 CI): use the .desktop scan
         return None
     out: Dict[str, Dict[str, str]] = {}
     try:

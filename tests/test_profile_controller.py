@@ -2,11 +2,12 @@
 service turns the D-Bus input into a validated app id, and the master switch lives in app.json."""
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 try:
     from PySide6.QtCore import QCoreApplication, QObject, Signal
-    from wheelguard.gui import appsettings, profilectl, profiles, service
+    from wheelguard.gui import appsettings, desktopapps, profilectl, profiles, service
     HAVE_QT = True
 except ImportError:
     HAVE_QT = False
@@ -67,6 +68,10 @@ class ControllerTests(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.home = Path(tmp.name)
+        # Keep the tests independent of the apps installed on the machine running them.
+        apps = mock.patch.object(desktopapps, "list_apps", return_value=[])
+        apps.start()
+        self.addCleanup(apps.stop)
         self.d, self.m = FakeDaemon(), FakeMouse()
         self.settings = appsettings.AppSettings(self.home / "wheelguard" / "app.json")
         self.store = profiles.ProfileStore(self.home / "wheelguard" / profiles.FILE)
