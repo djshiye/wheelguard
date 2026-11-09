@@ -320,9 +320,10 @@ class DaemonClient(QObject):
         if choice == "auto" or protocol.mouse_ids.parse_choice(choice):
             self._stage({"mouse": choice}, immediate=True)
 
-    def setProtectionValues(self, pre: int, hold: int, lock: int):
-        """Per-game profiles: set the three scroll-protection values at once, sent right away."""
-        self._stage({"pre_ms": int(pre), "hold_ms": int(hold), "lock_ms": int(lock)}, immediate=True)
+    def setValues(self, patch: dict):
+        """Per-game profiles: stage several config keys and send them as ONE set command, right away."""
+        if patch:
+            self._stage(dict(patch), immediate=True)
 
     def flushSocket(self):
         """Push what was written out before the app exits."""

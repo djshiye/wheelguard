@@ -23,6 +23,7 @@ const APP_ICON = 'io.github.djshiye.Wheelguard';
 const START_COMMAND = ['wheelguard-settings', '--tray'];
 const START_TIMEOUT_S = 10;
 const FOCUS_DEBOUNCE_MS = 300;           // per-game profiles: a focus change must settle before the app is told
+const STEAM_CLASS_RE = /^steam_app_\d+$/;   // a Steam game's window class
 const MAX_APP_ID = 200;                  // longer ids are not sent (the app would refuse them anyway)
 
 // Click-Lock hold-time slider: 1 to 15 s in half-second steps (wheelguard/gui/protocol.py, CLICKLOCK_MS_*).
@@ -42,7 +43,6 @@ const IFACE_XML = `
     <method name="SetClickLockMs"><arg type="i" direction="in" name="ms"/></method>
     <method name="SetClickLockMode"><arg type="s" direction="in" name="mode"/></method>
     <method name="FocusChanged"><arg type="s" direction="in" name="app_id"/></method>
-    <method name="StopClickLock"/>
     <method name="ShowWindow"/>
     <method name="Refresh"/>
     <signal name="StateChanged"><arg type="a{sv}" name="state"/></signal>
@@ -121,8 +121,6 @@ class WheelguardIndicator extends PanelMenu.Button {
         this._sliderDragging = false;
         this._settingSlider = false;
         this._cancellable = new Gio.Cancellable();
-        this._lockIds = [];                 // [object, signal id] pairs for the screen lock watch
-        this._watchScreenLock();
 
         this._icon = new St.Icon({
             gicon: fileIcon(`${extension.path}/icons/wheelguard-symbolic.svg`),
@@ -690,29 +688,6 @@ class WheelguardIndicator extends PanelMenu.Button {
         });
     }
 
-    // ------------------------------------------------------------------ screen lock
-    // A locked screen ends a running Click-Lock, so a held or clicking button never carries on behind
-    // the lock screen. The app watches the screensaver's own signal as well; this is the sure way.
-    _watchScreenLock() {
-        const watch = (obj, signal) => {
-            if (obj)
-                this._lockIds.push([obj, obj.connect(signal, () => this._screenLockChanged())]);
-        };
-        watch(Main.screenShield, 'locked-changed');
-        watch(Main.sessionMode, 'updated');
-    }
-
-    _screenLockChanged() {
-        if ((Main.screenShield?.locked || Main.sessionMode?.isLocked) && this._proxy)
-            this._proxy.StopClickLockRemote(() => {});
-    }
-
-    _unwatchScreenLock() {
-        for (const [obj, id] of this._lockIds)
-            obj.disconnect(id);
-        this._lockIds = [];
-    }
-
     // ------------------------------------------------------------------ the app on the bus
     _appeared() {
         if (this._proxy)
@@ -789,11 +764,20 @@ class WheelguardIndicator extends PanelMenu.Button {
         });
     }
 
+    // The focused app's desktop-file id. Proton and Steam games rarely match a desktop file, so the
+    // tracker gives a window-backed app ("window:NN"); the window's WM class (never its title) is sent
+    // when it is a Steam game's "steam_app_<n>", and for any other window-backed app nothing is sent.
     _focusedAppId() {
         const win = global.display.focus_window;
         if (!win)
             return '';
-        const id = Shell.WindowTracker.get_default().get_window_app(win)?.get_id() ?? '';
+        const wmClass = win.get_wm_class?.() ?? '';
+        if (STEAM_CLASS_RE.test(wmClass))
+            return wmClass;
+        const app = Shell.WindowTracker.get_default().get_window_app(win);
+        const id = app?.get_id() ?? '';
+        if (!app || app.is_window_backed?.() || id.startsWith('window:'))
+            return '';
         return id.length <= MAX_APP_ID ? id : '';
     }
 
@@ -824,7 +808,6 @@ class WheelguardIndicator extends PanelMenu.Button {
     // Runs from the actor's 'destroy' signal, so also when the shell tears the panel down itself.
     _cleanup() {
         this._destroyed = true;
-        this._unwatchScreenLock();
         this._cancellable.cancel();
         this._clearStartTimeout();
         this._clearClickLockTimeout();

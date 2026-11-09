@@ -2,6 +2,7 @@
 No Qt. Uses Gio.AppInfo when PyGObject is there, else reads the applications/*.desktop files by hand."""
 import configparser
 import os
+import re
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
@@ -9,6 +10,13 @@ from . import profiles
 
 MAX_APPS = 1500
 MAX_FILE = 64 * 1024
+STEAM_RUN_RE = re.compile(r"steam://rungameid/(\d{1,12})\b")
+
+
+def steam_app_id(exec_line: str) -> str:
+    """"steam_app_<n>" for a Steam game shortcut (Exec has steam://rungameid/<n>): the WM class its window has."""
+    m = STEAM_RUN_RE.search(exec_line or "")
+    return f"steam_app_{int(m.group(1))}" if m else ""
 
 
 def data_dirs(env: Optional[Dict[str, str]] = None) -> List[Path]:
@@ -35,6 +43,7 @@ def parse_desktop(path: Path, app_id: str) -> Optional[Dict[str, str]]:
     if entry.get("NoDisplay", "").lower() == "true" or entry.get("Hidden", "").lower() == "true":
         return None
     name = " ".join(entry.get("Name", "").split())[:80]
+    app_id = steam_app_id(entry.get("Exec", "")) or app_id
     if not name or not profiles.clean_app_id(app_id):
         return None
     return {"id": app_id, "name": name, "icon": entry.get("Icon", "").strip()[:200]}
@@ -55,8 +64,8 @@ def scan(dirs: Iterable[Path]) -> List[Dict[str, str]]:
             if app_id in seen:
                 continue
             info = parse_desktop(f, app_id)
-            if info is not None:
-                seen[app_id] = info
+            if info is not None and info["id"] not in seen:
+                seen[info["id"]] = info
     return sorted(seen.values(), key=lambda a: (a["name"].casefold(), a["id"]))
 
 
@@ -70,7 +79,7 @@ def _gio_apps() -> Optional[List[Dict[str, str]]]:
     out: Dict[str, Dict[str, str]] = {}
     try:
         for info in Gio.AppInfo.get_all():
-            app_id = info.get_id() or ""
+            app_id = steam_app_id(info.get_commandline() or "") or info.get_id() or ""
             if not info.should_show() or not profiles.clean_app_id(app_id) or app_id in out:
                 continue
             name = " ".join((info.get_display_name() or "").split())[:80]

@@ -64,6 +64,7 @@ class ProfileController(QObject):
         self._error = ""
         self._reload()
         self._engine.seed(profiles.journal_load(self._journal))     # a previous run died with a profile engaged
+        self._journal_last = self._engine.restore_values()
         daemon.configChanged.connect(self._tick)
         daemon.stateChanged.connect(self._tick)
         mouse.trayChanged.connect(self._tick)
@@ -86,24 +87,31 @@ class ProfileController(QObject):
 
     def _apply(self, plan: Dict[str, object]):
         skipped = []
+        patch: Dict[str, object] = {}
         for key, value in plan.items():
             if key in ("protection", "clicklock"):
                 if self._daemon.state not in ("running", "waiting"):
                     skipped.append(key)
                 elif key == "protection":
-                    self._daemon.setProtectionValues(*value)
+                    patch.update(zip(("pre_ms", "hold_ms", "lock_ms"), (int(v) for v in value), strict=True))
                 else:
-                    self._daemon.setClickLock(bool(value))      # a running lock ends when this goes false
+                    patch["clicklock"] = bool(value)            # a running lock ends when this goes false
             elif key == "stage":
                 if not self._mouse.stagesEnabled:
                     skipped.append(key)         # busy, asleep or unsaved edits: try again later, never force it
                 elif 0 <= int(value) < len(self._mouse.stageLabels):
                     self._mouse.setActiveStage(int(value))
+        if patch:
+            self._daemon.setValues(patch)               # one command: one config write for the whole profile
         if skipped:
             self._engine.skipped(skipped)
 
     def _save_journal(self):
-        profiles.journal_save(self._journal, self._engine.restore_values())
+        """Keep the crash-recovery journal equal to what restore_values() says now."""
+        want = self._engine.restore_values()
+        if want != self._journal_last:
+            self._journal_last = want
+            profiles.journal_save(self._journal, want)
 
     @Slot()
     def _tick(self):
@@ -114,8 +122,7 @@ class ProfileController(QObject):
             plan.update(self._engine.retry_plan(cur))
         if plan:
             self._apply(plan)
-        if not self._engine.restore_values():
-            profiles.journal_clear(self._journal)
+        self._save_journal()
 
     def _on_switch(self):
         on = self.enabled
@@ -148,9 +155,7 @@ class ProfileController(QObject):
     def shutdown(self):
         """The app is quitting: hand everything back. Anything that can't be done now is left in the journal."""
         self._apply(self._engine.release(self._current()))
-        left = self._engine.restore_values()
-        if not any(k == "stage" for k in left):
-            profiles.journal_clear(self._journal)
+        self._save_journal()        # cleared unless something couldn't be handed back (it stays for the next start)
         self._daemon.flushSocket()
 
     # ---- the list

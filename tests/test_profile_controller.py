@@ -25,16 +25,17 @@ if HAVE_QT:
             self.preMs, self.holdMs, self.lockMs = 60, 25, 300
             self.clickLock, self.clickLockMs, self.clickLockActive, self.clickLockMode = False, 5000, False, "repeat"
             self.calls = []
+            self.sets = []
             self.flushed = 0
 
-        def setProtectionValues(self, pre, hold, lock):
-            self.calls.append(("protection", pre, hold, lock))
-            self.preMs, self.holdMs, self.lockMs = pre, hold, lock
-            self.configChanged.emit()
-
-        def setClickLock(self, on):
-            self.calls.append(("clicklock", on))
-            self.clickLock = on
+        def setValues(self, patch):
+            self.sets.append(dict(patch))
+            if "pre_ms" in patch:
+                self.calls.append(("protection", patch["pre_ms"], patch["hold_ms"], patch["lock_ms"]))
+                self.preMs, self.holdMs, self.lockMs = patch["pre_ms"], patch["hold_ms"], patch["lock_ms"]
+            if "clicklock" in patch:
+                self.calls.append(("clicklock", patch["clicklock"]))
+                self.clickLock = patch["clicklock"]
             self.configChanged.emit()
 
         def flushSocket(self):
@@ -157,6 +158,34 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(again.activeId, "")
         self.assertFalse((self.home / "wheelguard" / profiles.JOURNAL_FILE).exists())
 
+    def journal(self):
+        return profiles.journal_load(self.home / "wheelguard" / profiles.JOURNAL_FILE)
+
+    def test_a_hand_change_while_engaged_updates_the_crash_journal(self):
+        self.settings.setProfilesEnabled(True)
+        self.ctl.focusChanged("game.desktop")
+        self.assertIn("clicklock", self.journal())
+        self.d.clickLock = False                    # by hand; the journal must not bring the old value back
+        self.d.configChanged.emit()
+        self.assertNotIn("clicklock", self.journal())
+        self.assertIn("protection", self.journal())
+
+    def test_a_restore_that_could_not_be_applied_stays_in_the_journal_at_shutdown(self):
+        self.settings.setProfilesEnabled(True)
+        self.ctl.focusChanged("game.desktop")
+        self.d.state = "stopped"                    # the daemon went away: nothing can be handed back
+        self.d.configChanged.emit()
+        self.ctl.shutdown()
+        self.assertEqual(self.journal(), {"protection": (60, 25, 300), "clicklock": False})
+        self.assertEqual(self.m.calls[-1], ("stage", 2))
+
+    def test_a_profile_is_one_set_command(self):
+        self.settings.setProfilesEnabled(True)
+        self.ctl.focusChanged("game.desktop")
+        self.assertEqual(self.d.sets, [{"pre_ms": 90, "hold_ms": 35, "lock_ms": 400, "clicklock": True}])
+        self.ctl.focusChanged("")
+        self.assertEqual(len(self.d.sets), 2)
+
     def test_saving_and_deleting_profiles(self):
         self.assertEqual(self.ctl.saveProfile("new.desktop", "keep", "keep", -1), "Choose at least one change for this app.")
         self.assertEqual(self.ctl.saveProfile("new.desktop", "Light", "keep", 1), "")
@@ -196,9 +225,9 @@ class ServiceFocusTests(unittest.TestCase):
         svc = service.Service()
         got = []
         svc.focusChanged.connect(got.append)
-        for value in ("steam_app_1.desktop", "", "x" * 5000, "has space.desktop", "../../etc/passwd", "a\x00b"):
+        for value in ("steam_app_1.desktop", "", "x" * 5000, "Portal 2.desktop", " lead", "../../etc/passwd", "a\x00b"):
             svc.focus_changed(value)
-        self.assertEqual(got, ["steam_app_1.desktop", "", "", "", "", ""])
+        self.assertEqual(got, ["steam_app_1.desktop", "", "", "Portal 2.desktop", "", "", ""])
 
     def test_the_popup_state_carries_the_profile_flags(self):
         svc = service.Service()

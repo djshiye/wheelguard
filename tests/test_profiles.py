@@ -31,14 +31,21 @@ GAME_ID, OTHER_ID, EDITOR_ID = "steam_app_1.desktop", "other_game.desktop", "org
 class ValidationTests(unittest.TestCase):
     def test_app_ids(self):
         self.assertEqual(profiles.clean_app_id("steam_app_123.desktop"), "steam_app_123.desktop")
-        for bad in ("", " ", "a b", "../x", "a/b", "x" * 201, None, 5, "-x", "a\nb", "\u202eevil"):
+        for bad in ("", " ", "a b\n", "a b ", " a", "a\tb", "../x", "a /b", "a/b", "x" * 201, None, 5, "-x", "a\nb", "\u202eevil"):
             self.assertEqual(profiles.clean_app_id(bad), "", repr(bad))
+
+    def test_app_ids_may_have_spaces_like_steam_shortcuts(self):
+        for ok in ("Portal 2.desktop", "steam_app_620", "Half-Life 2 Episode 1.desktop"):
+            self.assertEqual(profiles.clean_app_id(ok), ok)
+        self.assertEqual(profiles.clean_app_id("a " * 100), "")          # trailing space
+        self.assertEqual(profiles.clean_app_id("a b" * 100), "")         # too long
+        self.assertIsNotNone(profiles.make_profile("Portal 2.desktop", "Strong"))
 
     def test_make_profile_accepts_ui_words_and_rejects_empty(self):
         p = profiles.make_profile("a.desktop", "strong", "on", 1)
         self.assertEqual(p, Profile("a.desktop", "Strong", True, 1))
         self.assertIsNone(profiles.make_profile("a.desktop", "keep", "keep", None))
-        self.assertIsNone(profiles.make_profile("bad id", "Strong"))
+        self.assertIsNone(profiles.make_profile("bad/id", "Strong"))
         self.assertIsNone(profiles.make_profile("a.desktop", "nonsense", "maybe", 99))
         self.assertEqual(profiles.make_profile("a.desktop", None, False, None).clicklock, False)
         self.assertIsNone(profiles.make_profile("a.desktop", None, None, True))
@@ -256,6 +263,26 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(self.e.refresh(live(LIGHT, False, 2)), {"protection": BALANCED})
         self.assertIsNone(self.e.active)
 
+    def test_a_pending_restore_stays_in_the_journal_values(self):
+        self.e.focus(GAME_ID, live())
+        self.e.observe(live(STRONG, True, 0))
+        self.e.focus("", live(STRONG, True, None))                  # the mouse is asleep: stage can't go back
+        self.e.skipped(["stage"])
+        self.assertEqual(self.e.restore_values(), {"stage": 2})
+        self.assertEqual(self.e.retry_plan(live(STRONG, True, 0)), {"stage": 2})
+        self.assertEqual(self.e.restore_values(), {})
+
+    def test_a_pending_restore_survives_the_next_profile_engaging(self):
+        self.e.focus(GAME_ID, live())
+        self.e.observe(live(STRONG, True, 0))
+        self.e.focus("", live(STRONG, True, None))
+        self.e.skipped(["stage"])
+        self.e.focus(OTHER_ID, live(BALANCED, False, None))         # sets Click-Lock only, not the stage
+        self.assertEqual(self.e.restore_values(), {"clicklock": False, "stage": 2})
+        self.assertEqual(self.e.retry_plan(live(BALANCED, True, 0)), {"stage": 2})
+        self.e.observe(live(BALANCED, True, 2))
+        self.assertNotIn("stage", self.e.focus("", live(BALANCED, True, 2)))
+
     def test_restore_values_for_the_journal(self):
         self.assertEqual(self.e.restore_values(), {})
         self.e.focus(GAME_ID, live())
@@ -299,12 +326,26 @@ class DesktopAppTests(unittest.TestCase):
             self.write(d, "d.desktop", "[Desktop Entry]\nType=Link\nName=Link\n")
             self.write(d, "e.desktop", "not an ini file at all\n\x00")
             self.write(d, "f.desktop", "[Desktop Entry]\nType=Application\n")
-            self.write(d, "bad name.desktop", "[Desktop Entry]\nType=Application\nName=Spacey\n")
+            self.write(d, "bad\x01name.desktop", "[Desktop Entry]\nType=Application\nName=Spacey\n")
             self.write(d, "sub/g.desktop", "[Desktop Entry]\nType=Application\nName=Beta\n")
             self.write(d, "huge.desktop", "[Desktop Entry]\nName=" + "x" * 70000 + "\n")
             apps = desktopapps.scan([Path(d)])
             self.assertEqual([(a["id"], a["name"]) for a in apps], [("sub-g.desktop", "Beta"), ("a.desktop", "Zed")])
             self.assertEqual(apps[1]["icon"], "zed")
+
+    def test_steam_shortcuts_map_to_the_window_class(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.write(d, "Portal 2.desktop", "[Desktop Entry]\nType=Application\nName=Portal 2\nIcon=steam_icon_620\n"
+                                              "Exec=steam steam://rungameid/620\n")
+            self.write(d, "Portal 2b.desktop", "[Desktop Entry]\nType=Application\nName=Portal Dupe\n"
+                                                   "Exec=steam steam://rungameid/620\n")
+            self.write(d, "steam.desktop", "[Desktop Entry]\nType=Application\nName=Steam\nExec=steam %U\n")
+            apps = desktopapps.scan([Path(d)])
+            self.assertEqual([(a["id"], a["name"], a["icon"]) for a in apps],
+                             [("steam_app_620", "Portal 2", "steam_icon_620"), ("steam.desktop", "Steam", "")])
+        self.assertEqual(desktopapps.steam_app_id("steam steam://rungameid/730 -x"), "steam_app_730")
+        self.assertEqual(desktopapps.steam_app_id("steam steam://run/730"), "")
+        self.assertEqual(desktopapps.steam_app_id(""), "")
 
     def test_first_folder_wins_and_search_matches_name_and_id(self):
         with tempfile.TemporaryDirectory() as d1, tempfile.TemporaryDirectory() as d2:

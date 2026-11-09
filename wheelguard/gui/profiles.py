@@ -33,7 +33,8 @@ KEEP = "keep"
 PROTECTIONS = tuple(p.name for p in presets.PRESETS)
 SETTLE_S = 3.0                  # how long a value we sent may take to show up in the live settings
 SETTLE_STAGE_S = 10.0           # a DPI switch goes through the mouse and is slower
-APP_ID_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._+-]*$")
+# Steam shortcuts have spaces in their file names ("Portal 2.desktop"); no leading or trailing space
+APP_ID_RE = re.compile(r"[A-Za-z0-9_](?:[A-Za-z0-9._+ -]*[A-Za-z0-9._+-])?")
 
 
 class Profile(NamedTuple):
@@ -45,7 +46,7 @@ class Profile(NamedTuple):
 
 def clean_app_id(value) -> str:
     """The id if it looks like a desktop-file id, else "". Used for the file and for D-Bus input."""
-    if not isinstance(value, str) or not 0 < len(value) <= MAX_APP_ID or not APP_ID_RE.match(value):
+    if not isinstance(value, str) or not 0 < len(value) <= MAX_APP_ID or not APP_ID_RE.fullmatch(value):
         return ""
     return value
 
@@ -300,7 +301,10 @@ class ProfileEngine:
         plan: Dict[str, object] = {}
         if self.active is None:
             self._base = dict(eff)                  # the user's normal settings, as they are right now
+            self._base.update(self._retry)          # ... plus values still owed back, which are the user's
+            self._retry = {k: v for k, v in self._retry.items() if k not in target}
         else:
+            self._retry = {}
             for k in self._overridden:              # what the user set by hand is their normal now
                 if k in eff:
                     self._base[k] = eff[k]
@@ -308,7 +312,6 @@ class ProfileEngine:
                 if k not in target and k not in self._overridden and k in self._base and eff.get(k) != self._base[k]:
                     plan[k] = self._base[k]
         self._overridden = set()
-        self._retry = {}
         self._applied = {}
         for k, v in target.items():
             if k not in self._base and k in eff:
@@ -327,7 +330,8 @@ class ProfileEngine:
         plan = {k: self._base[k] for k in self._applied
                 if k not in self._overridden and k in self._base and eff.get(k) != self._base[k]}
         self.active = None
-        self._applied, self._overridden, self._retry = {}, set(), {}
+        self._retry = {k: v for k, v in self._retry.items() if k not in self._applied}   # base values still owed
+        self._applied, self._overridden = {}, set()
         self._mark(plan)
         return plan
 
@@ -343,7 +347,7 @@ class ProfileEngine:
                 del self._seed[k]
         if self.active is None:
             for k, v in current.items():
-                if v is not None and k not in self._pending and k not in self._seed:
+                if v is not None and k not in self._pending and k not in self._seed and k not in self._retry:
                     self._base[k] = v
             return
         for k, want in self._applied.items():
@@ -397,6 +401,7 @@ class ProfileEngine:
     def restore_values(self) -> Dict[str, object]:
         """What to hand back if the app dies now (written to the journal while a profile is engaged)."""
         out = dict(self._seed)
+        out.update({k: v for k, v in self._retry.items() if k not in self._applied})   # base values still owed
         if self.active is not None:
             out.update({k: self._base[k] for k in self._applied if k not in self._overridden and k in self._base})
         return out
