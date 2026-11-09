@@ -146,6 +146,37 @@ class Engine(unittest.TestCase):
         self.assertEqual(cl.stop(), ([], False))
 
 
+    def test_other_button_ends_repeat_lock(self):
+        cl = self.make(hold_ms=1000)
+        cl.process(press(1), 1.0)
+        cl.flush(2.0)                                   # engaged, button released
+        cl.process(press(0), 2.02)                      # finger off; the lock carries on
+        cl.flush(2.05)                                  # virtual down (repeat click)
+        self.assertTrue(cl.virtual_down)
+        right = [(e.EV_KEY, e.BTN_RIGHT, 1)]
+        frames, rest, changed = cl.process(right, 2.06)
+        self.assertTrue(changed)
+        self.assertFalse(cl.active)
+        self.assertEqual(values(frames), [0])           # left let go
+        self.assertEqual(rest, right)                   # the right click itself still lands
+        self.assertEqual(cl.flush(10.0), ([], False))   # and nothing clicks any more
+
+    def test_other_button_ends_hold_lock(self):
+        cl = self.make(hold_ms=1000, mode=HOLD)
+        cl.process(press(1), 1.0)
+        cl.flush(2.0)
+        cl.process(press(0), 2.5)                       # finger off, button still held for the user
+        frames, rest, changed = cl.process([(e.EV_KEY, e.BTN_MIDDLE, 1)], 3.0)
+        self.assertEqual(values(frames), [0])
+        self.assertFalse(cl.active)
+        self.assertFalse(cl.virtual_down)
+
+    def test_other_button_when_not_locked_is_untouched(self):
+        cl = self.make()
+        right = [(e.EV_KEY, e.BTN_RIGHT, 1)]
+        self.assertEqual(cl.process(right, 1.0), ([], right, False))
+
+
 class Config(unittest.TestCase):
     def test_defaults(self):
         cfg = C.normalize({})
@@ -220,6 +251,25 @@ class Daemon(unittest.TestCase):
         self.ctl.set_device(False, None, "mouse disconnected")
         self.assertFalse(self.ctl.status()["clicklock_active"])
         self.assertIsNone(self.ctl.clicklock_deadline)
+
+
+    def test_switch_off_release_survives_a_second_config_change(self):
+        # Hold mode locked; Click-Lock switched off and the scroll filter retuned in the same round,
+        # while a scroll tick is held back. The release must still go out.
+        self.ctl.set_config({"clicklock": True, "clicklock_ms": 1000, "clicklock_mode": "hold"})
+        self.ctl.handle_frame(press(1), 1.0, self.written.extend)
+        self.ctl.handle_flush(2.0, self.written.extend)
+        self.ctl.handle_frame(press(0), 2.5, self.written.extend)
+        up = [(e.EV_REL, e.REL_WHEEL, 1)]
+        down = [(e.EV_REL, e.REL_WHEEL, -1)]
+        self.ctl.handle_frame(up, 2.6, self.written.extend)
+        self.ctl.handle_frame(up, 2.61, self.written.extend)
+        self.ctl.handle_frame(down, 2.7, self.written.extend)      # a reversal: may be held
+        self.written.clear()
+        self.assertIsNone(self.ctl.set_config({"clicklock": False}))
+        self.assertIsNone(self.ctl.set_config({"lock_ms": 400}))
+        self.ctl.handle_flush(2.71, self.written.extend)
+        self.assertEqual(values(self.written), [0])
 
 
 if __name__ == "__main__":

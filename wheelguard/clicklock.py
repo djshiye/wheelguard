@@ -9,6 +9,8 @@ no clock of its own.
                                      simply stays down, like Windows' ClickLock
     let go                           ignored while locked, so the clicking (or holding) carries on
     click again                      the lock ends; that click itself is swallowed, so it never lands
+    press any other mouse button     the lock ends too (an always-available way out); that press
+                                     goes through as usual
     switch Click-Lock off            the lock ends at once (stop())
 
 A short click never engages anything: the timer only runs while the button is physically down.
@@ -72,6 +74,12 @@ class ClickLock:
         frame itself with the left-button event kept, rewritten or removed, and whether `active` changed.
         """
         frames, changed = self.flush(t)
+        if self.locked and any(ev[0] == e.EV_KEY and ev[1] != e.BTN_LEFT and ev[2] == 1
+                               and e.BTN_MOUSE <= ev[1] < e.BTN_JOYSTICK for ev in events):
+            # Any other mouse button (right, middle, side) is an emergency exit: the lock ends at
+            # once and the button is handed back to the finger. That press itself goes through.
+            stop_frames, _ = self.stop()
+            frames, changed = frames + stop_frames, True
         idx = next((i for i, ev in enumerate(events)
                     if ev[0] == e.EV_KEY and ev[1] == e.BTN_LEFT), None)
         if idx is None:

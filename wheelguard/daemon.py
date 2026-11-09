@@ -130,6 +130,74 @@ class TickLogger:
                   f"gap={gap} ({d.reason})", flush=True)
 
 
+class KeyState:
+    """Which keys/buttons a stream of EV_KEY events leaves pressed."""
+
+    def __init__(self):
+        self.down = set()
+
+    def update(self, frame):
+        for etype, code, value in frame:
+            if etype == e.EV_KEY:
+                if value:
+                    self.down.add(code)
+                else:
+                    self.down.discard(code)
+
+
+class FrameReader:
+    """Turns the mouse's raw evdev events into frames (lists of events, without their SYN_REPORT).
+
+    After SYN_DROPPED (the kernel's buffer overflowed, e.g. at 4000-8000 Hz polling while the daemon
+    was busy) everything up to the next SYN_REPORT is unreliable and discarded, as libevdev does. A
+    button release can be among the lost events, so the button state is then re-read from the device
+    (`keys_now`, EVIOCGKEY) and the difference is replayed as a frame of its own. Without this the
+    virtual mouse could keep a button pressed until the next click. A press of a button that is already
+    down (a duplicate after the re-read) is left out.
+    """
+
+    def __init__(self, keys_now):
+        self.keys_now = keys_now
+        self.state = KeyState()
+        self.frame = []
+        self.skipping = False
+
+    def feed(self, etype, code, value):
+        """One raw event; returns the frames it completes (usually none or one)."""
+        if etype == e.EV_SYN:
+            if code == e.SYN_DROPPED:
+                self.frame, self.skipping = [], True
+            elif code == e.SYN_REPORT:
+                if self.skipping:
+                    self.skipping = False
+                    self.frame = []
+                    return self._resync()
+                frame, self.frame = self.frame, []
+                return [frame] if frame else []
+            return []
+        if self.skipping:
+            return []
+        if etype == e.EV_KEY and value == 1 and code in self.state.down:
+            return []                       # already pressed (replayed by a re-read)
+        self.frame.append((etype, code, value))
+        if etype == e.EV_KEY:
+            self.state.update([(etype, code, value)])
+        return []
+
+    def _resync(self):
+        try:
+            actual = set(self.keys_now())
+        except OSError:
+            return []
+        fix = [(e.EV_KEY, code, 0) for code in sorted(self.state.down - actual)]
+        fix += [(e.EV_KEY, code, 1) for code in sorted(actual - self.state.down)]
+        if not fix:
+            return []
+        log.info("events dropped by the kernel; button state re-read from the mouse")
+        self.state.update(fix)
+        return [fix]
+
+
 def write_frames(ui, frames):
     for frame in frames:
         for etype, code, value in frame:
@@ -153,6 +221,31 @@ def idle(ctl, server, seconds):
         service(ctl, server, left)
 
 
+def buttons_down(dev):
+    """Mouse buttons the device reports as pressed right now (EVIOCGKEY)."""
+    return [code for code in dev.active_keys() if e.BTN_MOUSE <= code < e.BTN_JOYSTICK]
+
+
+def wait_for_buttons_up(dev, ctl, server):
+    """Don't grab the mouse while a button is held.
+
+    Until the grab, the desktop reads the mouse directly. If it saw a press there and the grab then
+    swallowed the release (it would go only to us), the desktop would keep that button pressed until
+    Wheelguard lets go of the mouse: a stuck click that clicking again can't fix, because the new
+    clicks arrive through the virtual mouse. This happens when the mouse wakes up or reconnects with a
+    click. So wait (still answering IPC clients) until every button is up; the release then reaches
+    the desktop the normal way.
+    """
+    logged = False
+    while buttons_down(dev):
+        if not logged:
+            log.info("waiting for the mouse buttons to be released before taking over the mouse")
+            logged = True
+        if service(ctl, server, POLL_S, (dev.fd,)):
+            for _ in dev.read():           # not grabbed yet: the desktop gets these events itself
+                pass
+
+
 def run_session(dev, ctl, server, tick_log):
     """Grab dev and filter until it disappears (OSError) or we are stopped."""
     try:
@@ -162,10 +255,15 @@ def run_session(dev, ctl, server, tick_log):
         raise
     grabbed = False
 
+    out = KeyState()                    # what the virtual mouse has been told is pressed
+
     def write(frames):
         write_frames(ui, frames)
+        for frame in frames:
+            out.update(frame)
 
     try:
+        wait_for_buttons_up(dev, ctl, server)
         dev.grab()
         grabbed = True
         cfg = ctl.cfg
@@ -174,8 +272,8 @@ def run_session(dev, ctl, server, tick_log):
                  f"after {cfg['clicklock_ms'] / 1000:g}s ({cfg['clicklock_mode']})" if cfg["clicklock"] else "off")
         ctl.reset_filter()
         ctl.set_device(True, dev.name, None)
-        frame = []
-        skipping = False  # after SYN_DROPPED, discard everything up to the next SYN_REPORT
+        reader = FrameReader(dev.active_keys)
+        reader.state.down = set(dev.active_keys())   # normally empty (see wait_for_buttons_up)
         while True:
             timeout = None
             now = time.time()
@@ -185,19 +283,17 @@ def run_session(dev, ctl, server, tick_log):
                 timeout = min(timeout if timeout is not None else POLL_S, max(deadline - now, 0.0))
             if service(ctl, server, timeout, (dev.fd,)):
                 for ev in dev.read():
-                    if ev.type == e.EV_SYN:
-                        if ev.code == e.SYN_DROPPED:
-                            frame, skipping = [], True
-                        elif ev.code == e.SYN_REPORT:
-                            if skipping:
-                                skipping = False
-                            else:
-                                tick_log(ctl.handle_frame(frame, ev.timestamp(), write))
-                            frame = []
-                    elif not skipping:
-                        frame.append((ev.type, ev.code, ev.value))
+                    for frame in reader.feed(ev.type, ev.code, ev.value):
+                        tick_log(ctl.handle_frame(frame, ev.timestamp(), write))
             tick_log(ctl.handle_flush(time.time(), write))
     finally:
+        # Never leave a button pressed behind us (the kernel should release it when the virtual mouse
+        # goes away, but say so explicitly as well).
+        if out.down:
+            try:
+                write_frames(ui, [[(e.EV_KEY, code, 0) for code in sorted(out.down)]])
+            except OSError:
+                pass
         if grabbed:
             try:
                 dev.ungrab()

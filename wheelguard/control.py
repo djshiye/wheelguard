@@ -158,7 +158,9 @@ class Controller:
         if any(old[k] != new[k] for k in keys):
             # Release a pending hold instead of losing the tick, then start from a clean filter.
             if self.wf.held is not None:
-                self._outbox, self._outbox_decisions = flush_frames(self.wf, float("inf"))
+                f, d = flush_frames(self.wf, float("inf"))
+                self._outbox += f                     # add: a Click-Lock release may be waiting there
+                self._outbox_decisions += d
             self.wf = self._new_filter()
             self._prev_t = None
         if any(old[k] != new[k] for k in C.CLICKLOCK_KEYS):
