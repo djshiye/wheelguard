@@ -11,6 +11,7 @@ C.Slider {
     padding: 0
     hoverEnabled: true
     focusPolicy: Qt.StrongFocus
+    Accessible.description: valueText
 
     HoverHandler { cursorShape: Qt.PointingHandCursor }
 
@@ -64,17 +65,17 @@ C.Slider {
             anchors.fill: parent
             radius: 10
             color: "white"
-            border.width: 1
-            border.color: Qt.rgba(0, 0, 0, 0.18)
+            border.width: control.visualFocus ? 2 : 1
+            border.color: control.visualFocus ? Theme.focusRing : Qt.rgba(0, 0, 0, 0.18)
             scale: control.pressed ? 1.08 : 1
             Behavior on scale { NumberAnimation { duration: Theme.fast; easing.type: Easing.OutCubic } }
         }
 
         Rectangle {  // value bubble
             visible: control.valueText !== "" && opacity > 0
-            opacity: control.pressed ? 1 : 0
+            opacity: control.pressed || control.visualFocus ? 1 : 0
             Behavior on opacity { NumberAnimation { duration: Theme.fast } }
-            y: -height - 6 - (control.pressed ? 0 : -4)
+            y: -height - 6 - (control.pressed || control.visualFocus ? 0 : -4)
             Behavior on y { NumberAnimation { duration: Theme.fast; easing.type: Easing.OutCubic } }
             anchors.horizontalCenter: parent.horizontalCenter
             width: bubbleText.implicitWidth + 20

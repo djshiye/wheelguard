@@ -15,11 +15,13 @@ from evdev import UInput, UInputError, ecodes as e
 from . import config as C
 from .control import POLL_S, Controller
 from .core import DROP, EMIT, HOLD
+from .hotplug import DeviceWatcher
 from .ipc import AlreadyRunning, Server
 
 log = logging.getLogger("wheelguard")
 UI_NAME = "wheelguard Endgame Gear"     # unchanged for every mouse, so existing setups see the same virtual device
 UI_PREFIX = "wheelguard"
+SETTLE_S = 0.25     # after a /dev/input change, let udev finish (permissions, sibling nodes) before searching
 
 
 # Mice Wheelguard knows, as (vendor, product) of their wheel-bearing input device. The configured
@@ -214,11 +216,17 @@ def service(ctl, server, timeout, extra=()):
     return [fd for fd in readable if fd in extra]
 
 
-def idle(ctl, server, seconds):
-    """Wait `seconds` (the retry interval) while still answering IPC clients."""
+def idle(ctl, server, seconds, watcher=None):
+    """Wait `seconds` (the retry interval) while still answering IPC clients.
+
+    With a `watcher` (hotplug.DeviceWatcher) the wait ends early, SETTLE_S after an input device
+    appears or becomes accessible, so a mouse that wakes up or is plugged in is picked up at once.
+    """
     end = time.monotonic() + seconds
+    extra = () if watcher is None else (watcher.fileno(),)
     while (left := end - time.monotonic()) > 0:
-        service(ctl, server, left)
+        if service(ctl, server, left, extra) and watcher.drain():
+            end = min(end, time.monotonic() + SETTLE_S)
 
 
 def buttons_down(dev):
@@ -371,6 +379,7 @@ def main(argv=None):
         sys.exit(f"wheelguard: cannot create socket {server.path}: {ex}")
 
     tick_log = TickLogger(args.log)
+    watcher = DeviceWatcher.open()
     last_err = None
     try:
         while True:
@@ -390,8 +399,10 @@ def main(argv=None):
                     log.warning("session ended: %s; retrying", msg)
                     ctl.set_device(False, None, msg)
                     last_err = msg
-            idle(ctl, server, ctl.cfg["retry_s"])
+            idle(ctl, server, ctl.cfg["retry_s"], watcher)
     except KeyboardInterrupt:
         pass
     finally:
+        if watcher is not None:
+            watcher.close()
         server.close()

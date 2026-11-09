@@ -197,6 +197,16 @@ Item {
         property bool edited: false
         property string label: ""
         signal clicked()
+        activeFocusOnTab: inUse
+        Accessible.role: Accessible.RadioButton
+        Accessible.name: "Stage " + (idx + 1) + ", " + label + " DPI" + (active ? ", active" : "")
+        Accessible.checkable: true
+        Accessible.checked: selected
+        Accessible.onPressAction: if (inUse) clicked()
+        Keys.onSpacePressed: if (inUse) clicked()
+        Keys.onReturnPressed: if (inUse) clicked()
+        Keys.onEnterPressed: if (inUse) clicked()
+        WgFocusRing {}
         radius: Theme.radiusSm
         opacity: inUse ? 1 : 0.38
         color: selected ? "transparent" : (scMa.containsMouse && inUse ? Theme.cardHi : Theme.inset)
@@ -295,6 +305,7 @@ Item {
             color: Theme.textMuted
         }
         WgSlider {
+            Accessible.name: (dr.axis ? dr.axis + " " : "") + "DPI"
             Layout.fillWidth: true
             enabled: root.editable
             from: 0
@@ -311,6 +322,7 @@ Item {
             }
         }
         WgSpinBox {
+            Accessible.name: (dr.axis ? dr.axis + " " : "") + "DPI"
             Layout.preferredWidth: 138
             enabled: root.editable
             suffix: " DPI"
@@ -556,7 +568,7 @@ Item {
                     delegate: StageChip {
                         required property int index
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 72
+                        Layout.preferredHeight: Theme.px(72)
                         idx: index
                         inUse: index < root.v.stage_count
                         selected: index === root.editStage && inUse
@@ -669,6 +681,7 @@ Item {
                     }
                 }
                 WgSegmented {
+                    accessibleName: "Number of stages"
                     Layout.preferredWidth: 55 * mouse.maxStages
                     Layout.preferredHeight: 40
                     model: root.stageNumbers
@@ -690,6 +703,7 @@ Item {
             Heading { title: "Performance"; badge: root.polling[mouse.pollingCodes.indexOf(root.v.polling)] || "" }
             Hint { text: "Polling rate: how often the mouse reports its position. Higher is smoother but uses more battery." }
             WgSegmented {
+                accessibleName: "Polling rate"
                 Layout.fillWidth: true
                 model: root.polling
                 subLabels: root.hasSubs ? root.pollingSub : []
@@ -747,6 +761,7 @@ Item {
             Heading { title: "Lift-off distance"; badge: root.lodMm() }
             Hint { text: "How high you can lift the mouse before it stops tracking. A lower value stops tracking sooner, which helps when you reposition on the pad." }
             WgSegmented {
+                accessibleName: "Lift-off distance"
                 Layout.fillWidth: true
                 model: root.lodModel()
                 currentIndex: root.lodIndex()
@@ -806,6 +821,7 @@ Item {
                         }
                         Item { Layout.fillWidth: true }
                         WgSegmented {
+                            accessibleName: "Click filter mode, " + mouse.buttonNames[fr.index]
                             Layout.preferredWidth: 270
                             Layout.preferredHeight: 36
                             model: ["Filter", "GX Speed", "GX Safe"]
@@ -828,6 +844,7 @@ Item {
                             color: Theme.text
                         }
                         WgSlider {
+                            Accessible.name: "Click filter, " + mouse.buttonNames[fr.index]
                             Layout.fillWidth: true
                             enabled: fr.mode === 0
                             opacity: enabled ? 1 : 0.4
@@ -880,6 +897,7 @@ Item {
                             elide: Text.ElideRight
                         }
                         WgSelect {
+                            accessibleName: "Action for " + mouse.buttonNames[br.index]
                             Layout.preferredWidth: 170
                             model: mouse.actionNames
                             currentIndex: br.idx
@@ -924,6 +942,7 @@ Item {
                 switchVisible: false
                 edited: root.isEdited("idle_min")
                 WgSpinBox {
+                    Accessible.name: "Sleep after"
                     suffix: " min"
                     from: mouse.idleMin
                     to: mouse.idleMax
@@ -939,6 +958,7 @@ Item {
                 switchVisible: false
                 edited: root.isEdited("low_battery")
                 WgSelect {
+                    accessibleName: "Low-battery warning"
                     implicitWidth: 120
                     model: mouse.lowBatteryLabels
                     // The nearest preset, so a level set elsewhere (e.g. in Synapse) never shows a blank box.
@@ -962,6 +982,7 @@ Item {
                 edited: root.anyEdited("sleep_")
                 onToggled: (on) => mouse.setValue("sleep_on", on)
                 WgSpinBox {
+                    Accessible.name: "Sleep after"
                     enabled: root.v.sleep_on
                     opacity: enabled ? 1 : 0.45
                     suffix: " min"
@@ -980,6 +1001,7 @@ Item {
                 edited: root.anyEdited("deep_")
                 onToggled: (on) => mouse.setValue("deep_on", on)
                 WgSpinBox {
+                    Accessible.name: "Deep sleep after"
                     enabled: root.v.deep_on
                     opacity: enabled ? 1 : 0.45
                     suffix: " min"

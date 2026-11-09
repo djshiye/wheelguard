@@ -150,6 +150,19 @@ class GsettingsParseTests(unittest.TestCase):
         self.assertFalse(gsettings.prefers_dark("'default'"))
         self.assertFalse(gsettings.prefers_dark("'prefer-light'"))
 
+    def test_text_scale(self):
+        self.assertEqual(gsettings.text_scale("1.25\n"), 1.25)
+        self.assertEqual(gsettings.text_scale("text-scaling-factor: 1.5"), 1.5)
+        self.assertEqual(gsettings.text_scale("1"), 1.0)
+        self.assertEqual(gsettings.text_scale("9.0"), 3.0)            # clamped
+        self.assertEqual(gsettings.text_scale(""), 1.0)
+        self.assertEqual(gsettings.text_scale("garbage"), 1.0)
+
+    def test_animations(self):
+        self.assertTrue(gsettings.animations("true"))
+        self.assertFalse(gsettings.animations("enable-animations: false"))
+        self.assertTrue(gsettings.animations(""))                     # unknown: keep animations
+
     def test_write_readonly_does_not_spawn(self):
         old = os.environ.get("WHEELGUARD_GSETTINGS_READONLY")
         os.environ["WHEELGUARD_GSETTINGS_READONLY"] = "1"
@@ -490,3 +503,40 @@ class LiquidGlassTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AppearanceTests(unittest.TestCase):
+    """Live GNOME look and accessibility settings, as `gsettings monitor` reports them."""
+
+    def setUp(self):
+        from wheelguard.gui.backend import Appearance
+        self.a = Appearance(override=None, text_scale=None, motion=None)
+        self.a._update(dark=False, scale=1.0, motion=True)
+        self.changes = []
+        self.a.changed.connect(lambda: self.changes.append(1))
+
+    def test_large_text(self):
+        self.a.apply_line("text-scaling-factor: 1.25")
+        self.assertEqual(self.a.textScale, 1.25)
+        self.assertEqual(len(self.changes), 1)
+
+    def test_reduce_animation(self):
+        self.a.apply_line("enable-animations: false")
+        self.assertFalse(self.a.motion)
+
+    def test_dark(self):
+        self.a.apply_line("color-scheme: 'prefer-dark'")
+        self.assertTrue(self.a.dark)
+
+    def test_unrelated_key_and_no_change_are_quiet(self):
+        self.a.apply_line("cursor-size: 32")
+        self.a.apply_line("text-scaling-factor: 1.0")
+        self.assertEqual(self.changes, [])
+
+    def test_overrides_win(self):
+        from wheelguard.gui.backend import Appearance
+        a = Appearance(override=True, text_scale=1.5, motion=False)
+        a.apply_line("color-scheme: 'default'")
+        a.apply_line("text-scaling-factor: 1.0")
+        a.apply_line("enable-animations: true")
+        self.assertEqual((a.dark, a.textScale, a.motion), (True, 1.5, False))

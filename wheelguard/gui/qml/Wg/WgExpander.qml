@@ -14,7 +14,18 @@ Item {
     Rectangle {
         id: header
         width: parent.width
-        height: 44
+        height: Math.max(44, Theme.px(44))
+        activeFocusOnTab: true
+        Accessible.role: Accessible.Button
+        Accessible.name: root.title
+        Accessible.description: root.subtitle
+        Accessible.checkable: true
+        Accessible.checked: root.expanded
+        Accessible.onPressAction: root.expanded = !root.expanded
+        Keys.onSpacePressed: root.expanded = !root.expanded
+        Keys.onReturnPressed: root.expanded = !root.expanded
+        Keys.onEnterPressed: root.expanded = !root.expanded
+        WgFocusRing {}
         radius: Theme.radiusSm
         color: ma.containsMouse ? Theme.hover : "transparent"
         Behavior on color { ColorAnimation { duration: Theme.fast } }
@@ -68,6 +79,7 @@ Item {
             y: 8
             width: parent.width
             spacing: 20
+            enabled: root.expanded          // collapsed controls stay out of the Tab order
             opacity: root.expanded ? 1 : 0
             Behavior on opacity { NumberAnimation { duration: Theme.normal } }
         }

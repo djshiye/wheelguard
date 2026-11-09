@@ -30,6 +30,8 @@ Item {
     height: implicitHeight
     clip: true
     opacity: shown ? 1 : 0
+    enabled: shown                  // a hidden banner's buttons stay out of the Tab order
+    visible: opacity > 0
     Behavior on implicitHeight { NumberAnimation { duration: Theme.slow; easing.type: Easing.InOutCubic } }
     Behavior on opacity { NumberAnimation { duration: Theme.normal } }
 

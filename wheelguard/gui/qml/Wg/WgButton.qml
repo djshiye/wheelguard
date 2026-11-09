@@ -12,6 +12,7 @@ C.Button {
     implicitWidth: row.implicitWidth + 32
     hoverEnabled: true
     focusPolicy: Qt.TabFocus
+    Accessible.name: text
     opacity: enabled ? 1 : 0.5
     Behavior on opacity { NumberAnimation { duration: Theme.fast } }
 
@@ -23,7 +24,7 @@ C.Button {
                : (control.variant === "ghost" ? (control.down ? Theme.border : (control.hovered ? Theme.hover : "transparent"))
                   : (control.down ? Theme.borderHi : (control.hovered ? Theme.cardHi : Theme.card)))
         border.width: control.primary ? 0 : 1
-        border.color: control.visualFocus ? Theme.accentB : (control.variant === "ghost" ? "transparent" : (control.hovered ? Theme.borderHi : Theme.border))
+        border.color: control.visualFocus ? Theme.focusRing : (control.variant === "ghost" ? "transparent" : (control.hovered ? Theme.borderHi : Theme.border))
         Behavior on color { ColorAnimation { duration: Theme.fast } }
         Behavior on border.color { ColorAnimation { duration: Theme.fast } }
 
