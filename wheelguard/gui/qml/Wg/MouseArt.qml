@@ -61,7 +61,9 @@ Item {
 
         Shape {
             anchors.fill: parent
-            layer.enabled: true
+            // Only at 1x: at fractional and 2x display scales the layer renders clipped or blank (seen with
+            // QT_SCALE_FACTOR 1.25 and 2), and high-DPI pixels give smooth enough edges on their own.
+            layer.enabled: Screen.devicePixelRatio === 1
             layer.samples: 4
             preferredRendererType: Shape.GeometryRenderer
 
