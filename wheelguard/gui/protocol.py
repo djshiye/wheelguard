@@ -90,6 +90,7 @@ class DeviceState(NamedTuple):
     state: str            # "running" | "waiting" | "permission"
     device: str
     error: str
+    label: str = ""       # what to show for the mouse: "Endgame Gear XM2w 4k v2 · dongle", else the device name
 
 
 def pretty_device_name(name: str) -> str:
@@ -101,6 +102,16 @@ def pretty_device_name(name: str) -> str:
     return name
 
 
+def device_label(status: dict) -> str:
+    """Friendly text for the connected mouse: the supported model and how it is connected, else the raw name."""
+    model, connection = status.get("model"), status.get("connection")
+    if isinstance(model, str) and model.strip():
+        if isinstance(connection, str) and connection.strip():
+            return f"{model.strip()} \u00b7 {connection.strip()}"
+        return model.strip()
+    return pretty_device_name(status.get("device") or "")
+
+
 def device_state(status: dict) -> DeviceState:
     """Map a status event to the GUI state. Permission is only inferred from the daemon's own error."""
     error = status.get("error") or ""
@@ -108,10 +119,11 @@ def device_state(status: dict) -> DeviceState:
     if not isinstance(error, str):
         error = str(error)
     if "permission" in error.lower():
-        return DeviceState("permission", device, error)
+        return DeviceState("permission", device, error, device)
+    label = device_label(status)
     if status.get("connected"):
-        return DeviceState("running", device, error)
-    return DeviceState("waiting", device, error)
+        return DeviceState("running", device, error, label)
+    return DeviceState("waiting", device, error, label)
 
 
 def status_config(status: dict) -> Optional[dict]:

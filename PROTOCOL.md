@@ -69,6 +69,8 @@ Validation: `0 < hold_ms < lock_ms`, `0 <= pre_ms <= lock_ms`, all ms values <= 
  "version": "1.0.0",
  "connected": true,                 // real mouse found and grabbed
  "device": "Endgame Gear Endgame Gear HS Dongle",
+ "model": "Endgame Gear XM2w 4k v2",   // friendly name of the supported mouse being filtered; null for any other mouse
+ "connection": "dongle",            // "dongle", "receiver" or "cable"; null when the model is unknown
  "error": null,                     // e.g. "permission denied: /dev/input/event2" when the udev rule is missing
  "config": {...full effective config...},
  "stats": {"ticks": 1234, "passed": 1120, "dropped": 114, "since": 1729400000.0},

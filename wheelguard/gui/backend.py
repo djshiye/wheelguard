@@ -43,6 +43,7 @@ class DaemonClient(QObject):
         self._path = path or default_socket_path()
         self._state = "connecting"
         self._device = ""
+        self._label = ""
         self._detail = ""
         self._version = ""
         self._server_cfg = dict(protocol.CONFIG_DEFAULTS)
@@ -121,9 +122,10 @@ class DaemonClient(QObject):
             self._attempt += 1
             self._retry.start(int(delay * 1000))
 
-    def _set_state(self, state, device, detail):
-        if (state, device, detail) != (self._state, self._device, self._detail):
-            self._state, self._device, self._detail = state, device, detail
+    def _set_state(self, state, device, detail, label=None):
+        label = device if label is None else label
+        if (state, device, detail, label) != (self._state, self._device, self._detail, self._label):
+            self._state, self._device, self._detail, self._label = state, device, detail, label
             self.stateChanged.emit()
 
     def _send(self, msg: dict, track: Optional[str] = None):
@@ -159,7 +161,7 @@ class DaemonClient(QObject):
     def _on_status(self, msg: dict):
         ds = protocol.device_state(msg)
         self._version = str(msg.get("version") or "")
-        self._set_state(ds.state, ds.device, ds.error)
+        self._set_state(ds.state, ds.device, ds.error, ds.label)
         cfg = protocol.status_config(msg)
         if cfg is not None:
             self._server_cfg = cfg
@@ -331,6 +333,7 @@ class DaemonClient(QObject):
     # --- properties
     state = Property(str, lambda s: s._state, notify=stateChanged)
     device = Property(str, lambda s: s._device, notify=stateChanged)
+    deviceLabel = Property(str, lambda s: s._label, notify=stateChanged)   # "Endgame Gear XM2w 4k v2 · dongle"
     detail = Property(str, lambda s: s._detail, notify=stateChanged)
     version = Property(str, lambda s: s._version, notify=stateChanged)
     enabled = Property(bool, lambda s: s._cfg["enabled"], notify=configChanged)

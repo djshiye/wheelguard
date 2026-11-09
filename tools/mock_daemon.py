@@ -28,6 +28,7 @@ DEFAULT_CONFIG = {"enabled": True, "lock_ms": 300, "pre_ms": 60, "hold_ms": 25,
                   "vendor": "3367", "product": "1970", "retry_s": 2,
                   "clicklock": False, "clicklock_ms": 5000, "clicklock_mode": "repeat", "clicklock_rate": 10,
                   "clicklock_max_s": 600, "clicklock_ignore_drag": True}
+MODEL, CONNECTION = "Endgame Gear XM2w 4k v2", "dongle"
 BOUNCE_RATE = 0.09
 
 
@@ -151,7 +152,9 @@ class Mock:
         connected = self.scenario == "connected"
         error = "permission denied: /dev/input/event2" if self.scenario == "permission" else None
         return {"type": "status", "version": VERSION, "connected": connected,
-                "device": DEVICE if connected else None, "error": error,
+                "device": DEVICE if connected else None,
+                "model": MODEL if connected else None, "connection": CONNECTION if connected else None,
+                "error": error,
                 "config": dict(self.cfg), "stats": dict(self.stats),
                 "clicklock_active": self.clicklock_active and self.cfg["clicklock"]}
 

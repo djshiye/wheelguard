@@ -9,6 +9,7 @@ import time
 
 from . import __version__
 from . import config as C
+from . import mice
 from .clicklock import ClickLock
 from .core import DROP, EMIT, PASS, Decision, WheelFilter
 from .frames import flush_frames, process_frame, tick_sign
@@ -26,6 +27,7 @@ class Controller:
         self.clock = clock
         self.connected = False
         self.device = None
+        self.model = self.connection = None     # friendly name and "dongle"/"receiver"/"cable" of a supported mouse
         self.error = "mouse not found"
         self.stats = {"ticks": 0, "passed": 0, "dropped": 0, "since": clock()}
         self.file_cfg = dict(C.DEFAULTS)
@@ -46,12 +48,16 @@ class Controller:
     # ---------- status ----------
     def status(self):
         return {"type": "status", "version": __version__, "connected": self.connected,
-                "device": self.device, "error": self.error, "config": C.to_wire(self.cfg),
+                "device": self.device, "model": self.model, "connection": self.connection, "error": self.error, "config": C.to_wire(self.cfg),
                 "stats": dict(self.stats), "clicklock_active": self.cl.active}
 
-    def set_device(self, connected, device=None, error=None):
-        changed = (connected, device, error) != (self.connected, self.device, self.error)
+    def set_device(self, connected, device=None, error=None, ident=None):
+        """`ident` is the (vendor, product) of the mouse being filtered, when there is one."""
+        model, connection = mice.identify(*ident) if connected and ident else (None, None)
+        changed = ((connected, device, error, model, connection)
+                   != (self.connected, self.device, self.error, self.model, self.connection))
         self.connected, self.device, self.error = connected, device, error
+        self.model, self.connection = model, connection
         if not connected:
             self.reset_filter()
         if changed:

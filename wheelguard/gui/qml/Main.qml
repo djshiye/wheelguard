@@ -107,7 +107,7 @@ Window {
 
                 StatusPill {
                     daemonState: daemon.state
-                    device: daemon.device
+                    device: daemon.deviceLabel
                     protecting: daemon.enabled
                 }
 
