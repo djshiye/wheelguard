@@ -55,10 +55,13 @@ the memory model is 1 and the profile format is one libratbag parses (1-5).
   ROM profile to sector 1, writes a directory that enables it, and selects it, which is what
   libratbag does.
 * **Refused**: a ROM profile selected while saved profiles exist, a profile with a bad CRC or values
-  out of range, an unknown memory layout.
+  out of range, an unknown memory layout, a profile list that can't be read while a profile is saved, an
+  unclear answer about which profile is active.
 
 Backups are the profile sector plus the DPI-index byte, in
-`~/.config/wheelguard/backups/logitech-pro-x-superlight-<fw>-<time>.bin`.
+`~/.config/wheelguard/backups/logitech-pro-x-superlight-<fw>-p<sector>-<time>.bin`
+(`p0001` for profile 1; a factory mouse's ROM profile is filed under `p0001` too, the sector its first write
+fills).
 
 Not used: host-mode settings (0x2201 DPI, 0x8060 report rate), button remapping, macros, lighting,
 pairing and everything else.

@@ -20,7 +20,7 @@ from typing import Dict, Optional
 from PySide6.QtCore import ClassInfo, Property, QObject, QTimer, Signal, Slot
 from PySide6.QtDBus import QDBus, QDBusAbstractAdaptor, QDBusConnection, QDBusMessage
 
-from . import traymodel
+from . import protocol, traymodel
 
 BUS_NAME = "io.github.djshiye.Wheelguard"
 OBJECT_PATH = "/io/github/djshiye/Wheelguard"
@@ -118,7 +118,7 @@ class Service(QObject):
 
     def set_clicklock_mode(self, mode: str):
         d = self._daemon
-        if d is not None and d.state in ("running", "waiting") and mode in ("repeat", "hold"):
+        if d is not None and d.state in ("running", "waiting") and mode in protocol.CLICKLOCK_MODES:
             d.setClickLockMode(mode)
 
     def show_window(self):

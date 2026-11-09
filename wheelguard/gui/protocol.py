@@ -15,6 +15,7 @@ CONFIG_DEFAULTS = {"enabled": True, "pre_ms": 60, "hold_ms": 25, "lock_ms": 300,
 # Click-Lock slider range in the app and the panel (the daemon accepts 0.5 to 30 s).
 CLICKLOCK_MS_RANGE = (1000, 15000)
 CLICKLOCK_MS_STEP = 500
+CLICKLOCK_MODES = ("repeat", "hold")    # the daemon's clicklock.MODES (kept evdev-free here)
 
 
 class LineBuffer:

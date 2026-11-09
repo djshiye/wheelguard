@@ -69,15 +69,15 @@ SUPERLIGHT = Model(
     wireless_text="Wireless via LIGHTSPEED receiver",
 )
 
-# Razer HyperPolling codes (command 00:40). 250 Hz exists in the protocol but the read side of the
-# reference driver can't report it for this mouse, so it isn't offered.
+# Razer HyperPolling codes (command 00:40), as OpenRazer's set_polling_rate2 sends them. 250 Hz (0x20)
+# is listed too, so a mouse set to it in Synapse doesn't make the whole page read-only.
 DEATHADDER_V4_PRO = Model(
     key="razer-deathadder-v4-pro",
     name="Razer DeathAdder V4 Pro",
     brand="Razer",
     dpi_min=100, dpi_max=45000, dpi_step=50,
     max_stages=5,
-    polling=(Polling(0x40, "125 Hz"), Polling(0x10, "500 Hz"), Polling(0x08, "1000 Hz"),
+    polling=(Polling(0x40, "125 Hz"), Polling(0x20, "250 Hz"), Polling(0x10, "500 Hz"), Polling(0x08, "1000 Hz"),
              Polling(0x04, "2000 Hz"), Polling(0x02, "4000 Hz"), Polling(0x01, "8000 Hz")),
     features=frozenset(("xy", "idle", "low_battery")),
     wireless_text="Wireless via HyperSpeed dongle",

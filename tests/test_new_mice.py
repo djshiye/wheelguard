@@ -44,7 +44,7 @@ class RazerTransportTests(unittest.TestCase):
         bad = [
             (razer.SET_DPI, bytes((1, 0, 50, 0, 50, 0, 0))),                    # below 100 DPI
             (razer.SET_DPI, bytes((1, 0xC0, 0, 0xC0, 0, 0, 0))),                # above 45000
-            (razer.SET_POLLING, bytes((0, 0x20))),                              # 250 Hz isn't offered
+            (razer.SET_POLLING, bytes((0, 0x03))),                              # not a polling code
             (razer.SET_IDLE, bytes((0, 30))),                                    # 30 s
             (razer.SET_LOW_BATTERY, bytes((0x50,))),
             (razer.SET_STAGES, bytes((1, 3, 2)) + bytes((0, 3, 0x20, 3, 0x20, 0, 0)) * 2),   # active > count
@@ -92,7 +92,7 @@ class RazerCodecTests(unittest.TestCase):
     def test_validation(self):
         with self.assertRaises(ValueError):
             razer.validate_settings(razer.decode(razer.encode(self.BLOB, {"active_stage": 4})))
-        for key, val in (("dpi_x0", 50), ("idle_min", 16), ("polling", 0x20), ("low_battery", 1)):
+        for key, val in (("dpi_x0", 50), ("idle_min", 16), ("polling", 0x03), ("low_battery", 1)):
             with self.subTest(key=key):
                 with self.assertRaises(ValueError):
                     razer.encode(self.BLOB, {key: val})
@@ -265,6 +265,44 @@ class LogitechSessionTests(TmpCase):
         self.assertEqual(dev.current, 1)
         self.assertEqual(dev.sectors[0x0101], mock.superlight_profile(255, (800, 1600, 3200, 0, 0), 1, 0))
         self.assertTrue(s.read().writable)
+
+    def test_failed_directory_read_never_overwrites_a_saved_profile(self):
+        # The directory read fails (e.g. the mouse is busy) on a mouse that has a saved profile 1:
+        # it must not be mistaken for a factory-new mouse, whose first write replaces sector 1.
+        s, dev = make_session("logitech", self.tmp)
+        del dev.sectors[0]
+        snap = s.read()
+        self.assertFalse(snap.writable)
+        self.assertIn("saved profile", snap.problem)
+        with self.assertRaises(session.HwError):
+            s.apply({"dpi_x0": 900, "dpi_y0": 900})
+        self.assertEqual(dev.writes, [])
+
+    def test_corrupt_directory_is_read_only(self):
+        s, dev = make_session("logitech", self.tmp)
+        d = bytearray(dev.sectors[0])
+        d[0] ^= 0x01
+        dev.sectors[0] = bytes(d)
+        snap = s.read()
+        self.assertFalse(snap.writable)
+        self.assertEqual(dev.writes, [])
+
+    def test_factory_restore_goes_back_to_factory_settings(self):
+        s, dev = make_session("logitech-factory", self.tmp)
+        factory = dev.sectors[0x0101]
+        s.apply({"dpi_x0": 900, "dpi_y0": 900})
+        s.apply({"dpi_x0": 1000, "dpi_y0": 1000})       # a second edit must not become the "original"
+        s.read()
+        s.restore()
+        self.assertEqual(logitech.decode(dev.sectors[1] + b"\x00")["dpi_x0"],
+                         logitech.decode(factory + b"\x00")["dpi_x0"])
+
+    def test_zero_based_current_profile_with_one_profile(self):
+        s, dev = make_session("logitech", self.tmp)
+        dev.current = 0
+        self.assertTrue(s.read().writable)
+        s.apply({"polling": 8})
+        self.assertEqual(dev.writes, [1])
 
     def test_built_in_profile_selected_while_saved_ones_exist_is_read_only(self):
         s, dev = make_session("logitech", self.tmp)

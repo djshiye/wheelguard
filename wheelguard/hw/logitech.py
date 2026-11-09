@@ -331,14 +331,40 @@ class LogitechDriver(Driver):
         try:
             d = hp.read_sector(0x0000, size)
         except StatusError:
-            d = b""                        # some firmware refuses to read a directory never written
-        self.dir_valid = sector_crc_ok(d) and bool(directory_entries(d))
+            d = None                       # some firmware refuses to read a directory never written
+        self.dir_valid = d is not None and sector_crc_ok(d) and bool(directory_entries(d))
+        # "Never written" only when the directory is blank (erased flash), as Solaar checks, never
+        # just because a read failed or a CRC didn't match: guessing wrong would overwrite a saved
+        # profile with a factory copy.
+        blank = d is None or not d.strip(b"\xff") or not d.strip(b"\x00")
         enabled = {a for a, on in directory_entries(d) if on} if self.dir_valid else set()
         cur = hp.current_profile()
-        if cur == 0:                       # some firmware reports the profile as a 0-based number
-            cur = 1
-        if not self.dir_valid and not cur & ROM_BASE:
-            cur = ROM_BASE | 1             # nothing saved yet: the mouse runs its first factory profile
+        if cur == 0:
+            # Some firmware may report a 0-based number. Only trust that when it can't be wrong.
+            cur = next(iter(enabled)) if len(enabled) == 1 else 0
+            if not cur and not self.problem:
+                self.problem = "the mouse didn't say clearly which profile is active"
+        if not self.dir_valid and not cur & ROM_BASE and not self.problem:
+            if d is not None and not blank:
+                self.problem = ("the mouse's profile list couldn't be read reliably, so Wheelguard "
+                                "won't change it")
+            elif cur != 1:
+                self.problem = (f"the mouse reports profile {cur} as active but has no profile list, "
+                                "so Wheelguard can't be sure which profile to edit")
+        if not self.dir_valid and not self.problem:
+            # The factory path writes sector 1. Never do that over a profile that is already saved
+            # there (the directory may just have failed to read).
+            try:
+                saved = sector_crc_ok(hp.read_sector(0x0001, size))
+            except StatusError:
+                saved = False
+            if saved:
+                self.problem = ("the mouse has a saved profile but its profile list couldn't be read, "
+                                "so Wheelguard won't change it")
+            elif not cur & ROM_BASE:
+                cur = ROM_BASE | 1         # nothing saved yet: the mouse runs its first factory profile
+        if not cur:
+            cur = ROM_BASE | 1             # read-only: show the factory profile, write nothing
         self.current = cur
         sector = hp.read_sector(cur, size)
         if cur & ROM_BASE and not sector_crc_ok(sector):
@@ -348,7 +374,7 @@ class LogitechDriver(Driver):
         except StatusError:
             live = 0xFF
         if self.problem:
-            pass
+            pass                           # already read-only; the first reason is the one shown
         elif cur & ROM_BASE and self.dir_valid:
             self.problem = ("the mouse is using one of its built-in profiles; select a profile saved on "
                             "the mouse to edit it here")
@@ -390,7 +416,10 @@ class LogitechDriver(Driver):
 
     def backup_prefix(self, fw: str) -> str:
         # The profile sector is part of the name: a backup only ever goes back to the profile it came from.
-        return f"{super().backup_prefix(fw)}-p{self.current:04x}"
+        # A factory mouse's first write puts its ROM profile into sector 1, so its backup is filed
+        # under sector 1: that keeps "Restore original" pointing at the factory settings afterwards.
+        sector = 1 if self.factory else self.current
+        return f"{super().backup_prefix(fw)}-p{sector:04x}"
 
     def write(self, op: Op) -> None:
         hp = self.hp

@@ -32,7 +32,8 @@ installs its own `/etc/yum.repos.d/wheelguard.repo`, so the repository stays con
     low-battery warning, battery
 - **Scroll filter for every supported mouse**: the daemon picks up whichever one is connected
 - **Click-Lock**: hold the left button for a few seconds (5 s by default, adjustable) and Wheelguard keeps
-  clicking for you, or keeps the button pressed for long drags, until your next click. Switch it on and off
+  clicking for you, or keeps the button pressed for long drags, until your next click (any other mouse
+  button ends it too). Switch it on and off
   from the panel popup
 - **GNOME pointer settings** (speed, acceleration, scrolling) in the same app
 - **Panel icon** with an instant popup (battery, scroll protection, DPI stage); closing the window keeps

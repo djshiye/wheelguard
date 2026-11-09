@@ -209,7 +209,12 @@ class HidrawDevice:
         r, _w, _x = select.select([self._fd], [], [], max(0.0, timeout))
         if not r:
             return None
-        return os.read(self._fd, size)
+        try:
+            return os.read(self._fd, size)
+        except OSError as ex:
+            if ex.errno == errno.EIO:       # hidraw's answer once the device is gone: report it as unplugged
+                raise OSError(errno.ENODEV, "No such device") from ex
+            raise
 
     def close(self) -> None:
         if self._fd >= 0:

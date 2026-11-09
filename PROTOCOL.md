@@ -28,7 +28,8 @@ Superlight), so the defaults work for all of them.
 Click-Lock: with `clicklock: true`, holding the left button for `clicklock_ms` (500 to 30000) engages
 the lock. Mode `repeat` releases the button and clicks `clicklock_rate` times a second (1 to 30);
 mode `hold` keeps it pressed. Letting go is ignored while locked; the next click ends the lock and is
-swallowed (in `hold` mode its release lets go of the button). Switching Click-Lock off or changing the
+swallowed (in `hold` mode its release lets go of the button). Pressing any other mouse button also ends
+the lock (that press goes through). Switching Click-Lock off or changing the
 mode ends a running lock at once.
 
 `enabled: false` = pass every wheel tick through untouched (device stays grabbed, ticks are still

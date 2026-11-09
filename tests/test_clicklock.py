@@ -178,6 +178,11 @@ class Engine(unittest.TestCase):
 
 
 class Config(unittest.TestCase):
+    def test_gui_mode_names_match_the_daemon(self):
+        from wheelguard.clicklock import MODES
+        from wheelguard.gui import protocol
+        self.assertEqual(protocol.CLICKLOCK_MODES, MODES)
+
     def test_defaults(self):
         cfg = C.normalize({})
         self.assertEqual((cfg["clicklock"], cfg["clicklock_ms"], cfg["clicklock_mode"], cfg["clicklock_rate"]),

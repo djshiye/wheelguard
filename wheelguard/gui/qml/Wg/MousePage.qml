@@ -941,7 +941,15 @@ Item {
                 WgSelect {
                     implicitWidth: 120
                     model: mouse.lowBatteryLabels
-                    currentIndex: mouse.lowBatteryCodes.indexOf(root.v.low_battery)
+                    // The nearest preset, so a level set elsewhere (e.g. in Synapse) never shows a blank box.
+                    currentIndex: {
+                        const codes = mouse.lowBatteryCodes
+                        let best = 0
+                        for (let i = 1; i < codes.length; i++)
+                            if (Math.abs(codes[i] - root.v.low_battery) < Math.abs(codes[best] - root.v.low_battery))
+                                best = i
+                        return best
+                    }
                     edited: root.isEdited("low_battery")
                     onActivated: (i) => mouse.setValue("low_battery", mouse.lowBatteryCodes[i])
                 }

@@ -252,7 +252,7 @@ class DaemonClient(QObject):
 
     @Slot(str)
     def setClickLockMode(self, mode: str):
-        if mode in ("repeat", "hold"):
+        if mode in protocol.CLICKLOCK_MODES:
             self._stage({"clicklock_mode": mode}, immediate=True)
 
     @Slot(int)
