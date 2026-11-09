@@ -10,7 +10,7 @@ Name:           wheelguard
 Version:        1.5.0
 # CI appends .<commit count> so every build from main is a newer release.
 Release:        1%{?release_suffix}%{?dist}
-Summary:        Scroll bounce filter and advanced settings for the Endgame Gear XM2w 4k v2
+Summary:        Scroll bounce filter and advanced mouse settings (Endgame Gear, Logitech, Razer)
 
 License:        MIT
 URL:            https://github.com/djshiye/wheelguard
@@ -31,13 +31,15 @@ Requires:       python3-evdev
 Requires:       hicolor-icon-theme
 
 %description
-A small per-user daemon grabs the Endgame Gear wireless mouse (USB 3367:1970),
-drops the bouncing wrong-direction scroll-wheel ticks of a faulty encoder and
-passes everything else through untouched. The Wheelguard app (Qt Quick) tunes
-the filter with a live view of the wheel, edits the mouse's on-board settings
-(DPI, polling rate, lift-off distance, button filtering, sleep, battery) and
-the GNOME pointer settings. A GNOME Shell extension adds a panel icon with a quick popup.
-Not affiliated with Endgame Gear.
+A small per-user daemon grabs a supported mouse (Endgame Gear XM2w 4k v2,
+Logitech G Pro X Superlight, Razer DeathAdder V4 Pro), drops the bouncing
+wrong-direction scroll-wheel ticks of a faulty encoder and passes everything
+else through untouched. It also offers Click-Lock: hold the left button and
+Wheelguard keeps clicking, or keeps it pressed, until the next click. The
+Wheelguard app (Qt Quick) tunes the filter with a live view of the wheel, edits
+the mouse's on-board settings (DPI, polling rate and more, per model) and the
+GNOME pointer settings. A GNOME Shell extension adds a panel icon with a quick popup.
+Not affiliated with Endgame Gear, Logitech or Razer.
 
 %prep
 %autosetup -n %{name}-%{version}
@@ -78,7 +80,7 @@ install -Dpm 0644 %{SOURCE1} %{buildroot}%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-
 desktop-file-validate %{buildroot}%{_datadir}/applications/%{app_id}.desktop
 desktop-file-validate %{buildroot}%{_sysconfdir}/xdg/autostart/%{app_id}.desktop
 appstreamcli validate --no-net --explain %{buildroot}%{_metainfodir}/%{app_id}.metainfo.xml
-PYTHONPATH=%{buildroot}%{_datadir}/%{name} /usr/bin/python3 -c "import wheelguard.core, wheelguard.config, wheelguard.frames, wheelguard.control, wheelguard.ipc"
+PYTHONPATH=%{buildroot}%{_datadir}/%{name} /usr/bin/python3 -c "import wheelguard.core, wheelguard.config, wheelguard.frames, wheelguard.control, wheelguard.ipc, wheelguard.clicklock, wheelguard.hw.drivers"
 
 %post
 %systemd_user_post wheelguard.service
@@ -127,6 +129,8 @@ fi
 - Click-Lock: hold the left button for a set time (default 5 s) and Wheelguard keeps clicking, or keeps
   the button pressed, until the next click
 - Switch it on and off, pick the mode and set the hold time from the panel popup or the Pointer page
+- New mice: Logitech G Pro X Superlight (first generation) and Razer DeathAdder V4 Pro, with the scroll
+  filter and their on-board settings (DPI stages, polling rate, battery; sleep timer on the Razer)
 
 * Wed Nov 04 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.4.0-1
 - One package for every Fedora release: installed under /usr/share/wheelguard, runs on any Python 3
