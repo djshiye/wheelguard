@@ -11,6 +11,7 @@ panel extension talks to the running app through it.
         SetClickLock(b)                  Click-Lock on/off
         SetClickLockMs(i)                Click-Lock hold time in ms (clamped to the slider range)
         SetClickLockMode(s)              "repeat" (keep clicking) or "hold" (keep the button pressed)
+        StopClickLock()                  end a running Click-Lock now (the shell calls this when the screen locks)
         ShowWindow()                     bring the settings window forward
         Refresh()                        re-read the mouse quietly (rate-limited)
         read-only properties             the same keys, with org.freedesktop.DBus.Properties.PropertiesChanged
@@ -121,6 +122,11 @@ class Service(QObject):
         if d is not None and d.state in ("running", "waiting") and mode in protocol.CLICKLOCK_MODES:
             d.setClickLockMode(mode)
 
+    def stop_clicklock(self):
+        d = self._daemon
+        if d is not None and d.state in ("running", "waiting"):
+            d.stopClickLock()
+
     def show_window(self):
         if self._attached:
             self.showRequested.emit()
@@ -168,6 +174,10 @@ class Adaptor(QDBusAbstractAdaptor):
     @Slot(str)
     def SetClickLockMode(self, mode):
         self.parent().set_clicklock_mode(mode)
+
+    @Slot()
+    def StopClickLock(self):
+        self.parent().stop_clicklock()
 
     @Slot()
     def ShowWindow(self):

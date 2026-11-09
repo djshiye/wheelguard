@@ -26,7 +26,8 @@ VERSION = "1.0.0-mock"
 DEVICE = "Endgame Gear Endgame Gear HS Dongle"
 DEFAULT_CONFIG = {"enabled": True, "lock_ms": 300, "pre_ms": 60, "hold_ms": 25,
                   "vendor": "3367", "product": "1970", "retry_s": 2,
-                  "clicklock": False, "clicklock_ms": 5000, "clicklock_mode": "repeat", "clicklock_rate": 10}
+                  "clicklock": False, "clicklock_ms": 5000, "clicklock_mode": "repeat", "clicklock_rate": 10,
+                  "clicklock_max_s": 600}
 BOUNCE_RATE = 0.09
 
 
@@ -64,6 +65,8 @@ def validate(cfg, patch):
             return None, f"{k} must be >= 0"
     if not 500 <= merged["clicklock_ms"] <= 30000:
         return None, "clicklock_ms must be between 500 and 30000"
+    if merged["clicklock_max_s"] != 0 and not 10 <= merged["clicklock_max_s"] <= 3600:
+        return None, "clicklock_max_s must be 0 (never) or between 10 and 3600"
     if not 1 <= merged["clicklock_rate"] <= 30:
         return None, "clicklock_rate must be between 1 and 30"
     if not 0 < merged["hold_ms"] < merged["lock_ms"]:
@@ -197,6 +200,11 @@ class Mock:
             self.filter = WheelFilter(merged["lock_ms"], merged["pre_ms"], merged["hold_ms"])
             self.send(c, {"type": "ok"})
             self.broadcast(self.status())
+        elif cmd == "clicklock_stop":
+            was, self.clicklock_active = self.clicklock_active, False
+            self.send(c, {"type": "ok"})
+            if was:
+                self.broadcast(self.status())
         elif cmd == "reload":
             self.send(c, {"type": "ok"})
         elif cmd == "reset_stats":

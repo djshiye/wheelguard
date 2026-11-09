@@ -44,6 +44,9 @@ if HAVE_QT:
         def setClickLockMode(self, mode):
             self.calls.append(("clicklock_mode", mode))
 
+        def stopClickLock(self):
+            self.calls.append(("clicklock_stop",))
+
     class FakeMouse(QObject):
         trayChanged = Signal()
 
@@ -119,6 +122,16 @@ class ServiceTests(unittest.TestCase):
         self.svc.set_clicklock_ms(7000)
         self.assertEqual(self.m.calls, [("stage", 0), ("refresh",)])
         self.assertEqual(self.d.calls, [("enabled", False), ("clicklock", True), ("clicklock_ms", 7000)])
+
+    def test_stop_clicklock_is_routed_and_the_screen_lock_watcher_calls_it(self):
+        from wheelguard.gui.screenlock import ScreenLockWatcher
+        self.svc.attach(self.d, self.m)
+        self.svc.stop_clicklock()
+        self.svc.adaptor.StopClickLock()
+        w = ScreenLockWatcher(self.d)
+        w.onActiveChanged(False)                        # the screen unlocking does nothing
+        w.onActiveChanged(True)
+        self.assertEqual(self.d.calls, [("clicklock_stop",)] * 3)
 
     def test_protection_needs_the_service(self):
         self.d.state = "stopped"

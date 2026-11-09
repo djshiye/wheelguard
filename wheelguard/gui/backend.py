@@ -250,6 +250,16 @@ class DaemonClient(QObject):
     def setClickLockRate(self, value: int):
         self._stage({"clicklock_rate": max(1, min(30, int(value)))})
 
+    @Slot(int)
+    def setClickLockMaxS(self, seconds: int):
+        self._stage({"clicklock_max_s": 0 if int(seconds) <= 0 else max(10, min(3600, int(seconds)))},
+                    immediate=True)
+
+    @Slot()
+    def stopClickLock(self):
+        """End a running Click-Lock now (screen lock, or the user asking). Harmless when none runs."""
+        self._send({"cmd": "clicklock_stop"}, track="clicklock_stop")
+
     @Slot(str)
     def setClickLockMode(self, mode: str):
         if mode in protocol.CLICKLOCK_MODES:
@@ -333,6 +343,7 @@ class DaemonClient(QObject):
     clickLockMs = Property(int, lambda s: s._cfg["clicklock_ms"], notify=configChanged)
     clickLockMode = Property(str, lambda s: s._cfg["clicklock_mode"], notify=configChanged)
     clickLockRate = Property(int, lambda s: s._cfg["clicklock_rate"], notify=configChanged)
+    clickLockMaxS = Property(int, lambda s: s._cfg["clicklock_max_s"], notify=configChanged)
     clickLockActive = Property(bool, lambda s: s._clicklock_active, notify=clickLockActiveChanged)
     ticks = Property(int, lambda s: s._ticks, notify=statsChanged)
     dropped = Property(int, lambda s: s._dropped, notify=statsChanged)

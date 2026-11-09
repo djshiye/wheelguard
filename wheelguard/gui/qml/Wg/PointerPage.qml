@@ -332,6 +332,39 @@ WgScrollPage {
                     onMoved: daemon.setClickLockRate(Math.round(value))
                 }
             }
+            RowLayout {   // safety timer
+                Layout.fillWidth: true
+                Layout.topMargin: 4
+                spacing: 16
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 2
+                    Text {
+                        text: "Stop automatically after"
+                        font.pixelSize: Theme.fsBody
+                        font.weight: Font.DemiBold
+                        color: Theme.text
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: "A safety net: if you forget about a lock, it lets go by itself. It also stops when the computer sleeps or the screen locks."
+                        font.pixelSize: Theme.fsSmall
+                        color: Theme.textMuted
+                        wrapMode: Text.WordWrap
+                    }
+                }
+                WgSelect {
+                    Layout.alignment: Qt.AlignTop
+                    Layout.preferredWidth: 150
+                    Accessible.name: "Stop Click-Lock automatically after"
+                    readonly property var values: [0, 60, 300, 600, 1800]
+                    model: ["Never", "1 minute", "5 minutes", "10 minutes", "30 minutes"]
+                    currentIndex: values.indexOf(daemon.clickLockMaxS)
+                    placeholder: daemon.clickLockMaxS >= 120 ? Math.round(daemon.clickLockMaxS / 60) + " minutes"
+                                                             : daemon.clickLockMaxS + " seconds"
+                    onActivated: (i) => daemon.setClickLockMaxS(values[i])
+                }
+            }
             Text {
                 Layout.fillWidth: true
                 text: "Also in the Wheelguard menu in the top bar, for switching it on and off quickly."

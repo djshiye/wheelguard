@@ -12,6 +12,8 @@ no clock of its own.
     press any other mouse button     the lock ends too (an always-available way out); that press
                                      goes through as usual
     switch Click-Lock off            the lock ends at once (stop())
+    safety timer                     a lock still running after `max_s` seconds ends by itself (stop()),
+                                     as does one the daemon is told about: suspend, screen lock
 
 A short click never engages anything: the timer only runs while the button is physically down.
 """
@@ -25,6 +27,7 @@ MODES = (REPEAT, HOLD)
 
 DEFAULT_HOLD_MS = 5000
 DEFAULT_RATE = 10
+DEFAULT_MAX_S = 600         # safety timer: a lock that is still running after 10 minutes stops by itself
 
 Event = Tuple[int, int, int]
 Frame = List[Event]
@@ -35,21 +38,25 @@ def _key(value) -> Frame:
 
 
 class ClickLock:
-    def __init__(self, enabled=False, hold_ms=DEFAULT_HOLD_MS, mode=REPEAT, rate=DEFAULT_RATE):
+    def __init__(self, enabled=False, hold_ms=DEFAULT_HOLD_MS, mode=REPEAT, rate=DEFAULT_RATE,
+                 max_s=0):
         self.phys_down = False      # the user's finger is on the button
         self.virtual_down = False   # what the rest of the system has been told
         self.locked = False
         self.pressed_at = None      # when the current press started, while the hold timer runs
         self.stop_pending = False   # the lock was ended by a press; its release is still to come
         self.next_t = None          # repeat mode: when the button flips next
-        self.configure(enabled, hold_ms, mode, rate)
+        self.locked_at = None       # when the running lock engaged (for the safety timer)
+        self.timed_out = False      # the last lock ended because the safety timer ran out
+        self.configure(enabled, hold_ms, mode, rate, max_s)
 
-    def configure(self, enabled, hold_ms, mode, rate):
+    def configure(self, enabled, hold_ms, mode, rate, max_s=0):
         """Change the settings in place. Turning it off does not end a running lock: call stop()."""
         self.enabled = bool(enabled)
         self.hold = hold_ms / 1000.0
         self.mode = mode if mode in MODES else REPEAT
         self.half = 0.5 / max(1, rate)          # a click is down for half a period, up for the other half
+        self.max_s = max(0, max_s or 0)         # 0 = no safety timer
         if not self.enabled:
             self.pressed_at = None
 
@@ -61,7 +68,10 @@ class ClickLock:
     def deadline(self):
         """When flush() has something to do next, or None."""
         if self.locked:
-            return self.next_t
+            limit = None if not self.max_s or self.locked_at is None else self.locked_at + self.max_s
+            if limit is None:
+                return self.next_t
+            return limit if self.next_t is None else min(self.next_t, limit)
         if self.pressed_at is not None:
             return self.pressed_at + self.hold
         return None
@@ -119,9 +129,14 @@ class ClickLock:
         """Engage the lock when the hold time is up, and drive the repeat clicks."""
         frames: List[Frame] = []
         changed = False
+        if self.locked and self.max_s and self.locked_at is not None and now >= self.locked_at + self.max_s:
+            frames, _ = self.stop()                 # the safety timer: hand the button back
+            self.timed_out = True
+            return frames, True
         if (not self.locked and self.pressed_at is not None and self.phys_down
                 and now >= self.pressed_at + self.hold):
             self.locked, self.pressed_at, changed = True, None, True
+            self.locked_at, self.timed_out = now, False
             if self.mode == REPEAT:
                 frames.append(_key(0))          # finish the click the user is holding
                 self.virtual_down = False
@@ -137,7 +152,7 @@ class ClickLock:
     def stop(self) -> Tuple[List[Frame], bool]:
         """End a running lock and give the button back to the user's finger."""
         was = self.locked
-        self.locked, self.next_t, self.pressed_at = False, None, None
+        self.locked, self.next_t, self.pressed_at, self.locked_at = False, None, None, None
         frames = []
         if not self.stop_pending and self.virtual_down != self.phys_down:   # a stopping click settles itself
             self.virtual_down = self.phys_down
@@ -147,4 +162,4 @@ class ClickLock:
     def reset(self):
         """The device went away: forget everything (the kernel releases its buttons itself)."""
         self.phys_down = self.virtual_down = self.locked = self.stop_pending = False
-        self.pressed_at = self.next_t = None
+        self.pressed_at = self.next_t = self.locked_at = None

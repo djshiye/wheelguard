@@ -17,7 +17,8 @@ Messages are UTF-8 JSON objects, one per line (`\n`-terminated), both directions
   "clicklock": false,
   "clicklock_ms": 5000,
   "clicklock_mode": "repeat",
-  "clicklock_rate": 10
+  "clicklock_rate": 10,
+  "clicklock_max_s": 600
 }
 ```
 
@@ -32,6 +33,12 @@ swallowed (in `hold` mode its release lets go of the button). Pressing any other
 the lock (that press goes through). Switching Click-Lock off or changing the
 mode ends a running lock at once.
 
+Safety timer: `clicklock_max_s` (0 = never, otherwise 10 to 3600; default 600) ends a running lock by
+itself that long after it engaged; the button is handed back like for any other end of the lock. A
+running lock is also ended when the computer suspends (the daemon notices CLOCK_BOOTTIME running ahead
+of CLOCK_MONOTONIC, or its loop stalling for 15 s), and when a client sends `clicklock_stop` (the app
+does so when the screen locks).
+
 `enabled: false` = pass every wheel tick through untouched (device stays grabbed, ticks are still
 reported with `kind: "pass"`). Missing keys take defaults. The daemon also notices hand edits
 (mtime poll, ~2 s) and applies them live.
@@ -44,6 +51,7 @@ reported with `kind: "pass"`). Missing keys take defaults. The daemon also notic
 | `{"cmd": "subscribe"}` | start streaming `tick` and `status` events to this client | one `status` event, then the stream |
 | `{"cmd": "set", "config": {...partial...}}` | validate, merge, write config.json atomically, apply live | `{"type":"ok"}` or `{"type":"error","message":"..."}`, then a `status` event to all subscribers |
 | `{"cmd": "reload"}` | re-read config.json | `ok`/`error` |
+| `{"cmd": "clicklock_stop"}` | end a running Click-Lock now and release any held button (nothing to do if none runs) | `ok`, then `status` to subscribers if a lock ended |
 | `{"cmd": "reset_stats"}` | zero the counters | `ok`, then `status` to subscribers |
 
 Validation: `0 < hold_ms < lock_ms`, `0 <= pre_ms <= lock_ms`, all ms values <= 2000.

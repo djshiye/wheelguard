@@ -12,13 +12,14 @@ from . import config as C
 from .clicklock import ClickLock
 from .core import DROP, EMIT, PASS, Decision, WheelFilter
 from .frames import flush_frames, process_frame, tick_sign
+from .power import SuspendWatch
 
 log = logging.getLogger("wheelguard")
 POLL_S = 2.0  # config.json mtime poll interval
 
 
 class Controller:
-    def __init__(self, overrides=None, config_path=None, publish=None, clock=time.time):
+    def __init__(self, overrides=None, config_path=None, publish=None, clock=time.time, power=None):
         self.config_path = config_path or C.CONFIG_PATH
         self.overrides = dict(overrides or {})  # command-line flags; win over the file
         self.publish = publish or (lambda msg: None)
@@ -33,6 +34,7 @@ class Controller:
         except (OSError, ValueError) as ex:
             log.error("ignoring config: %s", ex)
         self.cfg = C.normalize(self.overrides, self.file_cfg)  # ValueError: bad flags
+        self.power = power or SuspendWatch()
         self.wf = self._new_filter()
         self.cl = ClickLock(*self._clicklock_args())
         self._outbox = []        # frames released when the config changed under a pending hold
@@ -61,7 +63,8 @@ class Controller:
 
     def _clicklock_args(self):
         c = self.cfg
-        return c["clicklock"], c["clicklock_ms"], c["clicklock_mode"], c["clicklock_rate"]
+        return (c["clicklock"], c["clicklock_ms"], c["clicklock_mode"], c["clicklock_rate"],
+                c["clicklock_max_s"])
 
     def reset_filter(self):
         self.wf = self._new_filter()
@@ -111,6 +114,8 @@ class Controller:
 
     def handle_flush(self, now, write):
         """Release an expired hold (and anything left over from a config change)."""
+        if self.power.poll():
+            self.stop_clicklock("the computer was suspended")
         frames, decisions = self._take_outbox()
         lock_frames, lock_changed = self.cl.flush(now)
         frames += lock_frames
@@ -124,8 +129,21 @@ class Controller:
             self._clicklock_changed()
         return decisions
 
+    def stop_clicklock(self, reason):
+        """End a running Click-Lock from outside the input path (suspend, screen lock, a client's
+        request). The button is handed back with the next frames written. Returns True if one was running."""
+        frames, was_active = self.cl.stop()
+        self._outbox += frames
+        if was_active:
+            log.info("click-lock released (%s)", reason)
+            self.publish(self.status())
+        return was_active
+
     def _clicklock_changed(self):
-        log.info("click-lock %s", "engaged" if self.cl.active else "released")
+        if not self.cl.active and self.cl.timed_out:
+            log.info("click-lock released (safety timer, %g s)", self.cl.max_s)
+        else:
+            log.info("click-lock %s", "engaged" if self.cl.active else "released")
         self.publish(self.status())
 
     def _record(self, decisions):

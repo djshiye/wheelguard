@@ -216,6 +216,9 @@ class Server:
             err = ctl.set_config(msg.get("config"))
         elif cmd == "reload":
             err = ctl.reload()
+        elif cmd == "clicklock_stop":
+            ctl.stop_clicklock("asked to stop")
+            err = None
         elif cmd == "reset_stats":
             ctl.reset_stats()
             err = None
