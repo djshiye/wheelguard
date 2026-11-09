@@ -225,15 +225,16 @@ class ProtocolTests(unittest.TestCase):
               "stats": {"ticks": 100, "passed": 91, "dropped": 9, "since": 1.0}}
         self.assertEqual(protocol.status_config(st),
                          {"enabled": False, "pre_ms": 90, "hold_ms": 35, "lock_ms": 400, "clicklock": False,
-                          "clicklock_ms": 5000, "clicklock_mode": "repeat", "clicklock_rate": 10})
+                          "clicklock_ms": 5000, "clicklock_mode": "repeat", "clicklock_rate": 10,
+                          "clicklock_max_s": 600, "clicklock_ignore_drag": True, "debounce_ms": 0, "mouse": "auto"})
         st["config"].update(clicklock=True, clicklock_ms=7500, clicklock_mode=3)
         cfg = protocol.status_config(st)
         self.assertEqual((cfg["clicklock"], cfg["clicklock_ms"], cfg["clicklock_mode"]), (True, 7500, "repeat"))
         self.assertTrue(protocol.clicklock_active({"clicklock_active": True}))
         self.assertFalse(protocol.clicklock_active({}))
-        self.assertEqual(protocol.status_stats(st), {"ticks": 100, "dropped": 9})
+        self.assertEqual(protocol.status_stats(st), {"ticks": 100, "dropped": 9, "debounced": 0})
         self.assertIsNone(protocol.status_config({}))
-        self.assertEqual(protocol.status_stats({}), {"ticks": 0, "dropped": 0})
+        self.assertEqual(protocol.status_stats({}), {"ticks": 0, "dropped": 0, "debounced": 0})
         self.assertEqual(protocol.status_config({"config": {}})["lock_ms"], 300)
 
     def test_block_rate(self):
@@ -416,6 +417,66 @@ class DaemonClientTests(unittest.TestCase):
         self.assertEqual(self.received[-1]["config"], {"clicklock_ms": 15000})
         self.assertTrue(self.pump(lambda: self.client.clickLockMs == 15000))
         self.assertEqual(self.client.presetName, "Balanced")     # wheel settings untouched
+
+    def test_safety_timer_setting_and_stop_command(self):
+        status = self.STATUS
+        self.reply_for = lambda m: ([status] if m["cmd"] == "subscribe" else [{"type": "ok"}])
+        self.client.start()
+        self.assertTrue(self.pump(lambda: self.client.state == "running"))
+        self.assertEqual(self.client.clickLockMaxS, 600)
+        self.client.setClickLockMaxS(0)                 # "Never"
+        self.client.setClickLockMaxS(99999)             # clamped to the daemon's limit
+        self.assertTrue(self.pump(lambda: len([m for m in self.received if m["cmd"] == "set"]) == 2))
+        self.assertEqual([m["config"] for m in self.received if m["cmd"] == "set"],
+                         [{"clicklock_max_s": 0}, {"clicklock_max_s": 3600}])
+        self.client.stopClickLock()
+        self.assertTrue(self.pump(lambda: {"cmd": "clicklock_stop"} in self.received))
+        self.assertTrue(self.client.clickLockIgnoreDrag)
+        self.client.setClickLockIgnoreDrag(False)
+        self.assertFalse(self.client.clickLockIgnoreDrag)
+        self.assertTrue(self.pump(lambda: {"cmd": "set", "config": {"clicklock_ignore_drag": False}} in self.received))
+
+    def test_double_click_fix_setting_and_count(self):
+        status = dict(self.STATUS, stats={"ticks": 5, "passed": 5, "dropped": 0, "debounced": 7, "since": 1.0})
+        self.reply_for = lambda m: ([status] if m["cmd"] == "subscribe" else [{"type": "ok"}])
+        self.client.start()
+        self.assertTrue(self.pump(lambda: self.client.state == "running"))
+        self.assertEqual((self.client.debounceOn, self.client.debounceMs, self.client.debouncedClicks), (False, 0, 7))
+        self.client.setDebounce(True)                   # switching on starts at the default
+        self.assertTrue(self.pump(lambda: {"cmd": "set", "config": {"debounce_ms": 40}} in self.received))
+        self.assertTrue(self.client.debounceOn)
+        self.client.setDebounceMs(5)                    # clamped into the slider range
+        self.assertTrue(self.pump(lambda: {"cmd": "set", "config": {"debounce_ms": 10}} in self.received))
+        self.client.setDebounce(False)
+        self.assertTrue(self.pump(lambda: {"cmd": "set", "config": {"debounce_ms": 0}} in self.received))
+        self.client.setDebounce(True)                   # remembers the last value used
+        self.assertTrue(self.pump(lambda: self.received.count({"cmd": "set", "config": {"debounce_ms": 10}}) == 2))
+
+    def test_mouse_picker_state_and_commands(self):
+        mice = [{"name": "Endgame Gear XM2w 4k v2", "vendor": "3367", "product": "1970", "supported": True,
+                 "connection": "dongle"},
+                {"name": "Acme Mouse", "vendor": "1111", "product": "2222", "supported": False}]
+        status = dict(self.STATUS, mice=mice[:1])
+
+        def reply(m):
+            if m["cmd"] == "subscribe":
+                return [status]
+            if m["cmd"] == "mice":
+                return [{"type": "mice", "mice": mice}]
+            return [{"type": "ok"}]
+        self.reply_for = reply
+        self.client.start()
+        self.assertTrue(self.pump(lambda: len(self.client.mouseIds) == 2))
+        self.assertEqual(list(self.client.mouseIds), ["auto", "3367:1970"])
+        self.assertEqual(self.client.mouseIndex, 0)
+        self.client.refreshMice()
+        self.assertTrue(self.pump(lambda: len(self.client.mouseIds) == 3))
+        self.assertEqual(list(self.client.mouseLabels)[2], "Acme Mouse (not tested)")
+        self.client.setMouse("nonsense")                # never sent
+        self.client.setMouse("1111:2222")
+        self.assertTrue(self.pump(lambda: {"cmd": "set", "config": {"mouse": "1111:2222"}} in self.received))
+        self.assertEqual([m for m in self.received if m.get("config", {}).get("mouse") == "nonsense"], [])
+        self.assertEqual(self.client.mouseIndex, 2)     # the picker follows the choice at once
 
     def test_status_does_not_clobber_pending_edit(self):
         status = self.STATUS

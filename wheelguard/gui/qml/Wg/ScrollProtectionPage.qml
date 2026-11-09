@@ -116,6 +116,70 @@ WgScrollPage {
         }
     }
 
+    // ---------------------------------------------------------------- mouse
+    WgCard {
+        id: mouseCard
+        width: parent.width
+        pad: 20
+        spacing: 10
+        opacity: page.reachable ? 1 : 0.5
+        enabled: page.reachable
+        Behavior on opacity { NumberAnimation { duration: Theme.normal } }
+        readonly property bool untested: daemon.mouseChoice !== "auto" && daemon.mouseIndex > 0
+                                         && daemon.mouseLabels[daemon.mouseIndex].indexOf("(not tested)") >= 0
+
+        Timer {   // keeps the list current while this page is on screen (the service rescans at most every few seconds)
+            running: page.visible && page.reachable
+            repeat: true
+            triggeredOnStart: true
+            interval: 5000
+            onTriggered: daemon.refreshMice()
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 16
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 2
+                Text {
+                    text: "Mouse"
+                    font.pixelSize: Theme.fsH2
+                    font.weight: Font.DemiBold
+                    color: Theme.text
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: "Which mouse's scroll wheel to protect. Automatic picks your supported mouse; any other mouse with a wheel can be chosen too."
+                    font.pixelSize: Theme.fsSmall
+                    color: Theme.textMuted
+                    wrapMode: Text.WordWrap
+                }
+            }
+            WgSelect {
+                Layout.alignment: Qt.AlignVCenter
+                Layout.preferredWidth: 300
+                Accessible.name: "Mouse to protect"
+                model: daemon.mouseLabels
+                currentIndex: daemon.mouseIndex
+                onActivated: (i) => daemon.setMouse(daemon.mouseIds[i])
+            }
+        }
+        RowLayout {
+            Layout.fillWidth: true
+            visible: mouseCard.untested
+            spacing: 10
+            WgIcon { name: "alert"; size: 16; color: Theme.amber }
+            Text {
+                Layout.fillWidth: true
+                text: "We haven't tested this mouse. Scroll protection should work, but if the wheel misbehaves, switch back to Automatic."
+                font.pixelSize: Theme.fsSmall
+                color: Theme.textMuted
+                wrapMode: Text.WordWrap
+            }
+        }
+    }
+
     // ---------------------------------------------------------------- strength
     WgCard {
         width: parent.width
@@ -367,6 +431,148 @@ WgScrollPage {
             Layout.preferredHeight: 136
             live: daemon.state === "running"
             holdMs: daemon.holdMs
+        }
+    }
+
+    // ---------------------------------------------------------------- wheel health over time
+    WgCard {
+        id: health
+        width: parent.width
+        pad: 20
+        spacing: 14
+        property int days: 7
+        property var series: []
+        property bool enough: false
+        readonly property var hovered: chart.hoveredDay
+
+        function reload() {
+            series = daemon.historySeries(days)
+            enough = daemon.hasHistory()
+        }
+        onDaysChanged: reload()
+        Component.onCompleted: reload()
+        Connections { target: daemon; function onHistoryChanged() { health.reload() } }
+        Timer {   // refresh while this page is on screen (also rolls the chart over at midnight)
+            running: page.visible && page.reachable
+            repeat: true
+            triggeredOnStart: true
+            interval: 30000
+            onTriggered: daemon.refreshHistory()
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 16
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 2
+                Text {
+                    text: "Wheel health over time"
+                    font.pixelSize: Theme.fsH2
+                    font.weight: Font.DemiBold
+                    color: Theme.text
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: "How much of your scrolling Wheelguard had to block each day. A low, steady line means a healthy wheel."
+                    font.pixelSize: Theme.fsSmall
+                    color: Theme.textMuted
+                    wrapMode: Text.WordWrap
+                }
+            }
+            WgSegmented {
+                Layout.alignment: Qt.AlignTop
+                Layout.preferredWidth: 190
+                Layout.preferredHeight: 36
+                Accessible.name: "Chart range"
+                model: ["7 days", "30 days"]
+                currentIndex: health.days === 7 ? 0 : 1
+                onActivated: (i) => health.days = i === 0 ? 7 : 30
+            }
+        }
+
+        Text {   // readout for the hovered day, else the average
+            visible: health.enough
+            Layout.fillWidth: true
+            text: health.hovered
+                  ? chart.dayLabel(health.hovered.date, true) + " · "
+                    + (health.hovered.rate === null ? "no scrolling"
+                       : chart.pct(health.hovered.rate) + " blocked ("
+                         + health.hovered.dropped.toLocaleString(Qt.locale(), "f", 0) + " of "
+                         + health.hovered.ticks.toLocaleString(Qt.locale(), "f", 0) + " ticks)")
+                  : "Average over the last " + health.days + " days: " + chart.pct(chart.average) + " blocked"
+            font.pixelSize: Theme.fsBody - 1
+            font.weight: Font.Medium
+            color: Theme.text
+            elide: Text.ElideRight
+        }
+
+        HistoryChart {
+            id: chart
+            visible: health.enough
+            Layout.fillWidth: true
+            Layout.preferredHeight: 170
+            series: health.series
+        }
+
+        ColumnLayout {   // empty state
+            visible: !health.enough
+            Layout.fillWidth: true
+            Layout.topMargin: 14
+            Layout.bottomMargin: 14
+            spacing: 6
+            WgIcon { Layout.alignment: Qt.AlignHCenter; name: "shield"; size: 26; color: Theme.textFaint }
+            Text {
+                Layout.alignment: Qt.AlignHCenter
+                text: "Not enough history yet"
+                font.pixelSize: Theme.fsBody
+                font.weight: Font.DemiBold
+                color: Theme.textMuted
+            }
+            Text {
+                Layout.fillWidth: true
+                horizontalAlignment: Text.AlignHCenter
+                text: "Wheelguard keeps a daily tally while it runs. Come back after a couple of days of scrolling."
+                font.pixelSize: Theme.fsSmall
+                color: Theme.textFaint
+                wrapMode: Text.WordWrap
+            }
+        }
+
+        Rectangle {   // gentle hint when the last week is clearly worse than before
+            visible: daemon.wearHint
+            Layout.fillWidth: true
+            Layout.preferredHeight: hintRow.implicitHeight + 24
+            radius: Theme.radiusSm
+            color: Theme.alpha(Theme.amber, 0.12)
+            border.width: 1
+            border.color: Theme.alpha(Theme.amber, 0.4)
+            RowLayout {
+                id: hintRow
+                x: 12; y: 12
+                width: parent.width - 24
+                spacing: 10
+                WgIcon { Layout.alignment: Qt.AlignTop; name: "alert"; size: 18; color: Theme.amber }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 2
+                    Text {
+                        Layout.fillWidth: true
+                        text: "Your wheel is bouncing more than usual. The encoder may be wearing."
+                        font.pixelSize: Theme.fsBody - 1
+                        font.weight: Font.DemiBold
+                        color: Theme.text
+                        wrapMode: Text.WordWrap
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: "The last 7 days needed more blocking than the weeks before. A stronger protection setting helps for now."
+                        font.pixelSize: Theme.fsSmall
+                        color: Theme.textMuted
+                        wrapMode: Text.WordWrap
+                    }
+                }
+            }
         }
     }
 }

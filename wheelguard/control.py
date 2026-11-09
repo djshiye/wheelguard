@@ -3,38 +3,58 @@
 No device or socket access here, so it can be driven from tests. Everything runs on the daemon's
 single thread. Events for subscribers go out through the `publish` callable (set by the IPC server).
 """
+import atexit
 import logging
 import os
 import time
 
 from . import __version__
 from . import config as C
+from . import mice, scan
 from .clicklock import ClickLock
+from .debounce import ClickDebounce
 from .core import DROP, EMIT, PASS, Decision, WheelFilter
+from .history import History
 from .frames import flush_frames, process_frame, tick_sign
+from .power import SuspendWatch
 
 log = logging.getLogger("wheelguard")
 POLL_S = 2.0  # config.json mtime poll interval
 
 
 class Controller:
-    def __init__(self, overrides=None, config_path=None, publish=None, clock=time.time):
+    def __init__(self, overrides=None, config_path=None, publish=None, clock=time.time, power=None,
+                 mouse_lister=None, history=None):
         self.config_path = config_path or C.CONFIG_PATH
         self.overrides = dict(overrides or {})  # command-line flags; win over the file
         self.publish = publish or (lambda msg: None)
         self.clock = clock
         self.connected = False
         self.device = None
+        self.model = self.connection = None     # friendly name and "dongle"/"receiver"/"cable" of a supported mouse
         self.error = "mouse not found"
-        self.stats = {"ticks": 0, "passed": 0, "dropped": 0, "since": clock()}
+        self.stats = {"ticks": 0, "passed": 0, "dropped": 0, "debounced": 0, "since": clock()}
         self.file_cfg = dict(C.DEFAULTS)
         try:
             self.file_cfg = C.load(self.config_path)
         except (OSError, ValueError) as ex:
             log.error("ignoring config: %s", ex)
         self.cfg = C.normalize(self.overrides, self.file_cfg)  # ValueError: bad flags
+        self.power = power or SuspendWatch()
+        # the connected mice with a wheel, for the "Mouse" choice; the real daemon (no config_path given) scans
+        self.mouse_lister = mouse_lister or (scan.list_mice if config_path is None else None)
+        # daily totals for the wheel-health chart; the real daemon (no config_path given) keeps and saves them
+        self.history = history
+        if history is None and config_path is None:
+            self.history = History()
+            atexit.register(self.history.save)          # also on SIGTERM (a SystemExit) and Ctrl-C
+        self.mice = []
+        self._mice_at = None
+        self.restart_requested = False      # the mouse choice changed under a running session
+        scan.set_selected(self.cfg["mouse"])
         self.wf = self._new_filter()
         self.cl = ClickLock(*self._clicklock_args())
+        self.deb = ClickDebounce(self.cfg["debounce_ms"])
         self._outbox = []        # frames released when the config changed under a pending hold
         self._outbox_decisions = []
         self._prev_t = None      # previous tick time, for gap_ms while passing through
@@ -44,14 +64,36 @@ class Controller:
     # ---------- status ----------
     def status(self):
         return {"type": "status", "version": __version__, "connected": self.connected,
-                "device": self.device, "error": self.error, "config": C.to_wire(self.cfg),
-                "stats": dict(self.stats), "clicklock_active": self.cl.active}
+                "device": self.device, "model": self.model, "connection": self.connection, "error": self.error, "config": C.to_wire(self.cfg),
+                "stats": dict(self.stats), "mice": self.mice, "clicklock_active": self.cl.active}
 
-    def set_device(self, connected, device=None, error=None):
-        changed = (connected, device, error) != (self.connected, self.device, self.error)
+    def history_days(self):
+        """The daily totals for the `history` command, oldest first (empty without a history)."""
+        return self.history.to_list() if self.history is not None else []
+
+    def refresh_mice(self, max_age=0.0):
+        """Rescan for mice with a scroll wheel unless the last scan is newer than max_age seconds."""
+        now = self.clock()
+        if self.mouse_lister is None or (self._mice_at is not None and now - self._mice_at < max_age):
+            return self.mice
+        self._mice_at = now
+        try:
+            self.mice = self.mouse_lister()
+        except OSError as ex:
+            log.warning("scanning for mice failed: %s", ex)
+        return self.mice
+
+    def set_device(self, connected, device=None, error=None, ident=None):
+        """`ident` is the (vendor, product) of the mouse being filtered, when there is one."""
+        model, connection = mice.identify(*ident) if connected and ident else (None, None)
+        changed = ((connected, device, error, model, connection)
+                   != (self.connected, self.device, self.error, self.model, self.connection))
         self.connected, self.device, self.error = connected, device, error
+        self.model, self.connection = model, connection
         if not connected:
             self.reset_filter()
+            if self.history is not None:
+                self.history.save()                     # nothing is coming in: a good moment to write
         if changed:
             self.publish(self.status())
 
@@ -61,11 +103,13 @@ class Controller:
 
     def _clicklock_args(self):
         c = self.cfg
-        return c["clicklock"], c["clicklock_ms"], c["clicklock_mode"], c["clicklock_rate"]
+        return (c["clicklock"], c["clicklock_ms"], c["clicklock_mode"], c["clicklock_rate"],
+                c["clicklock_max_s"], c["clicklock_ignore_drag"])
 
     def reset_filter(self):
         self.wf = self._new_filter()
         self.cl.reset()
+        self.deb.reset()
         self._outbox, self._outbox_decisions = [], []
         self._prev_t = None
 
@@ -90,6 +134,7 @@ class Controller:
         the IPC side never delays the input path.
         """
         frames, decisions = self._take_outbox()
+        events, fixed = self.deb.process(events, t)         # worn-switch chatter goes first, so nothing else sees it
         lock_frames, events, lock_changed = self.cl.process(events, t)
         frames += lock_frames
         if self.cfg["enabled"]:
@@ -105,12 +150,17 @@ class Controller:
         if frames:
             write(frames)
         self._record(decisions)
+        if fixed:
+            self.stats["debounced"] += fixed
+            self.publish(self.status())
         if lock_changed:
             self._clicklock_changed()
         return decisions
 
     def handle_flush(self, now, write):
         """Release an expired hold (and anything left over from a config change)."""
+        if self.power.poll():
+            self.stop_clicklock("the computer was suspended")
         frames, decisions = self._take_outbox()
         lock_frames, lock_changed = self.cl.flush(now)
         frames += lock_frames
@@ -120,25 +170,45 @@ class Controller:
         if frames:
             write(frames)
         self._record(decisions)
+        if self.history is not None:
+            self.history.maybe_save()
         if lock_changed:
             self._clicklock_changed()
         return decisions
 
+    def stop_clicklock(self, reason):
+        """End a running Click-Lock from outside the input path (suspend, screen lock, a client's
+        request). The button is handed back with the next frames written. Returns True if one was running."""
+        frames, was_active = self.cl.stop()
+        self._outbox += frames
+        if was_active:
+            log.info("click-lock released (%s)", reason)
+            self.publish(self.status())
+        return was_active
+
     def _clicklock_changed(self):
-        log.info("click-lock %s", "engaged" if self.cl.active else "released")
+        if not self.cl.active and self.cl.timed_out:
+            log.info("click-lock released (safety timer, %g s)", self.cl.max_s)
+        else:
+            log.info("click-lock %s", "engaged" if self.cl.active else "released")
         self.publish(self.status())
 
     def _record(self, decisions):
+        ticks = dropped = 0
         for d in decisions:
             if not d.held:
                 self.stats["ticks"] += 1
+                ticks += 1
             if d.kind in (EMIT, PASS):
                 self.stats["passed"] += 1
             elif d.kind == DROP:
                 self.stats["dropped"] += 1
+                dropped += 1
             self.publish({"type": "tick", "t": round(d.t, 3), "sign": d.sign, "kind": d.kind,
                           "held": d.held,
                           "gap_ms": None if d.gap_ms is None else round(d.gap_ms, 1)})
+        if self.history is not None and (ticks or dropped):
+            self.history.add(ticks, dropped)
 
     # ---------- config ----------
     def _stat_mtime(self):
@@ -163,6 +233,8 @@ class Controller:
                 self._outbox_decisions += d
             self.wf = self._new_filter()
             self._prev_t = None
+        if old["debounce_ms"] != new["debounce_ms"]:
+            self.deb.configure(new["debounce_ms"])
         if any(old[k] != new[k] for k in C.CLICKLOCK_KEYS):
             self.cl.configure(*self._clicklock_args())
             if not new["clicklock"] or old["clicklock_mode"] != new["clicklock_mode"]:
@@ -170,6 +242,9 @@ class Controller:
                 self._outbox += frames
                 if was_active:
                     log.info("click-lock released (switched off)")
+        scan.set_selected(new["mouse"])
+        if self.connected and any(old[k] != new[k] for k in ("mouse", "vendor", "product")):
+            self.restart_requested = True
         log.info("config applied: %s", C.to_wire(new))
         return True
 
@@ -202,7 +277,7 @@ class Controller:
         return None
 
     def reset_stats(self):
-        self.stats.update(ticks=0, passed=0, dropped=0, since=self.clock())
+        self.stats.update(ticks=0, passed=0, dropped=0, debounced=0, since=self.clock())
         self.publish(self.status())
 
     def poll_config(self):

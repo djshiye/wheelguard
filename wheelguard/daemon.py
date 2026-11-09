@@ -13,6 +13,7 @@ import evdev
 from evdev import UInput, UInputError, ecodes as e
 
 from . import config as C
+from . import mice, scan
 from .control import POLL_S, Controller
 from .core import DROP, EMIT, HOLD
 from .hotplug import DeviceWatcher
@@ -24,19 +25,16 @@ UI_PREFIX = "wheelguard"
 SETTLE_S = 0.25     # after a /dev/input change, let udev finish (permissions, sibling nodes) before searching
 
 
-# Mice Wheelguard knows, as (vendor, product) of their wheel-bearing input device. The configured
-# vendor/product (config.json) is tried first; these are the fallbacks, so any supported mouse gets the
-# scroll filter without editing the config. The Superlight's wireless ID is the one hid-logitech-dj
-# gives the mouse behind its receiver.
-KNOWN_MICE = (
-    (0x3367, 0x1970),       # Endgame Gear XM2w 4k v2, dongle
-    (0x3367, 0x1982),       # Endgame Gear XM2w 4k v2, cable
-    (0x1532, 0x00BF),       # Razer DeathAdder V4 Pro, dongle
-    (0x1532, 0x00BE),       # Razer DeathAdder V4 Pro, cable
-    (0x046D, 0x4093),       # Logitech G Pro X Superlight, LIGHTSPEED receiver
-    (0x046D, 0xC094),       # Logitech G Pro X Superlight, cable
-)
+# Mice Wheelguard knows, as (vendor, product) of their wheel-bearing input device (see mice.py for their
+# names). The configured vendor/product (config.json) is tried first; these are the fallbacks, so any
+# supported mouse gets the scroll filter without editing the config.
+KNOWN_MICE = mice.KNOWN_MICE
 _SKIP_NAMES = ("Keyboard", "Consumer Control", "System Control")
+
+
+def _ident(dev):
+    info = getattr(dev, "info", None)
+    return (info.vendor, info.product) if info else None
 
 
 def _wanted(vendor, product):
@@ -65,10 +63,12 @@ def _sysfs_is_wheel_mouse(path, vendor, product):
         return False
 
 
-def discover(vendor, product):
+def discover(vendor, product, mouse=None):
     """(device, error): the wheel-bearing event node of the configured mouse or, failing that, of the
-    first supported mouse found (KNOWN_MICE order); or a reason."""
-    ids = _wanted(vendor, product)
+    first supported mouse found (KNOWN_MICE order); or a reason. `mouse` ("vvvv:pppp") pins one mouse
+    instead (default: the config's "mouse" setting; "auto" = the behaviour above)."""
+    pinned = mice.parse_choice(scan.selected() if mouse is None else mouse)
+    ids = [pinned] if pinned else _wanted(vendor, product)
     denied = None
     best = None                 # (rank, device)
     # not evdev.list_devices(): that silently skips nodes we are not allowed to open
@@ -98,7 +98,7 @@ def discover(vendor, product):
         return best[1], None
     if denied:
         return None, f"permission denied: {denied}"
-    return None, "mouse not found"
+    return None, "selected mouse not found" if pinned else "mouse not found"
 
 
 def describe(ex):
@@ -312,10 +312,16 @@ def run_session(dev, ctl, server, tick_log):
                  cfg["lock_ms"], cfg["pre_ms"], cfg["hold_ms"],
                  f"after {cfg['clicklock_ms'] / 1000:g}s ({cfg['clicklock_mode']})" if cfg["clicklock"] else "off")
         ctl.reset_filter()
-        ctl.set_device(True, dev.name, None)
+        ctl.restart_requested = False
+        ctl.set_device(True, dev.name, None, ident=_ident(dev))
         reader = FrameReader(dev.active_keys)
         reader.state.down = set(dev.active_keys())   # normally empty (see grab_when_buttons_up)
         while True:
+            if ctl.restart_requested is True:
+                ctl.restart_requested = False
+                log.info("mouse choice changed, switching")
+                ctl.set_device(False, None, "switching mouse")
+                return
             timeout = None
             now = time.time()
             if (deadline := ctl.deadline) is not None:

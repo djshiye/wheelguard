@@ -175,6 +175,8 @@ def main(argv=None):
     if svc is not None:
         svc.attach(daemon, mouse)
         svc.showRequested.connect(shell.showMain)
+        from .screenlock import ScreenLockWatcher
+        ScreenLockWatcher(daemon, engine)       # a screen lock ends a running Click-Lock
 
     w, h = (int(v) for v in args.size.lower().split("x"))
     win.setWidth(w)
