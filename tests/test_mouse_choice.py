@@ -15,7 +15,7 @@ from wheelguard.ipc import Server
 
 
 class FakeInput:
-    def __init__(self, name, vendor, product, wheel=True, buttons=True):
+    def __init__(self, name, vendor, product, wheel=True, buttons=True, letters=False):
         self.name = name
         self.info = SimpleNamespace(vendor=vendor, product=product)
         self._caps = {}
@@ -23,6 +23,8 @@ class FakeInput:
             self._caps[e.EV_REL] = [e.REL_X, e.REL_Y, e.REL_WHEEL]
         if buttons:
             self._caps[e.EV_KEY] = [e.BTN_LEFT, e.BTN_RIGHT]
+        if letters:
+            self._caps.setdefault(e.EV_KEY, []).extend([e.KEY_A, e.KEY_Z])
         self.closed = False
 
     def capabilities(self):
@@ -141,6 +143,15 @@ class Discover(unittest.TestCase):
         with w:
             self.assertEqual(daemon.discover(0x3367, 0x1970, "1111:2222"), (None, "selected mouse not found"))
 
+    def test_nodes_with_keyboard_letter_keys_are_never_picked(self):
+        w = World({"/dev/input/event1": FakeInput("Acme Combo", 0x1111, 0x2222, letters=True)})
+        with w:
+            self.assertEqual(daemon.discover(0x3367, 0x1970, "1111:2222"), (None, "selected mouse not found"))
+        w = World({"/dev/input/event1": FakeInput("Acme Combo", 0x1111, 0x2222, letters=True),
+                   "/dev/input/event2": FakeInput("Acme Optical Mouse", 0x1111, 0x2222)})
+        with w:
+            self.assertEqual(daemon.discover(0x3367, 0x1970, "1111:2222")[0].name, "Acme Optical Mouse")
+
     def test_permission_error_for_a_picked_mouse_is_clear(self):
         w = World({"/dev/input/event7": "denied", "/dev/input/event8": FakeInput(*ENDGAME)},
                   sysfs={"/dev/input/event7": (0x1111, 0x2222)})
@@ -187,6 +198,20 @@ class Listing(unittest.TestCase):
         with w:
             found = scan.list_mice()
         self.assertEqual([(m["vendor"], m["product"], m["supported"]) for m in found], [("046d", "c094", True)])
+        self.assertFalse(found[0]["accessible"])
+
+    def test_accessible_flag(self):
+        w = World({"/dev/input/event1": FakeInput(*ACME), "/dev/input/event7": "denied",
+                   "/dev/input/event8": FakeInput(*SUPERLIGHT), "/dev/input/event9": "denied"},
+                  sysfs={"/dev/input/event7": (0x3367, 0x1970), "/dev/input/event9": (0x046D, 0x4093)})
+        with w:
+            found = {m["vendor"]: m["accessible"] for m in scan.list_mice()}
+        self.assertEqual(found, {"3367": False, "046d": True, "1111": True})       # one openable node is enough
+
+    def test_combo_keyboard_nodes_are_not_listed(self):
+        w = World({"/dev/input/event1": FakeInput("Acme Combo", 0x1111, 0x2222, letters=True)})
+        with w:
+            self.assertEqual(scan.list_mice(), [])
 
     def test_nothing_connected(self):
         with World({}):
@@ -221,7 +246,30 @@ class ControllerSide(unittest.TestCase):
         self.assertEqual(self.scans, 1)
         self.now += 6
         srv.dispatch(None, {"cmd": "mice"})
+        self.assertEqual(self.scans, 1)                              # reused for 30 s
+        self.now += 31
+        srv.dispatch(None, {"cmd": "mice"})
         self.assertEqual(self.scans, 2)
+
+    def test_hotplug_ends_the_cache_but_never_scans_more_than_every_few_seconds(self):
+        srv = Server(self.ctl, path=str(Path(self.tmp.name) / "s"))
+        srv.dispatch(None, {"cmd": "mice"})
+        self.now += 1
+        self.ctl.invalidate_mice()
+        srv.dispatch(None, {"cmd": "mice"})
+        self.assertEqual(self.scans, 1)                              # too soon after the last scan
+        self.now += 3
+        srv.dispatch(None, {"cmd": "mice"})
+        self.assertEqual(self.scans, 2)
+        srv.dispatch(None, {"cmd": "mice"})
+        self.assertEqual(self.scans, 2)                              # fresh again
+
+    def test_status_does_not_scan_when_the_list_is_fresh(self):
+        srv = Server(self.ctl, path=str(Path(self.tmp.name) / "s"))
+        for _ in range(5):
+            self.now += 6
+            srv.dispatch(None, {"cmd": "status"})
+        self.assertEqual(self.scans, 1)
 
     def test_no_lister_means_an_empty_list(self):
         ctl = Controller(config_path=Path(self.tmp.name) / "x.json")
@@ -264,7 +312,8 @@ class ControllerSide(unittest.TestCase):
         ui = FakeUInput()
         with mock.patch.object(daemon.UInput, "from_device", return_value=ui), \
                 mock.patch.object(daemon, "service", service):
-            daemon.run_session(dev, self.ctl, server=None, tick_log=lambda d: None)     # returns instead of looping on
+            switched = daemon.run_session(dev, self.ctl, server=None, tick_log=lambda d: None)
+        self.assertTrue(switched)                    # returns instead of looping on
         self.assertFalse(self.ctl.restart_requested)
         self.assertFalse(self.ctl.connected)
         self.assertEqual(ui.log[-1], "close")
@@ -275,6 +324,21 @@ class GuiOptions(unittest.TestCase):
              "connection": "dongle", "device": "Endgame Gear HS Dongle"},
             {"name": "Acme Optical Mouse", "vendor": "1111", "product": "2222", "supported": False,
              "connection": None, "device": "Acme Optical Mouse"}]
+
+    def test_inaccessible_mice_are_marked_and_detected(self):
+        mice = [dict(self.MICE[0], accessible=True), dict(self.MICE[1], accessible=False)]
+        opts = protocol.mouse_options(mice, "auto")
+        self.assertEqual(opts[1]["label"], "Endgame Gear XM2w 4k v2 \u00b7 dongle")
+        self.assertEqual(opts[2]["label"], "Acme Optical Mouse (no access)")
+        self.assertTrue(protocol.mouse_no_access(mice, "1111:2222"))
+        self.assertFalse(protocol.mouse_no_access(mice, "3367:1970"))
+        self.assertFalse(protocol.mouse_no_access(mice, "auto"))
+        self.assertFalse(protocol.mouse_no_access(self.MICE, "1111:2222"))      # an older daemon doesn't say
+
+    def test_choice_support(self):
+        self.assertTrue(protocol.mouse_choice_supported("auto"))
+        self.assertTrue(protocol.mouse_choice_supported("3367:1970"))
+        self.assertFalse(protocol.mouse_choice_supported("1111:2222"))
 
     def test_options(self):
         opts = protocol.mouse_options(self.MICE, "auto")
@@ -302,6 +366,47 @@ class GuiOptions(unittest.TestCase):
         self.assertEqual(protocol.status_config({"config": {"mouse": "1111:2222"}})["mouse"], "1111:2222")
         self.assertEqual(protocol.status_config({"config": {"mouse": 5}})["mouse"], "auto")
         self.assertEqual(protocol.status_config({"config": {}})["mouse"], "auto")
+
+
+class Switching(unittest.TestCase):
+    def tearDown(self):
+        scan.set_selected("auto")
+
+    def test_a_choice_made_between_discover_and_grab_is_not_lost(self):
+        from tests.test_daemon import FakeDevice, FakeUInput
+        with tempfile.TemporaryDirectory() as tmp:
+            ctl = Controller(config_path=Path(tmp) / "c.json")
+            dev = FakeDevice(held_polls=0)
+            dev.name, dev.path = "fake", "/dev/input/event9"
+            dev.info = SimpleNamespace(vendor=0x3367, product=0x1970)
+            dev.ungrab = dev.close = lambda: None
+            dev.read = lambda: []
+            ui = FakeUInput()
+            self.assertIsNone(ctl.set_config({"mouse": "1111:2222"}))      # not connected yet: no restart flag
+            self.assertFalse(ctl.restart_requested)
+            with mock.patch.object(daemon.UInput, "from_device", return_value=ui):
+                self.assertTrue(daemon.run_session(dev, ctl, server=None, tick_log=lambda d: None))
+            self.assertFalse(ctl.connected)
+            self.assertEqual(ui.log[-1], "close")
+
+    def test_the_search_restarts_at_once_after_a_switch(self):
+        ctl = mock.MagicMock()
+        ctl.cfg = {"vendor": 1, "product": 2, "retry_s": 99}
+        found = iter([(object(), None), KeyboardInterrupt()])
+
+        def discover(*a):
+            r = next(found)
+            if isinstance(r, BaseException):
+                raise r
+            return r
+        with mock.patch.object(daemon, "Controller", return_value=ctl), \
+                mock.patch.object(daemon, "Server"), \
+                mock.patch.object(daemon.DeviceWatcher, "open", return_value=None), \
+                mock.patch.object(daemon, "discover", discover), \
+                mock.patch.object(daemon, "run_session", return_value=True), \
+                mock.patch.object(daemon, "idle") as idle:
+            daemon.main([])
+        idle.assert_not_called()
 
 
 if __name__ == "__main__":

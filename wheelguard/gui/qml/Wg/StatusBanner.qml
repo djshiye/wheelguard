@@ -9,7 +9,9 @@ Item {
     property bool busy: false
     property string serviceError: ""
     property bool suppressed: false     // hidden on pages that don't involve the daemon
+    property bool chosenDenied: false   // a mouse picked by hand (not a supported model) that we may not read
     signal startRequested()
+    signal automaticRequested()
     signal retryRequested()
 
     property string ss: "stopped"   // last non-running state, kept while collapsing
@@ -18,12 +20,16 @@ Item {
     readonly property bool shown: !suppressed && (daemonState === "stopped" || daemonState === "permission" || daemonState === "waiting")
     readonly property color tone: ss === "waiting" ? Theme.amber : Theme.coral
     readonly property string icon: ss === "stopped" ? "power" : (ss === "permission" ? "lock" : "clock")
+    readonly property bool denied: ss === "permission" && chosenDenied
     readonly property string title: ss === "stopped" ? "The Wheelguard service isn't running"
-        : (ss === "permission" ? "Wheelguard can't access your mouse" : "Waiting for mouse…")
+        : (ss === "permission" ? (denied ? "Wheelguard can't read the mouse you chose" : "Wheelguard can't access your mouse")
+           : "Waiting for mouse…")
     readonly property string body: ss === "stopped"
         ? "Scroll protection works through a small background service. Start it to protect your wheel; settings below apply once it is running."
         : (ss === "permission"
-           ? "The device-access (udev) rule is missing, so the service isn't allowed to read the mouse. Re-run ./install.sh from the Wheelguard folder and follow the printed steps, then replug the dongle."
+           ? (denied
+              ? "Wheelguard isn't allowed to read this mouse. Only supported mice get access automatically. Switch back to Automatic."
+              : "The device-access (udev) rule is missing, so the service isn't allowed to read the mouse. Reinstall the wheelguard package (sudo dnf reinstall wheelguard), then log out and back in.")
            : "The service is running but can't see the mouse. Wake it with a click or a scroll, and check that the dongle is plugged in.")
 
     implicitHeight: shown ? card.implicitHeight + 16 : 0
@@ -67,7 +73,7 @@ Item {
                     size: 20
                     color: root.tone
                     RotationAnimation on rotation {
-                        running: root.ss === "waiting" && root.shown
+                        running: root.ss === "waiting" && root.shown && Theme.motion
                         from: 0; to: 360
                         duration: 2400
                         loops: Animation.Infinite
@@ -96,7 +102,7 @@ Item {
                     lineHeight: 1.15
                 }
                 Rectangle {
-                    visible: root.ss === "permission"
+                    visible: root.ss === "permission" && !root.denied
                     Layout.topMargin: 4
                     implicitWidth: cmd.implicitWidth + 20
                     implicitHeight: 28
@@ -107,7 +113,7 @@ Item {
                     Text {
                         id: cmd
                         anchors.centerIn: parent
-                        text: "./install.sh"
+                        text: "sudo dnf reinstall wheelguard"
                         font.family: "monospace"
                         font.pixelSize: Theme.fsSmall + 1
                         color: Theme.text
@@ -142,10 +148,17 @@ Item {
             }
             WgButton {
                 Layout.alignment: Qt.AlignVCenter
-                visible: root.ss === "permission"
+                visible: root.ss === "permission" && !root.denied
                 text: "Check again"
                 iconName: "reset"
                 onClicked: root.retryRequested()
+            }
+            WgButton {
+                Layout.alignment: Qt.AlignVCenter
+                visible: root.denied
+                variant: "primary"
+                text: "Use Automatic"
+                onClicked: root.automaticRequested()
             }
         }
     }

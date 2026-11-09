@@ -6,6 +6,8 @@ WgScrollPage {
     property alias advancedOpen: adv.expanded
     readonly property bool reachable: daemon.state !== "stopped" && daemon.state !== "connecting"
     readonly property var presetModel: ["Light", "Balanced", "Strong", "Maximum"]
+    // On screen for real: the window can be hidden in the tray while this page's Item.visible stays true.
+    readonly property bool shown: visible && !!page.Window.window && page.Window.window.visible
 
     Connections {
         target: daemon
@@ -128,8 +130,8 @@ WgScrollPage {
         readonly property bool untested: daemon.mouseChoice !== "auto" && daemon.mouseIndex > 0
                                          && daemon.mouseLabels[daemon.mouseIndex].indexOf("(not tested)") >= 0
 
-        Timer {   // keeps the list current while this page is on screen (the service rescans at most every few seconds)
-            running: page.visible && page.reachable
+        Timer {   // keeps the list current while this page is on screen (the service rescans only now and then)
+            running: page.shown && page.reachable
             repeat: true
             triggeredOnStart: true
             interval: 5000
@@ -159,10 +161,28 @@ WgScrollPage {
             WgSelect {
                 Layout.alignment: Qt.AlignVCenter
                 Layout.preferredWidth: 300
-                Accessible.name: "Mouse to protect"
+                accessibleName: "Mouse to protect"
+                commitOnArrow: false
                 model: daemon.mouseLabels
                 currentIndex: daemon.mouseIndex
                 onActivated: (i) => daemon.setMouse(daemon.mouseIds[i])
+            }
+        }
+        RowLayout {
+            Layout.fillWidth: true
+            visible: daemon.mouseNoAccess
+            spacing: 10
+            WgIcon { name: "alert"; size: 16; color: Theme.amber }
+            Text {
+                Layout.fillWidth: true
+                text: "Wheelguard isn't allowed to read this mouse. Only supported mice get access automatically. Switch back to Automatic."
+                font.pixelSize: Theme.fsSmall
+                color: Theme.textMuted
+                wrapMode: Text.WordWrap
+            }
+            WgButton {
+                text: "Use Automatic"
+                onClicked: daemon.setMouse("auto")
             }
         }
         RowLayout {
@@ -200,7 +220,7 @@ WgScrollPage {
             }
             Rectangle {
                 implicitWidth: badge.implicitWidth + 20
-                implicitHeight: 26
+                implicitHeight: Theme.px(26)
                 radius: 13
                 color: Theme.alpha(daemon.presetIndex < 0 ? Theme.amber : Theme.accentA, Theme.dark ? 0.18 : 0.14)
                 Behavior on color { ColorAnimation { duration: Theme.normal } }
@@ -210,7 +230,7 @@ WgScrollPage {
                     text: daemon.presetName
                     font.pixelSize: Theme.fsSmall
                     font.weight: Font.DemiBold
-                    color: daemon.presetIndex < 0 ? Theme.amber : (Theme.dark ? "#B79DFF" : Theme.accentA)
+                    color: daemon.presetIndex < 0 ? Theme.amber : (Theme.accentValue)
                     Behavior on color { ColorAnimation { duration: Theme.normal } }
                 }
             }
@@ -458,7 +478,7 @@ WgScrollPage {
         Component.onCompleted: reload()
         Connections { target: daemon; function onHistoryChanged() { health.reload() } }
         Timer {   // refresh while this page is on screen (also rolls the chart over at midnight)
-            running: page.visible && page.reachable
+            running: page.shown && page.reachable
             repeat: true
             triggeredOnStart: true
             interval: 30000
@@ -488,8 +508,8 @@ WgScrollPage {
             WgSegmented {
                 Layout.alignment: Qt.AlignTop
                 Layout.preferredWidth: 190
-                Layout.preferredHeight: 36
-                Accessible.name: "Chart range"
+                Layout.preferredHeight: Theme.px(36)
+                accessibleName: "Chart range"
                 model: ["7 days", "30 days"]
                 currentIndex: health.days === 7 ? 0 : 1
                 onActivated: (i) => health.days = i === 0 ? 7 : 30
@@ -501,7 +521,7 @@ WgScrollPage {
             Layout.fillWidth: true
             text: health.hovered
                   ? chart.dayLabel(health.hovered.date, true) + " · "
-                    + (health.hovered.rate === null ? "no scrolling"
+                    + (!chart.hasRate(health.hovered) ? "no scrolling"
                        : chart.pct(health.hovered.rate) + " blocked ("
                          + health.hovered.dropped.toLocaleString(Qt.locale(), "f", 0) + " of "
                          + health.hovered.ticks.toLocaleString(Qt.locale(), "f", 0) + " ticks)")

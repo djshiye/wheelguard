@@ -30,7 +30,8 @@ MODES = (REPEAT, HOLD)
 
 DEFAULT_HOLD_MS = 5000
 DEFAULT_RATE = 10
-DRAG_COUNTS = 100           # REL_X/REL_Y counts the pointer may wander while held before it counts as a drag
+DRAG_COUNTS = 400           # REL_X/REL_Y counts the pointer may wander while held before it counts as a drag. Counts, not pixels:
+                            # a hand resting on a 1600-3200 DPI mouse jitters by 100+ counts, so 400 (~0.25 inch at 1600 DPI) is a real move
 DEFAULT_MAX_S = 600         # safety timer: a lock that is still running after 10 minutes stops by itself
 
 Event = Tuple[int, int, int]

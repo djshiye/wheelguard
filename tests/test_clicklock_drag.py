@@ -37,11 +37,19 @@ class Drag(unittest.TestCase):
         _, changed = cl.flush(2.0)
         self.assertTrue(changed and cl.active)
 
+    def test_gaming_dpi_jitter_is_not_a_drag(self):
+        cl = self.make()
+        cl.process(key(1), 0.0)
+        cl.process(move(150, 100), 0.5)                 # ~180 counts: a resting hand at 3200 DPI
+        cl.process(move(-150, -100), 0.6)
+        _, changed = cl.flush(2.0)
+        self.assertTrue(changed and cl.active)
+
     def test_a_drag_stops_this_press_from_engaging(self):
         cl = self.make()
         cl.process(key(1), 0.0)
-        cl.process(move(60, 0), 0.5)
-        cl.process(move(60, 0), 0.6)                    # 120 counts away from where it was pressed
+        cl.process(move(250, 0), 0.5)
+        cl.process(move(250, 0), 0.6)                   # 500 counts away from where it was pressed
         self.assertIsNone(cl.deadline)
         self.assertEqual(cl.flush(10.0), ([], False))
         self.assertFalse(cl.active)
@@ -59,7 +67,7 @@ class Drag(unittest.TestCase):
     def test_diagonal_motion_counts_as_distance(self):
         cl = self.make()
         cl.process(key(1), 0.0)
-        cl.process(move(75, 75), 0.1)                   # ~106 counts
+        cl.process(move(300, 300), 0.1)                 # ~424 counts
         self.assertIsNone(cl.deadline)
 
     def test_next_press_starts_fresh(self):
@@ -114,13 +122,13 @@ class Config(unittest.TestCase):
             out = []
             ctl.set_config({"clicklock": True, "clicklock_ms": 1000})
             ctl.handle_frame(key(1), 1.0, out.extend)
-            ctl.handle_frame(move(300), 1.2, out.extend)
+            ctl.handle_frame(move(500), 1.2, out.extend)
             ctl.handle_flush(3.0, out.extend)
             self.assertFalse(ctl.cl.active)
             ctl.set_config({"clicklock_ignore_drag": False})
             ctl.handle_frame(key(0), 3.1, out.extend)
             ctl.handle_frame(key(1), 4.0, out.extend)
-            ctl.handle_frame(move(300), 4.2, out.extend)
+            ctl.handle_frame(move(500), 4.2, out.extend)
             ctl.handle_flush(5.0, out.extend)
             self.assertTrue(ctl.cl.active)
 

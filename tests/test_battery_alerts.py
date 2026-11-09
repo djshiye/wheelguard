@@ -14,6 +14,19 @@ except ImportError:
 
 
 @unittest.skipUnless(HAVE_QT, "PySide6 not installed")
+class NotifyTests(unittest.TestCase):
+    def test_returns_the_started_flag_not_the_pyside_tuple(self):
+        from unittest import mock
+        with mock.patch.object(batteryalert.shutil, "which", return_value="/usr/bin/gdbus"):
+            with mock.patch.object(batteryalert.QProcess, "startDetached", return_value=(False, 0)):
+                self.assertIs(batteryalert.notify("Low"), False)        # a tuple would be truthy
+            with mock.patch.object(batteryalert.QProcess, "startDetached", return_value=(True, 4242)):
+                self.assertIs(batteryalert.notify("Low"), True)
+        with mock.patch.object(batteryalert.shutil, "which", return_value=None):
+            self.assertIs(batteryalert.notify("Low"), False)
+
+
+@unittest.skipUnless(HAVE_QT, "PySide6 not installed")
 class TrackerTests(unittest.TestCase):
     def setUp(self):
         self.t = batteryalert.AlertTracker()
@@ -116,6 +129,19 @@ class AppSettingsTests(unittest.TestCase):
             s = appsettings.AppSettings(blocker / "app.json")
             s.setBatteryAlerts(False)
             self.assertFalse(s.batteryAlerts)
+
+    def test_an_upgrade_does_not_get_the_welcome(self):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "config.json").write_text("{}")                    # the daemon's settings are already there
+            p = Path(d) / "app.json"
+            self.assertTrue(appsettings.AppSettings(p).welcomeSeen)
+            self.assertTrue(p.exists())                                   # remembered, not re-decided every start
+            appsettings.AppSettings(p).resetWelcome()                     # "Show welcome again" still works
+            self.assertFalse(appsettings.AppSettings(p).welcomeSeen)
+
+    def test_a_new_user_gets_the_welcome(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertFalse(appsettings.AppSettings(Path(d) / "app.json").welcomeSeen)
 
     def test_welcome_can_be_disabled_for_screenshots(self):
         with tempfile.TemporaryDirectory() as d:

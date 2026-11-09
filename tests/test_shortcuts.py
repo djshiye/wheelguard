@@ -116,6 +116,17 @@ class AddTests(unittest.TestCase):
         s.add()
         self.assertEqual(self.g.items[shortcuts.SHORTCUTS[0].path]["binding"], "<Super><Alt>k")
 
+    def test_assigned_reports_the_keys_actually_in_use(self):
+        other = BASE + "custom0/"
+        s = self.make(paths=[other], bindings={other: "<Super><Alt>c"})
+        self.assertEqual(s.assigned(), ["Super+Alt+C", "Super+Alt+D"])       # not added yet: the suggestions
+        s.add()
+        self.assertEqual(s.assigned(), ["Super+Alt+K", "Super+Alt+D"])       # the fall-back, not always Super+Alt+C
+        self.g.items[shortcuts.SHORTCUTS[1].path]["binding"] = "<Super>x"    # changed in GNOME Settings
+        self.assertEqual(s.assigned(), ["Super+Alt+K", "Super+X"])
+        self.g.items[shortcuts.SHORTCUTS[1].path]["binding"] = ""
+        self.assertEqual(s.assigned()[1], "no key set")
+
     def test_failure_leaves_the_list_alone(self):
         s = self.make(paths=[BASE + "custom0/"], fail_on="command")
         res = s.add()

@@ -20,6 +20,7 @@ from .power import SuspendWatch
 
 log = logging.getLogger("wheelguard")
 POLL_S = 2.0  # config.json mtime poll interval
+MICE_MIN_GAP_S = 3.0    # the input devices are never scanned more often than this
 
 
 class Controller:
@@ -47,9 +48,10 @@ class Controller:
         self.history = history
         if history is None and config_path is None:
             self.history = History()
-            atexit.register(self.history.save)          # also on SIGTERM (a SystemExit) and Ctrl-C
+            atexit.register(self.history.save, durable=True)    # also on SIGTERM (a SystemExit) and Ctrl-C
         self.mice = []
         self._mice_at = None
+        self._mice_stale = False
         self.restart_requested = False      # the mouse choice changed under a running session
         scan.set_selected(self.cfg["mouse"])
         self.wf = self._new_filter()
@@ -71,12 +73,22 @@ class Controller:
         """The daily totals for the `history` command, oldest first (empty without a history)."""
         return self.history.to_list() if self.history is not None else []
 
+    def invalidate_mice(self):
+        """The input devices changed (hotplug, a session started or ended): the next refresh rescans."""
+        self._mice_stale = True
+
     def refresh_mice(self, max_age=0.0):
-        """Rescan for mice with a scroll wheel unless the last scan is newer than max_age seconds."""
+        """Rescan for mice with a scroll wheel unless the last scan is newer than max_age seconds (or
+        than MICE_MIN_GAP_S, however often this is asked), or nothing changed since it (invalidate_mice)."""
         now = self.clock()
-        if self.mouse_lister is None or (self._mice_at is not None and now - self._mice_at < max_age):
+        if self.mouse_lister is None:
             return self.mice
+        if self._mice_at is not None:
+            age = now - self._mice_at
+            if age < MICE_MIN_GAP_S or (age < max_age and not self._mice_stale):
+                return self.mice
         self._mice_at = now
+        self._mice_stale = False
         try:
             self.mice = self.mouse_lister()
         except OSError as ex:
@@ -95,6 +107,7 @@ class Controller:
             if self.history is not None:
                 self.history.save()                     # nothing is coming in: a good moment to write
         if changed:
+            self.invalidate_mice()
             self.publish(self.status())
 
     # ---------- input path ----------
@@ -122,6 +135,21 @@ class Controller:
     def clicklock_deadline(self):
         return self.cl.deadline
 
+    @property
+    def debounce_deadline(self):
+        """When a held button release (Double-click fix) is due (None when nothing is held)."""
+        return self.deb.deadline
+
+    def _debounced_releases(self, items):
+        """Button releases the debounce let go of, through Click-Lock like any other click.
+        Returns (frames, lock_changed)."""
+        frames, changed = [], False
+        for t, events in items:
+            lock_frames, rest, ch = self.cl.process(events, t)
+            frames += lock_frames + ([rest] if rest else [])
+            changed = changed or ch
+        return frames, changed
+
     def _take_outbox(self):
         frames, decisions = self._outbox, self._outbox_decisions
         self._outbox, self._outbox_decisions = [], []
@@ -134,9 +162,12 @@ class Controller:
         the IPC side never delays the input path.
         """
         frames, decisions = self._take_outbox()
-        events, fixed = self.deb.process(events, t)         # worn-switch chatter goes first, so nothing else sees it
-        lock_frames, events, lock_changed = self.cl.process(events, t)
+        up_frames, lock_changed = self._debounced_releases(self.deb.flush(t))   # releases that are due go first
+        frames += up_frames
+        events, fixed = self.deb.process(events, t)         # worn-switch chatter goes next, so nothing else sees it
+        lock_frames, events, changed = self.cl.process(events, t)
         frames += lock_frames
+        lock_changed = lock_changed or changed
         if self.cfg["enabled"]:
             f, d = process_frame(self.wf, events, t)
         else:
@@ -162,8 +193,11 @@ class Controller:
         if self.power.poll():
             self.stop_clicklock("the computer was suspended")
         frames, decisions = self._take_outbox()
-        lock_frames, lock_changed = self.cl.flush(now)
+        frames_up, lock_changed = self._debounced_releases(self.deb.flush(now))
+        frames += frames_up
+        lock_frames, changed = self.cl.flush(now)
         frames += lock_frames
+        lock_changed = lock_changed or changed
         if self.cfg["enabled"]:
             f, d = flush_frames(self.wf, now)
             frames, decisions = frames + f, decisions + d
@@ -235,6 +269,8 @@ class Controller:
             self._prev_t = None
         if old["debounce_ms"] != new["debounce_ms"]:
             self.deb.configure(new["debounce_ms"])
+            frames, _ = self._debounced_releases(self.deb.drain())     # let go of what was held back
+            self._outbox += frames
         if any(old[k] != new[k] for k in C.CLICKLOCK_KEYS):
             self.cl.configure(*self._clicklock_args())
             if not new["clicklock"] or old["clicklock_mode"] != new["clicklock_mode"]:

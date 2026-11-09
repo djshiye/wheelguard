@@ -54,7 +54,7 @@ class Series(unittest.TestCase):
         self.assertEqual((s[0]["date"], s[-1]["date"]), ("2026-11-03", "2026-11-09"))
         self.assertEqual(s[-1]["rate"], 5.0)
         self.assertEqual(s[-3]["rate"], 0.0)
-        self.assertIsNone(s[-2]["rate"])                                # a day without ticks has no rate
+        self.assertEqual(s[-2]["rate"], protocol.NO_RATE)                # a day without ticks has no rate (-1: None would reach QML as undefined)
         self.assertEqual(s[-2]["ticks"], 0)
 
     def test_old_days_are_left_out_of_a_short_range(self):
@@ -200,6 +200,52 @@ class Backend(unittest.TestCase):
         self.assertEqual(len(series), 30)
         self.assertEqual(series[-1]["rate"], 9.0)
         self.assertEqual(len(self.client.historySeries(1000)), 90)      # clamped
+
+
+CHART_SCRIPT = r"""
+import json, sys
+from pathlib import Path
+from PySide6.QtCore import Q_ARG, Q_RETURN_ARG, QMetaObject, QUrl, Qt
+from PySide6.QtGui import QGuiApplication
+from PySide6.QtQml import QQmlComponent, QQmlEngine
+app = QGuiApplication([])
+engine = QQmlEngine()
+engine.addImportPath(sys.argv[1])
+comp = QQmlComponent(engine)
+comp.setData(b"import QtQuick\nimport Wg 1.0\nHistoryChart { width: 400; height: 170 }", QUrl("file:///test/chart.qml"))
+obj = comp.create()
+assert not comp.errors(), comp.errors()
+series = [{"date": "2026-11-07", "ticks": 200, "dropped": 10, "rate": 5.0},
+          {"date": "2026-11-08", "ticks": 0, "dropped": 0, "rate": None},
+          {"date": "2026-11-09", "ticks": 0, "dropped": 0, "rate": -1.0},
+          {"date": "2026-11-10", "ticks": 0, "dropped": 0}]
+obj.setProperty("series", series)
+def call(name, arg):
+    return QMetaObject.invokeMethod(obj, name, Qt.ConnectionType.DirectConnection,
+                                    Q_RETURN_ARG("QVariant"), Q_ARG("QVariant", arg))
+print(json.dumps({"max": obj.property("maxRate"), "has": [call("hasRate", d) for d in series],
+                  "pct": call("pct", None)}))
+"""
+
+
+@unittest.skipUnless(HAVE_QT, "PySide6 not installed")
+class ChartRates(unittest.TestCase):
+    """Python's None reaches QML as undefined, never as null: the chart must not turn it into NaN bars.
+    (A subprocess: it needs a QGuiApplication, and other tests in this process made a QCoreApplication.)"""
+
+    def test_days_without_ticks_are_not_bars(self):
+        import subprocess
+        import sys
+        from pathlib import Path
+        env = dict(os.environ, QT_QPA_PLATFORM="offscreen")
+        qml = Path(backend.__file__).parent / "qml"
+        out = subprocess.run([sys.executable, "-c", CHART_SCRIPT, str(qml)], env=env, capture_output=True,
+                             text=True, timeout=60)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        got = json.loads(out.stdout.strip().splitlines()[-1])
+        self.assertEqual(got["max"], 5.0)
+        self.assertEqual(got["has"], [True, False, False, False])
+        self.assertEqual(got["pct"], "–")
 
 
 if __name__ == "__main__":

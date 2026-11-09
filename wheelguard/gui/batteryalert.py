@@ -59,7 +59,8 @@ def notify(text: str, summary: str = "Wheelguard") -> bool:
     """Fire and forget a plain-text desktop notification. False when it could not be started."""
     if shutil.which("gdbus") is None:
         return False
-    return QProcess.startDetached("gdbus", notification_args(text, summary))
+    started = QProcess.startDetached("gdbus", notification_args(text, summary))
+    return bool(started[0] if isinstance(started, tuple) else started)     # PySide6 returns (ok, pid)
 
 
 class BatteryAlerts(QObject):

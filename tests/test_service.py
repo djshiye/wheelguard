@@ -255,6 +255,52 @@ def private_bus():
 
 
 @unittest.skipUnless(HAVE_QT and shutil.which("dbus-daemon"), "needs PySide6 and dbus-daemon")
+class ScreenLockBusTests(unittest.TestCase):
+    """The real signal over a real (private) bus: a plain-string slot silently never connected."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QCoreApplication.instance() or QCoreApplication([])
+
+    def setUp(self):
+        self.proc, self.addr = private_bus()
+        self.addCleanup(self.proc.stdout.close)
+        self.addCleanup(self.proc.wait)
+        self.addCleanup(self.proc.terminate)
+        self.listener = QDBusConnection.connectToBus(self.addr, "wg-lock-listener")
+        self.addCleanup(QDBusConnection.disconnectFromBus, "wg-lock-listener")
+        self.shell = QDBusConnection.connectToBus(self.addr, "wg-lock-shell")
+        self.addCleanup(QDBusConnection.disconnectFromBus, "wg-lock-shell")
+
+    def emit(self, svc, path, iface, active):
+        from PySide6.QtDBus import QDBusMessage
+        self.assertTrue(self.shell.registerService(svc))
+        msg = QDBusMessage.createSignal(path, iface, "ActiveChanged")
+        msg.setArguments([active])
+        self.assertTrue(self.shell.send(msg))
+        pump(200)
+
+    def test_the_screensaver_signal_stops_click_lock(self):
+        from wheelguard.gui.screenlock import SERVICES, ScreenLockWatcher
+        d = FakeDaemon()
+        w = ScreenLockWatcher(d, bus=self.listener)
+        self.assertEqual(w.connected, [True] * len(SERVICES))
+        svc, path, iface = SERVICES[0]
+        self.emit(svc, path, iface, False)
+        self.assertEqual(d.calls, [])
+        self.emit(svc, path, iface, True)
+        self.assertEqual(d.calls, [("clicklock_stop",)])
+
+    def test_the_freedesktop_screensaver_works_too(self):
+        from wheelguard.gui.screenlock import SERVICES, ScreenLockWatcher
+        d = FakeDaemon()
+        w = ScreenLockWatcher(d, bus=self.listener)
+        self.emit(*SERVICES[1], True)
+        self.assertEqual(d.calls, [("clicklock_stop",)])
+        del w
+
+
+@unittest.skipUnless(HAVE_QT and shutil.which("dbus-daemon"), "needs PySide6 and dbus-daemon")
 class SingleInstanceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

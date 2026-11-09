@@ -11,7 +11,7 @@ panel extension talks to the running app through it.
         SetClickLock(b)                  Click-Lock on/off
         SetClickLockMs(i)                Click-Lock hold time in ms (clamped to the slider range)
         SetClickLockMode(s)              "repeat" (keep clicking) or "hold" (keep the button pressed)
-        StopClickLock()                  end a running Click-Lock now (the shell calls this when the screen locks)
+        StopClickLock()                  end a running Click-Lock now (the shell extension calls this when the screen locks)
         ToggleClickLock() -> s           flip Click-Lock; "ok:Click-Lock on" or "error:<why>" (commands.py)
         NextDpiStage() -> s              switch to the next DPI stage, wrapping round; same reply format
         ApplySetup(s)                    apply a saved mouse setup by name (the guarded MouseController path)

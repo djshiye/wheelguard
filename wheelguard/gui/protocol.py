@@ -162,6 +162,7 @@ def status_mice(status: dict) -> List[dict]:
         name = m.get("name") if isinstance(m.get("name"), str) and m.get("name").strip() else "Mouse"
         conn = m.get("connection")
         out.append({"id": ident, "name": name.strip(), "supported": m.get("supported") is True,
+                    "accessible": m.get("accessible") is not False,      # an older daemon doesn't say: assume yes
                     "connection": conn if isinstance(conn, str) and conn else ""})
     return out
 
@@ -172,10 +173,25 @@ def mouse_options(mice: List[dict], selected: str) -> List[dict]:
     opts = [{"id": mouse_ids.AUTO, "label": "Automatic (supported mice)"}]
     for m in status_mice({"mice": mice}):
         label = m["name"] + (f" \u00b7 {m['connection']}" if m["connection"] else "")
-        opts.append({"id": m["id"], "label": label if m["supported"] else f"{label} (not tested)"})
+        if not m["accessible"]:
+            label += " (no access)"
+        elif not m["supported"]:
+            label += " (not tested)"
+        opts.append({"id": m["id"], "label": label})
     if selected != mouse_ids.AUTO and all(o["id"] != selected for o in opts):
         opts.append({"id": selected, "label": f"Saved mouse {selected} (not connected)"})
     return opts
+
+
+def mouse_no_access(mice: List[dict], selected: str) -> bool:
+    """True when the chosen mouse is connected but Wheelguard isn't allowed to open it."""
+    return any(m["id"] == selected and not m["accessible"] for m in status_mice({"mice": mice}))
+
+
+def mouse_choice_supported(selected: str) -> bool:
+    """False for a chosen mouse that isn't one of the supported models (those get device access automatically)."""
+    ids = mouse_ids.parse_choice(selected)
+    return ids is None or mouse_ids.identify(*ids)[0] is not None
 
 
 def mouse_index(options: List[dict], selected: str) -> int:
@@ -235,9 +251,12 @@ def history_days(msg: dict) -> List[dict]:
     return [{"date": d, "ticks": t, "dropped": x} for d, (t, x) in sorted(days.items())]
 
 
+NO_RATE = -1.0      # `rate` of a day without ticks: QML gets Python's None as undefined, a number is unambiguous
+
+
 def history_series(days: List[dict], count: int, today: datetime.date) -> List[dict]:
     """The last `count` days up to and including `today`, oldest first, gaps filled with zeros.
-    `rate` is the block rate in percent, or None for a day without ticks."""
+    `rate` is the block rate in percent, or NO_RATE (-1) for a day without ticks."""
     by_date = {d["date"]: d for d in days}
     out = []
     for n in range(count - 1, -1, -1):
@@ -245,7 +264,7 @@ def history_series(days: List[dict], count: int, today: datetime.date) -> List[d
         row = by_date.get(day)
         ticks, dropped = (row["ticks"], row["dropped"]) if row else (0, 0)
         out.append({"date": day.isoformat(), "ticks": ticks, "dropped": dropped,
-                    "rate": block_rate(ticks, dropped) if ticks > 0 else None})
+                    "rate": block_rate(ticks, dropped) if ticks > 0 else NO_RATE})
     return out
 
 
@@ -276,7 +295,9 @@ def wear_hint(days: List[dict], today: datetime.date) -> bool:
 
 
 class CommandQueue:
-    """FIFO of commands awaiting an ok/error reply."""
+    """FIFO of commands awaiting a reply. Every command that gets one is pushed, so an "error" always
+    pairs with the right command: ok/error replies pop the oldest; commands answered with a reply of
+    their own type (history, mice) are removed by settle() when it arrives."""
 
     def __init__(self):
         self._q: Deque[str] = deque()
@@ -291,6 +312,13 @@ class CommandQueue:
             return None
         name = self._q.popleft() if self._q else "?"
         return (name, None) if t == "ok" else (name, str(msg.get("message", "Unknown error")))
+
+    def settle(self, name: str):
+        """The typed reply of command `name` arrived: its entry is done."""
+        try:
+            self._q.remove(name)
+        except ValueError:
+            pass
 
     def clear(self):
         self._q.clear()

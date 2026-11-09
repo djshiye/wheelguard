@@ -80,17 +80,34 @@ class SetupStore:
         self.path = Path(path)
         self._allowed = allowed_by_model
 
-    def _load(self) -> Dict[str, List[Setup]]:
+    def _read(self):
+        """(raw "setups" dict of the file, whether the file is unusable). A missing file is fine, not corrupt."""
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return {}, False
         except (OSError, ValueError):
-            return {}
-        return parse(data, self._allowed)
+            return {}, True
+        if not isinstance(data, dict) or data.get("version") != VERSION or not isinstance(data.get("setups"), dict):
+            return {}, True
+        return data["setups"], False
+
+    def _load(self) -> Dict[str, List[Setup]]:
+        raw, _ = self._read()
+        return parse({"version": VERSION, "setups": raw}, self._allowed)
 
     def _write(self, all_setups: Dict[str, List[Setup]]) -> Optional[str]:
-        doc = {"version": VERSION,
-               "setups": {m: [{"name": s.name, "values": s.values} for s in items]
-                          for m, items in all_setups.items() if items}}
+        raw, corrupt = self._read()
+        # models this version doesn't know (a newer Wheelguard's) are kept exactly as they were
+        setups_doc = {m: items for m, items in raw.items() if m not in self._allowed}
+        setups_doc.update({m: [{"name": s.name, "values": s.values} for s in items]
+                           for m, items in all_setups.items() if items})
+        doc = {"version": VERSION, "setups": setups_doc}
+        if corrupt:                         # keep it for inspection instead of silently replacing it
+            try:
+                os.replace(self.path, self.path.with_name(self.path.name + ".corrupt"))
+            except OSError:
+                pass
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             fd, tmp = tempfile.mkstemp(dir=self.path.parent, prefix=".setups-", suffix=".tmp")

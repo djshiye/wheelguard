@@ -110,8 +110,12 @@ class History:
         except OSError:
             pass
 
-    def save(self):
-        """Write the file now (atomically). Returns False, and keeps the data, when that fails."""
+    def save(self, durable=False):
+        """Write the file now (atomically). Returns False, and keeps the data, when that fails.
+
+        `durable` also fsyncs before the rename: wanted on exit only. The periodic saves run on the
+        input thread, where a disk flush could stall the mouse for a moment, and a crash that loses a
+        few minutes of counts is no harm (the rename keeps the old file whole)."""
         if not self.dirty:
             return True
         self._last_save = self.clock()
@@ -125,7 +129,8 @@ class History:
                 json.dump({"version": 1, "days": self.to_list()}, f, indent=1)
                 f.write("\n")
                 f.flush()
-                os.fsync(f.fileno())
+                if durable:
+                    os.fsync(f.fileno())
             os.chmod(tmp, 0o644)
             os.replace(tmp, path)
         except OSError as ex:

@@ -44,6 +44,7 @@ const IFACE_XML = `
     <method name="SetClickLockMode"><arg type="s" direction="in" name="mode"/></method>
     <method name="ApplySetup"><arg type="s" direction="in" name="name"/></method>
     <method name="FocusChanged"><arg type="s" direction="in" name="app_id"/></method>
+    <method name="StopClickLock"/>
     <method name="ShowWindow"/>
     <method name="Refresh"/>
     <signal name="StateChanged"><arg type="a{sv}" name="state"/></signal>
@@ -122,6 +123,8 @@ class WheelguardIndicator extends PanelMenu.Button {
         this._sliderDragging = false;
         this._settingSlider = false;
         this._cancellable = new Gio.Cancellable();
+        this._lockIds = [];                 // [object, signal id] pairs for the screen lock watch
+        this._watchScreenLock();
 
         this._icon = new St.Icon({
             gicon: fileIcon(`${extension.path}/icons/wheelguard-symbolic.svg`),
@@ -403,7 +406,8 @@ class WheelguardIndicator extends PanelMenu.Button {
             this._setupKey = key;
             this._setupSeg.destroy_all_children();
             this._setupChips = names.map(name => {
-                const shown = name.length > 14 ? `${name.slice(0, 13)}…` : name;
+                const letters = Array.from(name);            // by character, not UTF-16 unit: no split emoji
+                const shown = letters.length > 14 ? `${letters.slice(0, 13).join('')}…` : name;
                 const chip = new St.Button({style_class: 'wg-chip', can_focus: true, x_expand: true, label: shown});
                 chip.connect('clicked', () => this._applySetup(name));
                 this._setupSeg.add_child(chip);
@@ -739,6 +743,29 @@ class WheelguardIndicator extends PanelMenu.Button {
         });
     }
 
+    // ------------------------------------------------------------------ screen lock
+    // A locked screen ends a running Click-Lock, so a held or clicking button never carries on behind
+    // the lock screen. The app watches the screensaver's own signal as well; this is the sure way.
+    _watchScreenLock() {
+        const watch = (obj, signal) => {
+            if (obj)
+                this._lockIds.push([obj, obj.connect(signal, () => this._screenLockChanged())]);
+        };
+        watch(Main.screenShield, 'locked-changed');
+        watch(Main.sessionMode, 'updated');
+    }
+
+    _screenLockChanged() {
+        if ((Main.screenShield?.locked || Main.sessionMode?.isLocked) && this._proxy)
+            this._proxy.StopClickLockRemote(() => {});
+    }
+
+    _unwatchScreenLock() {
+        for (const [obj, id] of this._lockIds)
+            obj.disconnect(id);
+        this._lockIds = [];
+    }
+
     // ------------------------------------------------------------------ the app on the bus
     _appeared() {
         if (this._proxy)
@@ -850,6 +877,7 @@ class WheelguardIndicator extends PanelMenu.Button {
     // Runs from the actor's 'destroy' signal, so also when the shell tears the panel down itself.
     _cleanup() {
         this._destroyed = true;
+        this._unwatchScreenLock();
         this._cancellable.cancel();
         this._clearStartTimeout();
         this._clearClickLockTimeout();

@@ -11,6 +11,8 @@ from . import mice
 UI_PREFIX = "wheelguard"        # our own virtual mouse
 SKIP_NAMES = ("Keyboard", "Consumer Control", "System Control")
 
+LETTER_KEYS = frozenset(getattr(e, f"KEY_{c}") for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+
 _selected = mice.AUTO           # the "mouse" setting, kept here so discover() can see it (set by the Controller)
 
 
@@ -21,6 +23,13 @@ def set_selected(value):
 
 def selected():
     return _selected
+
+
+def has_letter_keys(caps):
+    """True for a node with keyboard letter keys (a keyboard, or a combo device that is one as well).
+
+    Such a node is never grabbed: the keyboard would stop working for the rest of the desktop."""
+    return not LETTER_KEYS.isdisjoint(caps.get(e.EV_KEY, []))
 
 
 def _sysfs_info(path):
@@ -40,27 +49,28 @@ def _sysfs_info(path):
         return None
 
 
-def entry(name, vendor, product):
+def entry(name, vendor, product, accessible=True):
     model, connection = mice.identify(vendor, product)
     return {"name": model or mice.pretty_name(name) or "Mouse", "device": mice.pretty_name(name),
             "vendor": f"{vendor:04x}", "product": f"{product:04x}", "supported": model is not None,
-            "connection": connection}
+            "connection": connection, "accessible": accessible}
 
 
 def list_mice():
     """Every connected mouse with a scroll wheel, one entry per vendor/product, supported ones first.
 
     Keyboards and consumer-control nodes are skipped, and so is our own virtual mouse. A node we may
-    not open is still listed (from sysfs), so the app can say why it can't be used.
+    not open is still listed (from sysfs) with "accessible": false, so the app can say why it can't be
+    used. A mouse is accessible when at least one of its nodes can be opened.
     """
-    found = {}
+    found = {}                  # (vendor, product) -> [name, accessible]
     for path in sorted(glob.glob("/dev/input/event*")):
         try:
             dev = evdev.InputDevice(path)
         except PermissionError:
             info = _sysfs_info(path)
             if info:
-                found.setdefault((info[1], info[2]), info[0])
+                found.setdefault((info[1], info[2]), [info[0], False])
             continue
         except OSError:
             continue
@@ -68,10 +78,10 @@ def list_mice():
             name = dev.name or ""
             caps = dev.capabilities()
             if (not any(n in name for n in SKIP_NAMES) and not name.startswith(UI_PREFIX)
-                    and e.REL_WHEEL in caps.get(e.EV_REL, [])):
-                found[(dev.info.vendor, dev.info.product)] = name
+                    and e.REL_WHEEL in caps.get(e.EV_REL, []) and not has_letter_keys(caps)):
+                found[(dev.info.vendor, dev.info.product)] = [name, True]
         finally:
             dev.close()
-    out = [entry(n, v, p) for (v, p), n in found.items()]
+    out = [entry(n, v, p, ok) for (v, p), (n, ok) in found.items()]
     out.sort(key=lambda m: (not m["supported"], m["name"].lower(), m["vendor"], m["product"]))
     return out

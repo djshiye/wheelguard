@@ -99,6 +99,13 @@ class Shortcuts:
         paths = self.read_list() or []
         return all(s.path in paths for s in SHORTCUTS)
 
+    def assigned(self) -> List[str]:
+        """The keys our shortcuts have right now, as people read them, in SHORTCUTS order (a fall-back key if
+        the suggested one was taken, whatever the user changed it to, "no key set" for none)."""
+        paths = self.read_list() or []
+        return [(key_label(self._binding_of(sc.path)) or "no key set") if sc.path in paths else sc.label
+                for sc in SHORTCUTS]
+
     def add(self) -> Result:
         paths = self.read_list()
         if paths is None:
@@ -141,6 +148,7 @@ class ShortcutsBackend(QObject):
         self._message = ""
         self._error = False
         self._installed = self._available and self._engine.installed()
+        self._keys = self._engine.assigned() if self._installed else [sc.label for sc in SHORTCUTS]
 
     @Slot()
     def add(self):
@@ -148,6 +156,7 @@ class ShortcutsBackend(QObject):
         self._error = not res.ok
         if res.ok:
             self._installed = True
+            self._keys = self._engine.assigned()
             self._message = ("Added. Change the keys any time in GNOME Settings > Keyboard > Custom Shortcuts."
                              if res.added else "Both shortcuts are already there.")
         else:
@@ -157,6 +166,7 @@ class ShortcutsBackend(QObject):
     @Slot()
     def refresh(self):
         self._installed = self._available and self._engine.installed()
+        self._keys = self._engine.assigned() if self._installed else [sc.label for sc in SHORTCUTS]
         self.changed.emit()
 
     available = Property(bool, lambda s: s._available, constant=True)
@@ -164,5 +174,6 @@ class ShortcutsBackend(QObject):
     message = Property(str, lambda s: s._message, notify=changed)
     failed = Property(bool, lambda s: s._error, notify=changed)
     labels = Property("QStringList", lambda s: [sc.label for sc in SHORTCUTS], constant=True)
+    keys = Property("QStringList", lambda s: list(s._keys), notify=changed)     # the keys in use, same order as labels
 
 

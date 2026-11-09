@@ -38,6 +38,7 @@ QtObject {
     // Accent: electric violet to cyan
     readonly property color accentA: pick("accentA", dark ? "#8B5CF6" : "#7C4DFF")
     readonly property color accentB: pick("accentB", dark ? "#22D3EE" : "#0BB5D6")
+    readonly property color accentValue: dark ? "#B79DFF" : accentA   // numbers and values that sit on a card (lighter violet in dark)
     readonly property color coral:   pick("coral", dark ? "#FF6B7A" : "#E8455A")
     readonly property color amber:   pick("amber", dark ? "#FFB547" : "#E39A1B")
     readonly property color good:    pick("good", dark ? "#3DDC97" : "#16A870")

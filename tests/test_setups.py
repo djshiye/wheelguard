@@ -56,6 +56,27 @@ class StoreTests(unittest.TestCase):
         self.assertTrue(name.startswith("My gaming setup z"))
         self.assertLessEqual(len(name), setups.NAME_MAX)
 
+    def test_a_corrupt_file_is_moved_aside_not_silently_replaced(self):
+        path = Path(self.tmp.name) / "wheelguard" / "setups.json"
+        path.parent.mkdir(parents=True)
+        path.write_text("{not json")
+        self.assertEqual(self.s.list(ENDGAME), [])
+        self.assertTrue(path.exists())                                  # reading changes nothing
+        self.assertEqual(self.s.save(ENDGAME, "Gaming", self.vals), "")
+        self.assertEqual(path.with_name("setups.json.corrupt").read_text(), "{not json")
+        self.assertEqual([x.name for x in self.s.list(ENDGAME)], ["Gaming"])
+
+    def test_unknown_models_are_preserved(self):
+        path = Path(self.tmp.name) / "wheelguard" / "setups.json"
+        path.parent.mkdir(parents=True)
+        other = [{"name": "Future", "values": {"dpi_x0": 1, "new_key": 7}}]
+        path.write_text(json.dumps({"version": 1, "setups": {"some-new-mouse": other}}))
+        self.s.save(ENDGAME, "Gaming", self.vals)
+        data = json.loads(path.read_text())
+        self.assertEqual(data["setups"]["some-new-mouse"], other)
+        self.assertEqual(self.s.delete(ENDGAME, "Gaming"), "")
+        self.assertEqual(json.loads(path.read_text())["setups"]["some-new-mouse"], other)
+
     def test_limit_per_model(self):
         for i in range(setups.MAX_PER_MODEL):
             self.assertEqual(self.s.save(ENDGAME, f"s{i}", self.vals), "")
