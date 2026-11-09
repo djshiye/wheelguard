@@ -384,6 +384,117 @@ WgScrollPage {
         }
     }
 
+    // Double-click fix (done by the Wheelguard service: drops the second press of a worn switch's chatter)
+    WgCard {
+        id: dbCard
+        width: parent.width
+        spacing: 14
+        readonly property bool reachable: daemon.state === "running" || daemon.state === "waiting"
+        readonly property color valueColor: Theme.dark ? "#B79DFF" : Theme.accentA
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 16
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 4
+                Text {
+                    text: "Double-click fix"
+                    font.pixelSize: Theme.fsH2
+                    font.weight: Font.DemiBold
+                    color: Theme.text
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: "Worn switches can send two clicks for one press, which turns a single click into a double-click or breaks a drag. Wheelguard can ignore a second click that arrives too soon after the first. It works for the left, right and middle buttons."
+                    font.pixelSize: Theme.fsBody - 1
+                    color: Theme.textMuted
+                    wrapMode: Text.WordWrap
+                }
+            }
+            WgSwitch {
+                Layout.alignment: Qt.AlignTop
+                Accessible.name: "Double-click fix"
+                enabled: dbCard.reachable
+                opacity: enabled ? 1 : 0.5
+                checked: daemon.debounceOn
+                onToggled: daemon.setDebounce(checked)
+            }
+        }
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 10
+            enabled: dbCard.reachable && daemon.debounceOn
+            opacity: daemon.debounceOn && dbCard.reachable ? 1 : 0.55
+            Behavior on opacity { NumberAnimation { duration: Theme.normal } }
+
+            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.border }
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.topMargin: 4
+                Text {
+                    Layout.fillWidth: true
+                    text: "Ignore a second click within"
+                    font.pixelSize: Theme.fsBody
+                    font.weight: Font.DemiBold
+                    color: Theme.text
+                }
+                Text {
+                    text: daemon.debounceOn ? daemon.debounceMs + " ms" : "Off"
+                    font.pixelSize: Theme.fsBody
+                    font.weight: Font.DemiBold
+                    color: dbCard.valueColor
+                }
+            }
+            WgSlider {
+                Layout.fillWidth: true
+                Accessible.name: "Ignore a second click within, in milliseconds"
+                from: 10
+                to: 150
+                stepSize: 5
+                snapMode: WgSlider.SnapAlways
+                value: daemon.debounceOn ? daemon.debounceMs : 40
+                valueText: Math.round(value) + " ms"
+                onMoved: daemon.setDebounceMs(Math.round(value))
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.leftMargin: 4
+                Layout.rightMargin: 4
+                Text { text: "10 ms"; font.pixelSize: Theme.fsSmall; color: Theme.textFaint }
+                Item { Layout.fillWidth: true }
+                Text { text: "150 ms"; font.pixelSize: Theme.fsSmall; color: Theme.textFaint }
+            }
+            Text {
+                Layout.fillWidth: true
+                text: "Start around 40 ms. Raise it only if stray double-clicks continue; too high and a genuinely fast double-click gets swallowed."
+                font.pixelSize: Theme.fsSmall
+                color: Theme.textFaint
+                wrapMode: Text.WordWrap
+            }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            visible: dbCard.reachable && (daemon.debounceOn || daemon.debouncedClicks > 0)
+            spacing: 10
+            WgIcon { name: "check"; size: 16; color: daemon.debouncedClicks > 0 ? Theme.good : Theme.textFaint }
+            Text {
+                Layout.fillWidth: true
+                text: daemon.debouncedClicks === 0
+                      ? "No stray clicks caught yet"
+                      : daemon.debouncedClicks.toLocaleString(Qt.locale(), "f", 0)
+                        + (daemon.debouncedClicks === 1 ? " stray click fixed" : " stray clicks fixed")
+                        + " since the counters were last reset"
+                font.pixelSize: Theme.fsBody - 1
+                font.weight: Font.Medium
+                color: daemon.debouncedClicks > 0 ? Theme.text : Theme.textMuted
+                wrapMode: Text.WordWrap
+            }
+        }
+    }
+
     // Double-click
     WgCard {
         id: dcCard

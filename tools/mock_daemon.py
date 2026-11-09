@@ -27,7 +27,7 @@ DEVICE = "Endgame Gear Endgame Gear HS Dongle"
 DEFAULT_CONFIG = {"enabled": True, "lock_ms": 300, "pre_ms": 60, "hold_ms": 25,
                   "vendor": "3367", "product": "1970", "retry_s": 2,
                   "clicklock": False, "clicklock_ms": 5000, "clicklock_mode": "repeat", "clicklock_rate": 10,
-                  "clicklock_max_s": 600, "clicklock_ignore_drag": True}
+                  "clicklock_max_s": 600, "clicklock_ignore_drag": True, "debounce_ms": 0}
 MODEL, CONNECTION = "Endgame Gear XM2w 4k v2", "dongle"
 BOUNCE_RATE = 0.09
 
@@ -68,6 +68,8 @@ def validate(cfg, patch):
         return None, "clicklock_ms must be between 500 and 30000"
     if merged["clicklock_max_s"] != 0 and not 10 <= merged["clicklock_max_s"] <= 3600:
         return None, "clicklock_max_s must be 0 (never) or between 10 and 3600"
+    if merged["debounce_ms"] != 0 and not 10 <= merged["debounce_ms"] <= 150:
+        return None, "debounce_ms must be 0 (off) or between 10 and 150"
     if not 1 <= merged["clicklock_rate"] <= 30:
         return None, "clicklock_rate must be between 1 and 30"
     if not 0 < merged["hold_ms"] < merged["lock_ms"]:
@@ -134,10 +136,13 @@ class Mock:
     def __init__(self, args):
         self.scenario = args.scenario
         self.cfg = dict(DEFAULT_CONFIG)
+        for item in args.set:
+            key, _, raw = item.partition("=")
+            self.cfg[key] = json.loads(raw)
         self.clicklock_active = args.clicklock_active
         if args.clicklock_active:
             self.cfg["clicklock"] = True
-        self.stats = {"ticks": 0, "passed": 0, "dropped": 0, "since": time.time()}
+        self.stats = {"ticks": 0, "passed": 0, "dropped": 0, "debounced": args.debounced, "since": time.time()}
         self.sel = selectors.DefaultSelector()
         self.clients = {}
         self.rng = random.Random(args.seed)
@@ -211,7 +216,7 @@ class Mock:
         elif cmd == "reload":
             self.send(c, {"type": "ok"})
         elif cmd == "reset_stats":
-            self.stats.update(ticks=0, passed=0, dropped=0, since=time.time())
+            self.stats.update(ticks=0, passed=0, dropped=0, debounced=0, since=time.time())
             self.send(c, {"type": "ok"})
             self.broadcast(self.status())
         else:
@@ -316,6 +321,9 @@ def main():
     ap.add_argument("--socket", default=default_socket())
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--rate", type=float, default=1.0, help="tick speed multiplier (default 1)")
+    ap.add_argument("--set", action="append", default=[], metavar="KEY=JSON",
+                    help="start with a config value, e.g. --set debounce_ms=40 (repeatable)")
+    ap.add_argument("--debounced", type=int, default=0, help="start with this many double-click-fix clicks counted")
     ap.add_argument("--clicklock-active", action="store_true",
                     help="pretend Click-Lock is on and clicking right now (for the app and panel UI)")
     args = ap.parse_args()

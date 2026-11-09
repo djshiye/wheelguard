@@ -11,6 +11,7 @@ from . import __version__
 from . import config as C
 from . import mice
 from .clicklock import ClickLock
+from .debounce import ClickDebounce
 from .core import DROP, EMIT, PASS, Decision, WheelFilter
 from .frames import flush_frames, process_frame, tick_sign
 from .power import SuspendWatch
@@ -29,7 +30,7 @@ class Controller:
         self.device = None
         self.model = self.connection = None     # friendly name and "dongle"/"receiver"/"cable" of a supported mouse
         self.error = "mouse not found"
-        self.stats = {"ticks": 0, "passed": 0, "dropped": 0, "since": clock()}
+        self.stats = {"ticks": 0, "passed": 0, "dropped": 0, "debounced": 0, "since": clock()}
         self.file_cfg = dict(C.DEFAULTS)
         try:
             self.file_cfg = C.load(self.config_path)
@@ -39,6 +40,7 @@ class Controller:
         self.power = power or SuspendWatch()
         self.wf = self._new_filter()
         self.cl = ClickLock(*self._clicklock_args())
+        self.deb = ClickDebounce(self.cfg["debounce_ms"])
         self._outbox = []        # frames released when the config changed under a pending hold
         self._outbox_decisions = []
         self._prev_t = None      # previous tick time, for gap_ms while passing through
@@ -75,6 +77,7 @@ class Controller:
     def reset_filter(self):
         self.wf = self._new_filter()
         self.cl.reset()
+        self.deb.reset()
         self._outbox, self._outbox_decisions = [], []
         self._prev_t = None
 
@@ -99,6 +102,7 @@ class Controller:
         the IPC side never delays the input path.
         """
         frames, decisions = self._take_outbox()
+        events, fixed = self.deb.process(events, t)         # worn-switch chatter goes first, so nothing else sees it
         lock_frames, events, lock_changed = self.cl.process(events, t)
         frames += lock_frames
         if self.cfg["enabled"]:
@@ -114,6 +118,9 @@ class Controller:
         if frames:
             write(frames)
         self._record(decisions)
+        if fixed:
+            self.stats["debounced"] += fixed
+            self.publish(self.status())
         if lock_changed:
             self._clicklock_changed()
         return decisions
@@ -187,6 +194,8 @@ class Controller:
                 self._outbox_decisions += d
             self.wf = self._new_filter()
             self._prev_t = None
+        if old["debounce_ms"] != new["debounce_ms"]:
+            self.deb.configure(new["debounce_ms"])
         if any(old[k] != new[k] for k in C.CLICKLOCK_KEYS):
             self.cl.configure(*self._clicklock_args())
             if not new["clicklock"] or old["clicklock_mode"] != new["clicklock_mode"]:
@@ -226,7 +235,7 @@ class Controller:
         return None
 
     def reset_stats(self):
-        self.stats.update(ticks=0, passed=0, dropped=0, since=self.clock())
+        self.stats.update(ticks=0, passed=0, dropped=0, debounced=0, since=self.clock())
         self.publish(self.status())
 
     def poll_config(self):

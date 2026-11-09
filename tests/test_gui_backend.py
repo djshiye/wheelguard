@@ -213,15 +213,15 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(protocol.status_config(st),
                          {"enabled": False, "pre_ms": 90, "hold_ms": 35, "lock_ms": 400, "clicklock": False,
                           "clicklock_ms": 5000, "clicklock_mode": "repeat", "clicklock_rate": 10,
-                          "clicklock_max_s": 600, "clicklock_ignore_drag": True})
+                          "clicklock_max_s": 600, "clicklock_ignore_drag": True, "debounce_ms": 0})
         st["config"].update(clicklock=True, clicklock_ms=7500, clicklock_mode=3)
         cfg = protocol.status_config(st)
         self.assertEqual((cfg["clicklock"], cfg["clicklock_ms"], cfg["clicklock_mode"]), (True, 7500, "repeat"))
         self.assertTrue(protocol.clicklock_active({"clicklock_active": True}))
         self.assertFalse(protocol.clicklock_active({}))
-        self.assertEqual(protocol.status_stats(st), {"ticks": 100, "dropped": 9})
+        self.assertEqual(protocol.status_stats(st), {"ticks": 100, "dropped": 9, "debounced": 0})
         self.assertIsNone(protocol.status_config({}))
-        self.assertEqual(protocol.status_stats({}), {"ticks": 0, "dropped": 0})
+        self.assertEqual(protocol.status_stats({}), {"ticks": 0, "dropped": 0, "debounced": 0})
         self.assertEqual(protocol.status_config({"config": {}})["lock_ms"], 300)
 
     def test_block_rate(self):
@@ -422,6 +422,22 @@ class DaemonClientTests(unittest.TestCase):
         self.client.setClickLockIgnoreDrag(False)
         self.assertFalse(self.client.clickLockIgnoreDrag)
         self.assertTrue(self.pump(lambda: {"cmd": "set", "config": {"clicklock_ignore_drag": False}} in self.received))
+
+    def test_double_click_fix_setting_and_count(self):
+        status = dict(self.STATUS, stats={"ticks": 5, "passed": 5, "dropped": 0, "debounced": 7, "since": 1.0})
+        self.reply_for = lambda m: ([status] if m["cmd"] == "subscribe" else [{"type": "ok"}])
+        self.client.start()
+        self.assertTrue(self.pump(lambda: self.client.state == "running"))
+        self.assertEqual((self.client.debounceOn, self.client.debounceMs, self.client.debouncedClicks), (False, 0, 7))
+        self.client.setDebounce(True)                   # switching on starts at the default
+        self.assertTrue(self.pump(lambda: {"cmd": "set", "config": {"debounce_ms": 40}} in self.received))
+        self.assertTrue(self.client.debounceOn)
+        self.client.setDebounceMs(5)                    # clamped into the slider range
+        self.assertTrue(self.pump(lambda: {"cmd": "set", "config": {"debounce_ms": 10}} in self.received))
+        self.client.setDebounce(False)
+        self.assertTrue(self.pump(lambda: {"cmd": "set", "config": {"debounce_ms": 0}} in self.received))
+        self.client.setDebounce(True)                   # remembers the last value used
+        self.assertTrue(self.pump(lambda: self.received.count({"cmd": "set", "config": {"debounce_ms": 10}}) == 2))
 
     def test_status_does_not_clobber_pending_edit(self):
         status = self.STATUS

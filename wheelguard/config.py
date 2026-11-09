@@ -27,6 +27,7 @@ DEFAULTS = {
     "clicklock_rate": clicklock.DEFAULT_RATE,
     "clicklock_max_s": clicklock.DEFAULT_MAX_S,
     "clicklock_ignore_drag": True,
+    "debounce_ms": 0,
 }
 MS_KEYS = ("lock_ms", "pre_ms", "hold_ms")
 MAX_MS = 2000
@@ -34,6 +35,7 @@ MAX_RETRY_S = 3600
 CLICKLOCK_MS = (500, 30000)     # how long the button must be held before Click-Lock engages
 CLICKLOCK_RATE = (1, 30)        # repeat clicks per second
 CLICKLOCK_MAX_S = (10, 3600)    # safety timer: a running lock stops by itself after this long (0 = never)
+DEBOUNCE_MS = (10, 150)         # "Double-click fix": ignore a second press this soon after a release (0 = off)
 CLICKLOCK_KEYS = ("clicklock", "clicklock_ms", "clicklock_mode", "clicklock_rate", "clicklock_max_s",
                   "clicklock_ignore_drag")
 
@@ -96,6 +98,9 @@ def normalize(partial, base=None):
     lo, hi = CLICKLOCK_MAX_S
     if cfg["clicklock_max_s"] != 0 and not lo <= cfg["clicklock_max_s"] <= hi:
         raise ValueError(f"clicklock_max_s must be 0 (never) or between {lo} and {hi}")
+    lo, hi = DEBOUNCE_MS
+    if cfg["debounce_ms"] != 0 and not lo <= cfg["debounce_ms"] <= hi:
+        raise ValueError(f"debounce_ms must be 0 (off) or between {lo} and {hi}")
     if not 0 < cfg["retry_s"] <= MAX_RETRY_S:
         raise ValueError(f"retry_s must be > 0 and <= {MAX_RETRY_S}")
     return cfg

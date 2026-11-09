@@ -53,6 +53,8 @@ class DaemonClient(QObject):
         self._inflight = 0
         self._ticks = 0
         self._dropped = 0
+        self._debounced = 0
+        self._last_debounce_ms = protocol.DEBOUNCE_DEFAULT_ON_MS
         self._edit_error = ""
         self._service_busy = False
         self._service_error = ""
@@ -172,8 +174,8 @@ class DaemonClient(QObject):
             self._clicklock_active = active
             self.clickLockActiveChanged.emit()
         st = protocol.status_stats(msg)
-        if (st["ticks"], st["dropped"]) != (self._ticks, self._dropped):
-            self._ticks, self._dropped = st["ticks"], st["dropped"]
+        if (st["ticks"], st["dropped"], st["debounced"]) != (self._ticks, self._dropped, self._debounced):
+            self._ticks, self._dropped, self._debounced = st["ticks"], st["dropped"], st["debounced"]
             self.statsChanged.emit()
 
     def _on_reply(self, msg: dict):
@@ -251,6 +253,20 @@ class DaemonClient(QObject):
     @Slot(int)
     def setClickLockRate(self, value: int):
         self._stage({"clicklock_rate": max(1, min(30, int(value)))})
+
+    @Slot(int)
+    def setDebounceMs(self, value: int, immediate=False):
+        """The Double-click fix window in ms: 0 is off, otherwise clamped to the slider range."""
+        v = int(value)
+        lo, hi = protocol.DEBOUNCE_MS_RANGE
+        v = 0 if v <= 0 else max(lo, min(hi, v))
+        if v:
+            self._last_debounce_ms = v
+        self._stage({"debounce_ms": v}, immediate=immediate or v == 0)
+
+    @Slot(bool)
+    def setDebounce(self, on: bool):
+        self.setDebounceMs(self._last_debounce_ms if on else 0, immediate=True)
 
     @Slot(bool)
     def setClickLockIgnoreDrag(self, on: bool):
@@ -350,6 +366,9 @@ class DaemonClient(QObject):
     clickLockMs = Property(int, lambda s: s._cfg["clicklock_ms"], notify=configChanged)
     clickLockMode = Property(str, lambda s: s._cfg["clicklock_mode"], notify=configChanged)
     clickLockRate = Property(int, lambda s: s._cfg["clicklock_rate"], notify=configChanged)
+    debounceMs = Property(int, lambda s: s._cfg["debounce_ms"], notify=configChanged)
+    debounceOn = Property(bool, lambda s: s._cfg["debounce_ms"] > 0, notify=configChanged)
+    debouncedClicks = Property(int, lambda s: s._debounced, notify=statsChanged)
     clickLockIgnoreDrag = Property(bool, lambda s: s._cfg["clicklock_ignore_drag"], notify=configChanged)
     clickLockMaxS = Property(int, lambda s: s._cfg["clicklock_max_s"], notify=configChanged)
     clickLockActive = Property(bool, lambda s: s._clicklock_active, notify=clickLockActiveChanged)

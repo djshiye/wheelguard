@@ -19,7 +19,8 @@ Messages are UTF-8 JSON objects, one per line (`\n`-terminated), both directions
   "clicklock_mode": "repeat",
   "clicklock_rate": 10,
   "clicklock_max_s": 600,
-  "clicklock_ignore_drag": true
+  "clicklock_ignore_drag": true,
+  "debounce_ms": 0
 }
 ```
 
@@ -38,6 +39,13 @@ Ignore drags: with `clicklock_ignore_drag: true` (the default) and mode `repeat`
 the lock if the pointer stayed roughly still: once the pointer has moved more than 100 counts
 (REL_X/REL_Y, measured from where the button went down) the press can no longer engage the lock. Mode
 `hold` ignores this setting and works as before.
+
+Double-click fix: `debounce_ms` (0 = off, otherwise 10 to 150; default 0) drops a press of the left,
+right or middle button that arrives less than that many ms after the same button's previous release,
+and the release that belongs to it, so a worn switch's chatter reaches the desktop as one click. The
+window is measured from the last release that went through. A release is only ever dropped when its own
+press was dropped, so no button can stick. It works on the real button events, before Click-Lock sees
+them. Each dropped press is counted in `stats.debounced`.
 
 Safety timer: `clicklock_max_s` (0 = never, otherwise 10 to 3600; default 600) ends a running lock by
 itself that long after it engaged; the button is handed back like for any other end of the lock. A
@@ -73,7 +81,7 @@ Validation: `0 < hold_ms < lock_ms`, `0 <= pre_ms <= lock_ms`, all ms values <= 
  "connection": "dongle",            // "dongle", "receiver" or "cable"; null when the model is unknown
  "error": null,                     // e.g. "permission denied: /dev/input/event2" when the udev rule is missing
  "config": {...full effective config...},
- "stats": {"ticks": 1234, "passed": 1120, "dropped": 114, "since": 1729400000.0},
+ "stats": {"ticks": 1234, "passed": 1120, "dropped": 114, "debounced": 3, "since": 1729400000.0},
  "clicklock_active": false}         // Click-Lock is engaged right now (a status event goes out when it changes)
 ```
 

@@ -66,7 +66,7 @@ class Counters(Base):
         self.frame(1.0, 1)
         self.now = 2000.0
         self.ctl.reset_stats()
-        self.assertEqual(self.ctl.stats, {"ticks": 0, "passed": 0, "dropped": 0, "since": 2000.0})
+        self.assertEqual(self.ctl.stats, {"ticks": 0, "passed": 0, "dropped": 0, "debounced": 0, "since": 2000.0})
         self.assertEqual(self.events[-1]["type"], "status")
 
     def test_tick_event_shape(self):
@@ -187,7 +187,7 @@ class Status(Base):
         self.assertFalse(st["connected"])
         self.assertEqual(st["error"], "mouse not found")
         self.assertEqual(st["config"]["vendor"], "3367")
-        self.assertEqual(set(st["stats"]), {"ticks", "passed", "dropped", "since"})
+        self.assertEqual(set(st["stats"]), {"ticks", "passed", "dropped", "debounced", "since"})
 
     def test_set_device_publishes_on_change_only(self):
         self.ctl.set_device(True, "Mouse", None)

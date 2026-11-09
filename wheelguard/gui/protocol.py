@@ -12,11 +12,13 @@ TICK_KINDS = ("emit", "drop", "hold", "pass")
 CONFIG_DEFAULTS = {"enabled": True, "pre_ms": 60, "hold_ms": 25, "lock_ms": 300,
                    "clicklock": False, "clicklock_ms": 5000, "clicklock_mode": "repeat",
                    "clicklock_rate": 10, "clicklock_max_s": 600,
-                   "clicklock_ignore_drag": True}
+                   "clicklock_ignore_drag": True, "debounce_ms": 0}
 # Click-Lock slider range in the app and the panel (the daemon accepts 0.5 to 30 s).
 CLICKLOCK_MS_RANGE = (1000, 15000)
 CLICKLOCK_MS_STEP = 500
 CLICKLOCK_MAX_S_CHOICES = (0, 60, 300, 600, 1800)    # "Stop automatically after": Never, 1, 5, 10, 30 min
+DEBOUNCE_MS_RANGE = (10, 150)           # "Double-click fix" slider; 0 means off
+DEBOUNCE_DEFAULT_ON_MS = 40             # what switching it on starts with
 CLICKLOCK_MODES = ("repeat", "hold")    # the daemon's clicklock.MODES (kept evdev-free here)
 
 
@@ -150,7 +152,7 @@ def status_stats(status: dict) -> dict:
     s = status.get("stats") or {}
     ticks = int(s.get("ticks", 0) or 0)
     dropped = int(s.get("dropped", 0) or 0)
-    return {"ticks": ticks, "dropped": dropped}
+    return {"ticks": ticks, "dropped": dropped, "debounced": max(0, int(s.get("debounced", 0) or 0))}
 
 
 def block_rate(ticks: int, dropped: int) -> float:
