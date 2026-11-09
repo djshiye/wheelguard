@@ -20,7 +20,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
-from wheelguard.core import DROP, EMIT, HOLD, WheelFilter  # noqa: E402
+from wheelguard.core import DROP, HOLD, WheelFilter  # noqa: E402
 
 VERSION = "1.0.0-mock"
 DEVICE = "Endgame Gear Endgame Gear HS Dongle"

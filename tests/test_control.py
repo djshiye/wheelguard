@@ -90,7 +90,7 @@ class Disabled(Base):
         for t, s in seq:
             self.frame(t, s, extra=[(e.EV_REL, e.REL_X, 1)])
         self.assertEqual(len(self.written), len(seq))
-        for (t, s), fr in zip(seq, self.written):
+        for (_t, s), fr in zip(seq, self.written, strict=True):
             self.assertEqual(fr, tick(s, [(e.EV_REL, e.REL_X, 1)]))
         self.assertEqual(self.kinds(), [(PASS, False)] * len(seq))
         st = self.ctl.stats

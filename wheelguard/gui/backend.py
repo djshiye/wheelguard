@@ -552,7 +552,7 @@ class LiquidGlass(QObject):
     @Slot()
     def reload(self):
         tokens = {}
-        for scheme, path in zip(("dark", "light"), self._files()):
+        for scheme, path in zip(("dark", "light"), self._files(), strict=True):
             try:
                 with open(path, encoding="utf-8") as f:
                     data = json.load(f)

@@ -4,7 +4,7 @@
 """
 import json
 from collections import deque
-from typing import Any, Deque, List, NamedTuple, Optional
+from typing import Deque, List, NamedTuple, Optional
 
 TICK_KINDS = ("emit", "drop", "hold", "pass")
 

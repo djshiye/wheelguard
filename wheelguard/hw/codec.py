@@ -11,7 +11,7 @@ Edits are flat dicts {key: value} (see KEYS). The write path is: fresh blob -> a
 plan_writes(old, new) -> only the groups whose source bytes changed, in order 0x14, 0x15, 0x16.
 """
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Tuple
 
 BLOB_LEN = 1024
 
