@@ -376,6 +376,8 @@ class LogitechDriver(Driver):
             return None
         live = self.hp.dpi_index()
         seen = self.hp.wait_event(hidpp.ONBOARD_PROFILES, 1, should_stop, seconds)
+        if seen is None and should_stop():
+            return None             # cut short: the index read before listening may be stale
         index = seen[0] if seen is not None else live
         return index if index < N_SLOTS else None
 

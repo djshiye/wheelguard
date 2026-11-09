@@ -77,7 +77,7 @@ is this mouse**, so this is the least certain part of the Razer support.
 
 No DPI-change event is documented for this mouse, so while the DPI popup is on Wheelguard reads the
 stages (04:86) every 1.5 seconds and announces a new active stage. If the mouse can't be reached
-(asleep), it waits 5, 15, then 60 seconds before trying again.
+(asleep), it waits 5, 10, then 20 seconds before trying again.
 
 ## What Wheelguard stores
 

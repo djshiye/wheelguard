@@ -164,10 +164,38 @@ class RazerButtonSessionTests(TmpCase):
         old = bytearray(snap.blob[:razer.BLOB_LEN_V1])
         old[1] = 1
         (Path(self.tmp) / f"razer-deathadder-v4-pro-{snap.mouse_fw}-20250101-000000.bin").write_bytes(bytes(old))
-        s.apply({"idle_min": 10, "button4": razer.MIDDLE})
+        res = s.apply({"idle_min": 10, "button4": razer.MIDDLE})
+        self.assertIsNotNone(res.backup_created)          # the old original can't undo buttons: one more backup
         s.restore()
-        self.assertEqual(dev.idle, 300)                               # from the backup
-        self.assertEqual(dev.buttons[5][:3], bytes((0x01, 0x01, 0x03)))   # the backup has no buttons: kept
+        self.assertEqual(dev.idle, 300)                                   # from the old original
+        self.assertEqual(dev.buttons[5][:3], bytes((0x01, 0x01, 0x05)))   # from the new backup
+        res = s.apply({"button3": razer.MIDDLE})
+        self.assertIsNone(res.backup_created)                             # only once
+
+    def test_restore_sends_only_writable_assignments(self):
+        s, dev = make_session("razer", self.tmp)
+        dev.buttons[5] = bytes((0x01, 0x01, 0x05, 0x00, 0x07, 0, 0))    # forward, with a stray byte
+        s.apply({"button4": razer.MIDDLE})
+        s.restore()
+        self.assertEqual(dev.buttons[5][:3], bytes((0x01, 0x01, 0x05)))
+
+    def test_a_dongle_timeout_on_buttons_is_a_read_error_not_no_buttons(self):
+        s, dev = make_session("razer", self.tmp)
+        real = dev.set_feature
+
+        def flaky(data):
+            real(data)
+            if data[7:9] == bytes((0x02, 0x8C)):
+                r = bytearray(dev._reply)
+                r[1] = 0x04                       # timeout: the mouse didn't answer through the dongle
+                c = 0
+                for x in r[3:89]:
+                    c ^= x
+                r[89] = c
+                dev._reply = bytes(r)
+        dev.set_feature = flaky
+        with self.assertRaises(session.HwError):
+            s.read()
 
 
 # ---------------------------------------------------------------- DPI stage watch

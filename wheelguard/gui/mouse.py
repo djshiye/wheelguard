@@ -25,9 +25,9 @@ from ..hw.session import (ApplyResult, Battery, HwError, MouseSession, Snapshot,
                           WriteFailed, CODECS, codec_for)
 
 BUSY_STATES = ("reading", "applying")
-WATCH_S = 3.0               # one listening stretch for the mice that report their DPI button
+WATCH_S = 10.0              # one listening stretch for the mice that report their DPI button (operations cut it short)
 POLL_S = 1.5                # how often the stage is read on the mouse that doesn't
-WATCH_RETRY_S = (5, 15, 60)     # pause after the mouse couldn't be reached, growing
+WATCH_RETRY_S = (5, 10, 20)     # pause after the mouse couldn't be reached, growing
 REFRESH_MIN_S = 20          # at most one tray-triggered refresh per this many seconds
 BATTERY_EVERY_MS = 5 * 60 * 1000
 

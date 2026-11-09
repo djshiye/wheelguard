@@ -277,7 +277,8 @@ class MouseSession:
                 if not drv.plan_writes(fresh, new):
                     return ApplyResult(self._snapshot(drv, snap, fresh, None), [], None, unchanged=True)
                 created = None
-                if self.original_backup(snap.mouse_fw, drv) is None:
+                saved = [p.read_bytes() for p in self.backups(snap.mouse_fw, drv)]
+                if drv.backup_needed(saved, fresh):
                     progress(0.4, "Saving a backup of the mouse's settings…")
                     try:
                         created = str(self._save_backup(fresh, snap.mouse_fw, drv))
@@ -295,10 +296,10 @@ class MouseSession:
             try:
                 snap = drv.identify(progress, 0.0, 0.25)
                 fresh = self._writable_fresh(drv, snap, progress, 0.3)     # first: the backup name can depend on it
-                path = self.original_backup(snap.mouse_fw, drv)
-                if path is None:
+                saved = [p.read_bytes() for p in self.backups(snap.mouse_fw, drv)]
+                if not saved:
                     raise HwError("There is no backup to restore for this firmware.", snap)
-                backup = path.read_bytes()
+                backup = drv.restore_blob(saved)
                 if drv.codec.blob_problems(backup):
                     raise HwError("The backup file doesn't look like a settings block.", snap)
                 codec = drv.codec

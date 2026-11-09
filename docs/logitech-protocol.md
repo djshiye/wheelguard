@@ -53,7 +53,7 @@ the memory model is 1 and the profile format is one libratbag parses (1-5).
 
 ## DPI popup
 
-While the DPI popup is on, Wheelguard keeps the node open in short stretches (3 s, given up at once
+While the DPI popup is on, Wheelguard keeps the node open in short stretches (10 s, given up at once
 when the page needs the mouse), reads the current DPI index once (function 0xB) and listens for the
 onboard-profiles notification with function 1 and software id 0 (`11 xx <index> 10 <dpi index> ...`),
 which the mouse sends when its own DPI button changes the stage. This is what Solaar handles in

@@ -88,6 +88,14 @@ class Driver:
     def backup_ok(self, data: bytes) -> bool:
         return not self.blob_problems(data)
 
+    def backup_needed(self, saved: List[bytes], fresh: bytes) -> bool:
+        """Save a backup before this write? `saved` = the valid backups, oldest (the original) first."""
+        return not saved
+
+    def restore_blob(self, saved: List[bytes]) -> bytes:
+        """What "Restore original" goes back to, from the valid backups, oldest first."""
+        return saved[0]
+
     # ---- errors
     def unreachable(self, snap: Optional[Snapshot], e: Exception) -> HwError:
         if isinstance(e, LinkError) and e.errno == 19:       # ENODEV: unplugged mid-operation

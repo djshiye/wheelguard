@@ -505,8 +505,23 @@ def merge_backup(fresh: bytes, backup: bytes) -> bytes:
     if buttons_known(backup) and buttons_known(fresh):
         for k in range(N_BUTTONS):
             o = BTN_BASE + BTN_STRIDE * k
-            if _button(backup, k):
-                out[o:o + BTN_STRIDE] = backup[o:o + BTN_STRIDE]
+            code = _button(backup, k)
+            if code and code != _button(fresh, k):
+                out[o:o + BTN_STRIDE] = _ASSIGNMENT[code]      # exactly what a write may carry
+    return bytes(out)
+
+
+def restore_record(saved: List[bytes]) -> bytes:
+    """The original backup; when it has no buttons (taken by Wheelguard 1.6, or while the mouse didn't
+    report them), the buttons of the oldest backup that has them."""
+    first = saved[0]
+    if buttons_known(first):
+        return first
+    with_buttons = next((b for b in saved if buttons_known(b)), None)
+    if with_buttons is None:
+        return first
+    out = bytearray(with_buttons)
+    out[2:28] = first[2:28]
     return bytes(out)
 
 
@@ -597,16 +612,27 @@ class RazerDriver(Driver):
         for size in sizes:
             try:
                 first = self.rz.button(BUTTON_IDS[0], size)
-            except StatusError:
+            except StatusError as e:
+                if e.status not in (ST_FAILURE, ST_UNSUPPORTED, 0):
+                    raise           # timeout, asleep: a read error, not "this mouse has no button commands"
                 continue
             try:
                 rest = [self.rz.button(bid, size) for bid in BUTTON_IDS[1:]]
-            except StatusError:
+            except StatusError as e:
+                if e.status not in (ST_FAILURE, ST_UNSUPPORTED, 0):
+                    raise
                 break
             self.button_size = size
             return [first] + rest
         self.button_size = 0
         return None
+
+    def backup_needed(self, saved: List[bytes], fresh: bytes) -> bool:
+        # An original without buttons (Wheelguard 1.6) can't undo a button change: keep one that has them.
+        return not saved or (buttons_known(fresh) and not any(buttons_known(b) for b in saved))
+
+    def restore_blob(self, saved: List[bytes]) -> bytes:
+        return restore_record(saved)
 
     def write(self, op: Op) -> None:
         if not self.write_enabled:
