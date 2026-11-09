@@ -277,13 +277,13 @@ class MouseSession:
             drv = self._open()
             try:
                 snap = drv.identify(progress, 0.0, 0.25)
+                fresh = self._writable_fresh(drv, snap, progress, 0.3)     # first: the backup name can depend on it
                 path = self.original_backup(snap.mouse_fw, drv)
                 if path is None:
                     raise HwError("There is no backup to restore for this firmware.", snap)
                 backup = path.read_bytes()
                 if drv.codec.blob_problems(backup):
                     raise HwError("The backup file doesn't look like a settings block.", snap)
-                fresh = self._writable_fresh(drv, snap, progress, 0.3)
                 codec = drv.codec
                 try:
                     new = codec.merge_backup(fresh, backup)

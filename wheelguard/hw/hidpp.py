@@ -4,7 +4,8 @@ Requests are long reports (0x11, 20 bytes) written to the mouse's HID++ hidraw n
 matched by device index, feature index, function and software id, and everything else on the node
 (pointer reports, notifications) is skipped. Device index 0xFF: on the receiver's per-mouse node made
 by hid-logitech-dj and on the wired mouse the kernel routes it to the right device, the way libratbag
-talks to this mouse.
+talks to this mouse. Replies are not matched on the device index: hid-logitech-dj rewrites it to the
+mouse's receiver slot (1), and libratbag doesn't check it either.
 
 Every request goes through HidppDevice.request(), the single choke point. It enforces an allow-list
 of (feature, function) pairs, the argument rules of each, and the onboard-memory write protocol
@@ -156,7 +157,7 @@ class HidppDevice:
             if r is None:
                 raise LinkError(errno.ETIMEDOUT, "HID++ reply")
             r = bytes(r)
-            if len(r) < 7 or r[0] not in (REPORT_SHORT, REPORT_LONG) or r[1] != DEVICE_INDEX:
+            if len(r) < 7 or r[0] not in (REPORT_SHORT, REPORT_LONG):
                 continue
             if r[2] == ERR_20 and r[3] == idx and r[4] == fsw:
                 self._writing = None
@@ -198,7 +199,7 @@ class HidppDevice:
         """(percent, charging or None), or None when the mouse reports no battery feature."""
         if self.has(UNIFIED_BATTERY):
             r = self.request(UNIFIED_BATTERY, 0x1)
-            return min(100, r[0]), r[2] in (1, 2)
+            return min(100, r[0]), r[2] in (1, 2, 4)
         if self.has(BATTERY_STATUS):
             r = self.request(BATTERY_STATUS, 0x0)
             return min(100, r[0]), r[2] in (1, 2, 4)

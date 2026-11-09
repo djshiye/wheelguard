@@ -226,11 +226,12 @@ def describe_changes(old: Dict[str, object], new: Dict[str, object]) -> List[str
 
 
 def directory(sector_size: int, profiles: int = 1) -> bytes:
-    """A profile directory enabling user profiles 1..profiles (libratbag's write_dict)."""
+    """A profile directory listing user profiles 1..profiles with only profile 1 enabled, like
+    libratbag's write_dict after it copied the factory profile to profile 1."""
     d = bytearray(b"\xff" * sector_size)
     o = 0
-    for i in range(profiles):
-        d[o:o + 4] = bytes((0x00, i + 1, 0x01, 0x00))
+    for i in range(max(1, min(profiles, 15))):
+        d[o:o + 4] = bytes((0x00, i + 1, 0x01 if i == 0 else 0x00, 0x00))
         o += 4
     d[o:o + 4] = b"\xff\xff\x00\x00"
     return with_crc(bytes(d))
@@ -282,6 +283,7 @@ class LogitechDriver(Driver):
         self.dir_valid = False
         self.current = 0            # sector of the profile the mouse uses
         self.problem = ""           # why writes are refused although the mouse is supported
+        self.profile_count = 1
 
     @property
     def write_enabled(self) -> bool:
@@ -301,10 +303,10 @@ class LogitechDriver(Driver):
             info = self.hp.onboard_info()
         except self.link_errors as e:
             raise self.unreachable(snap, e) from e
-        memory_model, profile_format, _macro, count, _oob, _buttons, sectors = info[:7]
+        memory_model, profile_format, macro_format, count, _oob, _buttons, sectors = info[:7]
         size = (info[7] << 8) | info[8]
-        self.sector_count, self.sector_size = sectors, size
-        if memory_model != 1 or profile_format not in KNOWN_FORMATS or not MIN_SECTOR <= size <= MAX_SECTOR \
+        self.sector_count, self.sector_size, self.profile_count = sectors, size, count
+        if memory_model != 1 or macro_format != 1 or profile_format not in KNOWN_FORMATS or not MIN_SECTOR <= size <= MAX_SECTOR \
                 or not 1 <= count <= 15:
             self.problem = "the mouse uses an onboard memory layout this app doesn't know"
         self.hp.sector_size = size
@@ -326,8 +328,12 @@ class LogitechDriver(Driver):
         if not size:
             raise StatusError(hidpp.ONBOARD_PROFILES, 0)
         self.mode = hp.onboard_mode()
-        d = hp.read_sector(0x0000, size)
+        try:
+            d = hp.read_sector(0x0000, size)
+        except StatusError:
+            d = b""                        # some firmware refuses to read a directory never written
         self.dir_valid = sector_crc_ok(d) and bool(directory_entries(d))
+        enabled = {a for a, on in directory_entries(d) if on} if self.dir_valid else set()
         cur = hp.current_profile()
         if cur == 0:                       # some firmware reports the profile as a 0-based number
             cur = 1
@@ -348,6 +354,9 @@ class LogitechDriver(Driver):
                             "the mouse to edit it here")
         elif not cur & ROM_BASE and not 1 <= cur < self.sector_count:
             self.problem = f"the active profile is in an unexpected place (sector {cur:#06x})"
+        elif not cur & ROM_BASE and cur not in enabled:
+            self.problem = (f"the mouse reports profile {cur} as active, but it isn't in its profile list, "
+                            "so Wheelguard can't be sure which profile to edit")
         return sector + bytes((live,))
 
     @property
@@ -365,13 +374,23 @@ class LogitechDriver(Driver):
         for op in plan:
             if op.kind == "sector" and self.factory:
                 out += [Op("sector", "profile", sector=1, data=op.data),
-                        Op("directory", "profile list", sector=0, data=directory(self.sector_size)),
+                        Op("directory", "profile list", sector=0,
+                           data=directory(self.sector_size, self.profile_count)),
                         Op("select", "profile selection", sector=1)]
             elif op.kind == "sector":
                 out.append(Op("sector", "profile", sector=self.current, data=op.data))
             else:
                 out.append(op)
+        # Writing the profile in use can make the firmware reload it and fall back to its default
+        # stage; libratbag sets the current stage again afterwards, so do the same.
+        live, n = new[-1], decode(new)["stage_count"]
+        if any(op.kind == "sector" for op in out) and not any(op.kind == "dpi_index" for op in out) and live < n:
+            out.append(Op("dpi_index", "DPI stage", index=live))
         return out
+
+    def backup_prefix(self, fw: str) -> str:
+        # The profile sector is part of the name: a backup only ever goes back to the profile it came from.
+        return f"{super().backup_prefix(fw)}-p{self.current:04x}"
 
     def write(self, op: Op) -> None:
         hp = self.hp

@@ -230,8 +230,7 @@ class FakeLogitech:
             0x0101: superlight_profile(size, (800, 1600, 3200, 0, 0), 1, 0),
         }
         if mode == "logitech-factory":
-            self.sectors[0x0000] = b"\xff" * size
-            self.current = 0x0101
+            self.current = 0x0101        # no directory yet: reading sector 0 fails until one is written
         else:
             d = bytearray(b"\xff" * size)
             d[0:8] = bytes((0x00, 0x01, 0x01, 0x00, 0xFF, 0xFF, 0x00, 0x00))
@@ -259,6 +258,8 @@ class FakeLogitech:
         req = bytes(data)
         assert len(req) == 20 and req[0] == 0x11 and req[1] == 0xFF, "HID++ long reports to index 0xFF only"
         self.sent.append(req)
+        if not self.wired:      # hid-logitech-dj rewrites the index to the mouse's receiver slot
+            req = req[:1] + b"\x01" + req[2:]
         if self.mode == "logitech-asleep":
             self._out.append(bytes((0x10, 0xFF, 0x8F, req[2], req[3], 0x09, 0x00)))
             return

@@ -241,7 +241,7 @@ class LogitechSessionTests(TmpCase):
         s, dev = make_session("logitech", self.tmp)
         before = dict(dev.sectors)
         res = s.apply({"dpi_x2": 2000, "dpi_y2": 2000, "polling": 2})
-        self.assertEqual(res.written, ["profile"])
+        self.assertEqual(res.written, ["profile", "DPI stage"])
         self.assertEqual(dev.writes, [1])
         self.assertEqual(dev.sectors[0], before[0])
         new = dev.sectors[1]
@@ -253,7 +253,7 @@ class LogitechSessionTests(TmpCase):
         s, dev = make_session("logitech", self.tmp)
         dev.onboard = 2
         res = s.apply({"polling": 8})
-        self.assertEqual(res.written, ["onboard mode", "profile"])
+        self.assertEqual(res.written, ["onboard mode", "profile", "DPI stage"])
         self.assertEqual(dev.onboard, 1)
 
     def test_factory_mouse_gets_a_profile(self):
@@ -282,6 +282,29 @@ class LogitechSessionTests(TmpCase):
         s.apply({"dpi_x0": 1000, "dpi_y0": 1000})
         s.restore()
         self.assertEqual(dev.sectors[1], original)
+
+    def test_wireless_replies_with_receiver_index_are_accepted(self):
+        s, dev = make_session("logitech", self.tmp)      # the wireless fake answers on index 0x01
+        self.assertFalse(dev.wired)
+        self.assertTrue(s.read().writable)
+        s.apply({"dpi_x1": 1700, "dpi_y1": 1700})
+        self.assertEqual(logitech.decode(dev.sectors[1] + b"\x00")["dpi_x1"], 1700)
+
+    def test_profile_missing_from_directory_is_read_only(self):
+        s, dev = make_session("logitech", self.tmp)
+        dev.sectors[2] = dev.sectors[1]
+        dev.current = 2                                   # sector 2 exists but isn't listed
+        snap = s.read()
+        self.assertFalse(snap.writable)
+        self.assertIn("profile list", snap.problem)
+        with self.assertRaises(session.HwError):
+            s.apply({"polling": 8})
+        self.assertEqual(dev.writes, [])
+
+    def test_backup_name_includes_the_profile(self):
+        s, _dev = make_session("logitech", self.tmp)
+        res = s.apply({"polling": 8})
+        self.assertIn("-p0001-", Path(res.backup_created).name)
 
     def test_asleep(self):
         s, _dev = make_session("logitech-asleep", self.tmp)

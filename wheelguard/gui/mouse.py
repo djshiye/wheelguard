@@ -151,7 +151,8 @@ class MouseController(QObject):
             self._baseline = self._codec.empty()
             self._known = True
         self._wired = snap.wired
-        self._charging = snap.charging
+        if snap.battery is not None:
+            self._charging = snap.charging
         self._dongle_fw, self._mouse_fw, self._pid = snap.dongle_fw, snap.mouse_fw, snap.mouse_pid
         if snap.battery is not None:
             self._battery = snap.battery
