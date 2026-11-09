@@ -24,7 +24,7 @@ WgCard {
         Rectangle {
             visible: root.ready
             Layout.preferredWidth: confText.implicitWidth + 16
-            Layout.preferredHeight: 22
+            Layout.preferredHeight: Theme.px(22)
             radius: 11
             color: Theme.alpha(autoTune.confidence === "high" ? Theme.good : (autoTune.confidence === "medium" ? Theme.accentB : Theme.amber), 0.16)
             Text {
@@ -81,8 +81,8 @@ WgCard {
             anchors.margins: 14
             spacing: 14
             Rectangle {
-                Layout.preferredWidth: 40
-                Layout.preferredHeight: 40
+                Layout.preferredWidth: Theme.px(40)
+                Layout.preferredHeight: Theme.px(40)
                 radius: 12
                 color: Theme.alpha(Theme.accentB, 0.16)
                 WgIcon { anchors.centerIn: parent; name: "sparkle"; size: 20; color: Theme.accentB }

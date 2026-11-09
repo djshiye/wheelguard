@@ -33,6 +33,21 @@ Item {
     property int hotButton: -1         // button row under the pointer or focus (lights it on the drawing)
     function setHot(i, on) { if (on) hotButton = i; else if (hotButton === i) hotButton = -1 }
     property bool namingSetup: false
+    property string confirmDelete: ""       // the setup whose Delete is waiting for a second click
+    property bool confirmReplace: false     // a setup with the typed name exists: waiting to replace it
+    function hasSetup(name) {
+        const n = name.trim().toLowerCase()
+        for (var i = 0; i < mouse.setups.length; i++)
+            if (mouse.setups[i].name.toLowerCase() === n)
+                return true
+        return false
+    }
+    function saveNamedSetup(name) {
+        setupError = mouse.saveSetup(name)
+        confirmReplace = false
+        if (setupError === "")
+            namingSetup = false
+    }
     property string setupError: ""
 
     function isEdited(key) { return edited.indexOf(key) >= 0 }
@@ -67,7 +82,7 @@ Item {
         return f === mouse.gxSpeed ? 1 : (f === mouse.gxSafe ? 2 : 0)
     }
 
-    onShownChanged: if (!shown) { confirmRestore = false; namingSetup = false }
+    onShownChanged: if (!shown) { confirmRestore = false; namingSetup = false; confirmDelete = ""; confirmReplace = false }
 
     // ------------------------------------------------------------------ reusable bits
     component Heading: RowLayout {
@@ -574,7 +589,7 @@ Item {
                     id: sr
                     required property var modelData
                     Layout.fillWidth: true
-                    implicitHeight: 56
+                    implicitHeight: Theme.px(56)
                     radius: Theme.radiusSm
                     color: sr.modelData.active ? Theme.alpha(Theme.accentB, Theme.dark ? 0.08 : 0.10) : Theme.inset
                     border.width: 1
@@ -599,7 +614,7 @@ Item {
                                 Rectangle {
                                     visible: sr.modelData.active
                                     Layout.preferredWidth: inUseText.implicitWidth + 14
-                                    Layout.preferredHeight: 18
+                                    Layout.preferredHeight: Theme.px(18)
                                     radius: 9
                                     color: Theme.alpha(Theme.accentB, 0.18)
                                     Text {
@@ -621,15 +636,37 @@ Item {
                             }
                         }
                         WgButton {
+                            visible: root.confirmDelete !== sr.modelData.name
                             text: "Apply"
                             iconName: "check"
                             enabled: root.editable && !sr.modelData.active
                             onClicked: mouse.applySetup(sr.modelData.name)
                         }
                         WgButton {
+                            visible: root.confirmDelete !== sr.modelData.name
                             variant: "ghost"
+                            text: "Delete…"
+                            onClicked: root.confirmDelete = sr.modelData.name
+                        }
+                        Text {
+                            visible: root.confirmDelete === sr.modelData.name
+                            text: "Delete this setup?"
+                            font.pixelSize: Theme.fsBody - 1
+                            color: Theme.textMuted
+                        }
+                        WgButton {
+                            visible: root.confirmDelete === sr.modelData.name
+                            text: "Cancel"
+                            onClicked: root.confirmDelete = ""
+                        }
+                        WgButton {
+                            visible: root.confirmDelete === sr.modelData.name
+                            variant: "primary"
                             text: "Delete"
-                            onClicked: root.setupError = mouse.deleteSetup(sr.modelData.name)
+                            onClicked: {
+                                root.confirmDelete = ""
+                                root.setupError = mouse.deleteSetup(sr.modelData.name)
+                            }
                         }
                     }
                 }
@@ -645,21 +682,37 @@ Item {
                     placeholder: "Name, for example Gaming"
                     maximumLength: 30
                     onAccepted: saveButton.clicked()
+                    onTextChanged: root.confirmReplace = false
                     Keys.onEscapePressed: root.namingSetup = false
-                    onVisibleChanged: if (visible) { text = ""; forceActiveFocus() }
+                    onVisibleChanged: if (visible) { text = ""; root.confirmReplace = false; forceActiveFocus() }
                 }
                 WgButton { text: "Cancel"; onClicked: root.namingSetup = false }
                 WgButton {
                     id: saveButton
                     variant: "primary"
                     iconName: "save"
-                    text: "Save"
+                    text: root.confirmReplace ? "Replace" : "Save"
                     enabled: setupName.text.trim() !== ""
                     onClicked: {
-                        root.setupError = mouse.saveSetup(setupName.text)
-                        if (root.setupError === "")
-                            root.namingSetup = false
+                        if (!root.confirmReplace && root.hasSetup(setupName.text)) {
+                            root.confirmReplace = true          // same name: ask before overwriting it
+                            return
+                        }
+                        root.saveNamedSetup(setupName.text)
                     }
+                }
+            }
+            RowLayout {
+                visible: root.namingSetup && root.confirmReplace
+                Layout.fillWidth: true
+                spacing: 8
+                WgIcon { name: "alert"; size: 16; color: Theme.amber }
+                Text {
+                    Layout.fillWidth: true
+                    text: "A setup named \"" + setupName.text.trim() + "\" already exists. Replace it with the settings you see now?"
+                    font.pixelSize: Theme.fsBody - 1
+                    color: Theme.textMuted
+                    wrapMode: Text.WordWrap
                 }
             }
             RowLayout {
@@ -679,7 +732,7 @@ Item {
                 visible: !root.namingSetup
                 text: "Save as setup…"
                 iconName: "plus"
-                onClicked: { root.setupError = ""; root.namingSetup = true }
+                onClicked: { root.setupError = ""; root.confirmDelete = ""; root.namingSetup = true }
             }
         }
 

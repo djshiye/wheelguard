@@ -203,7 +203,7 @@ WgScrollPage {
                         visible: opacity > 0
                         opacity: daemon.clickLockActive ? 1 : 0
                         Behavior on opacity { NumberAnimation { duration: Theme.normal } }
-                        Layout.preferredHeight: 22
+                        Layout.preferredHeight: Theme.px(22)
                         Layout.preferredWidth: liveRow.implicitWidth + 18
                         radius: 11
                         color: Theme.alpha(Theme.good, 0.16)
@@ -417,7 +417,7 @@ WgScrollPage {
                 }
                 Text {
                     Layout.fillWidth: true
-                    text: "Worn switches can send two clicks for one press, which turns a single click into a double-click or breaks a drag. Wheelguard can ignore a second click that arrives too soon after the first. It works for the left, right and middle buttons."
+                    text: "Worn switches can let go for a moment mid-click, which turns a single click into a double-click or breaks a drag. Wheelguard waits that long before it lets a button go: if the button goes down again in that time, it was a bounce and the click or drag simply carries on. It works for the left, right and middle buttons."
                     font.pixelSize: Theme.fsBody - 1
                     color: Theme.textMuted
                     wrapMode: Text.WordWrap
@@ -446,7 +446,7 @@ WgScrollPage {
                 Layout.topMargin: 4
                 Text {
                     Layout.fillWidth: true
-                    text: "Ignore a second click within"
+                    text: "Ignore a bounce within"
                     font.pixelSize: Theme.fsBody
                     font.weight: Font.DemiBold
                     color: Theme.text
@@ -460,7 +460,7 @@ WgScrollPage {
             }
             WgSlider {
                 Layout.fillWidth: true
-                Accessible.name: "Ignore a second click within, in milliseconds"
+                Accessible.name: "Ignore a bounce within, in milliseconds"
                 from: 10
                 to: 150
                 stepSize: 5
@@ -479,7 +479,7 @@ WgScrollPage {
             }
             Text {
                 Layout.fillWidth: true
-                text: "Start around 40 ms. Raise it only if stray double-clicks continue; too high and a genuinely fast double-click gets swallowed."
+                text: "Start around 40 ms. Raise it only if stray double-clicks continue. Letting go of a button is delayed by up to this long, and too high a value merges a genuinely fast double-click into one."
                 font.pixelSize: Theme.fsSmall
                 color: Theme.textFaint
                 wrapMode: Text.WordWrap
@@ -520,8 +520,8 @@ WgScrollPage {
         SequentialAnimation {
             id: flash
             NumberAnimation { target: dcCard; property: "lit"; to: 1; duration: Theme.fast; easing.type: Easing.OutCubic }
-            PauseAnimation { duration: 350 }
-            NumberAnimation { target: dcCard; property: "lit"; to: 0; duration: 520; easing.type: Easing.InOutQuad }
+            PauseAnimation { duration: Theme.motion ? 350 : 0 }
+            NumberAnimation { target: dcCard; property: "lit"; to: 0; duration: Theme.motion ? 520 : 0; easing.type: Easing.InOutQuad }
         }
         Timer {
             id: reset
@@ -566,7 +566,7 @@ WgScrollPage {
         Rectangle {
             id: target
             Layout.fillWidth: true
-            Layout.preferredHeight: 76
+            Layout.preferredHeight: Theme.px(76)
             radius: Theme.radius - 2
             color: Theme.inset
             border.width: 1
