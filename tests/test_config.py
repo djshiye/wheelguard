@@ -87,6 +87,17 @@ class LoadSave(unittest.TestCase):
         self.path.write_text("not json")
         with self.assertRaises(ValueError):
             C.load(self.path)
+        # Both used to escape as OverflowError / RecursionError and stop the daemon from starting.
+        self.path.write_text('{"lock_ms": 1' + "0" * 400 + '}')
+        with self.assertRaises(ValueError):
+            C.load(self.path)
+        self.path.write_text("[" * 100000)
+        with self.assertRaises(ValueError):
+            C.load(self.path)
+
+    def test_huge_integer_is_rejected_cleanly(self):
+        with self.assertRaisesRegex(ValueError, "lock_ms must be a number"):
+            C.normalize({"lock_ms": 10 ** 400})
 
 
 if __name__ == "__main__":

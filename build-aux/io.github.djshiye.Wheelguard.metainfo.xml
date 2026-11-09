@@ -20,6 +20,17 @@
   <developer id="io.github.djshiye"><name>djshiye</name></developer>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.5.1" date="2026-11-09">
+      <description>
+        <ul>
+          <li>Fixed: a click at the moment Wheelguard took over the mouse could leave the button stuck</li>
+          <li>Fixed: clicks and scrolls made while Wheelguard was starting could happen twice</li>
+          <li>Fixed: a broken config file or bad request could stop the scroll filter</li>
+          <li>Fixed: mouse settings could be saved only partly (Endgame sleep timer) or to an empty DPI stage (Logitech)</li>
+          <li>Fixed: the panel popup could show controls after the app had closed</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.5.0" date="2026-11-09">
       <description>
         <ul>

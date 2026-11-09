@@ -242,8 +242,42 @@ def wait_for_buttons_up(dev, ctl, server):
             log.info("waiting for the mouse buttons to be released before taking over the mouse")
             logged = True
         if service(ctl, server, POLL_S, (dev.fd,)):
-            for _ in dev.read():           # not grabbed yet: the desktop gets these events itself
-                pass
+            drain(dev)                     # not grabbed yet: the desktop gets these events itself
+
+
+def drain(dev):
+    """Read and forget every event queued for us so far.
+
+    Until the grab the desktop reads the mouse too, so it has had these already. Replaying them
+    through the virtual mouse after the grab would deliver them twice: a doubled click, scroll tick or
+    cursor jump. Events pile up from the moment the mouse is opened (before the virtual mouse exists).
+    """
+    try:
+        while True:
+            count = 0
+            for _ in dev.read():
+                count += 1
+            if not count:
+                return
+    except BlockingIOError:         # nothing (left) to read
+        pass
+
+
+def grab_when_buttons_up(dev, ctl, server):
+    """Grab the mouse at a moment when no button is held (see wait_for_buttons_up).
+
+    A button can go down between the last check and the grab. The desktop saw that press, and the
+    grab would send the release only to us: the stuck click again. So check once more after the grab
+    and, if a button is down, let go of the mouse and wait for the release first.
+    """
+    while True:
+        wait_for_buttons_up(dev, ctl, server)
+        drain(dev)
+        dev.grab()
+        if not buttons_down(dev):
+            return
+        log.info("a mouse button went down while taking over the mouse; waiting for its release")
+        dev.ungrab()
 
 
 def run_session(dev, ctl, server, tick_log):
@@ -263,8 +297,7 @@ def run_session(dev, ctl, server, tick_log):
             out.update(frame)
 
     try:
-        wait_for_buttons_up(dev, ctl, server)
-        dev.grab()
+        grab_when_buttons_up(dev, ctl, server)
         grabbed = True
         cfg = ctl.cfg
         log.info("filtering %s (%s), lock=%gms pre=%gms hold=%gms, click-lock %s", dev.name, dev.path,
@@ -273,7 +306,7 @@ def run_session(dev, ctl, server, tick_log):
         ctl.reset_filter()
         ctl.set_device(True, dev.name, None)
         reader = FrameReader(dev.active_keys)
-        reader.state.down = set(dev.active_keys())   # normally empty (see wait_for_buttons_up)
+        reader.state.down = set(dev.active_keys())   # normally empty (see grab_when_buttons_up)
         while True:
             timeout = None
             now = time.time()

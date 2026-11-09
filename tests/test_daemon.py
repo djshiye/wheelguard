@@ -118,6 +118,64 @@ class GrabWhileHeld(unittest.TestCase):
         self.assertEqual(daemon.buttons_down(dev), [])
 
 
+class GrabRace(unittest.TestCase):
+    def test_press_right_at_the_grab_lets_go_and_waits(self):
+        # The button went down after the last check but before the grab: the desktop saw that press,
+        # so the grab must not keep the mouse until the release has reached the desktop.
+        keys = iter([[], [e.BTN_LEFT], [e.BTN_LEFT], [], []])
+        calls = []
+
+        class Dev:
+            fd = 99
+
+            def active_keys(self):
+                return next(keys)
+
+            def read(self):
+                raise BlockingIOError(errno.EAGAIN, "empty")
+
+            def grab(self):
+                calls.append("grab")
+
+            def ungrab(self):
+                calls.append("ungrab")
+
+        with mock.patch.object(daemon, "service", return_value=[]):
+            daemon.grab_when_buttons_up(Dev(), ctl=None, server=None)
+        self.assertEqual(calls, ["grab", "ungrab", "grab"])
+
+    def test_events_queued_before_the_grab_are_not_replayed(self):
+        # The desktop already had them; sending them again through the virtual mouse would double a
+        # click, a scroll tick or a cursor jump.
+        dev = FakeDevice(held_polls=0)
+        queued = [[Event(*LEFT_DOWN), Event(*SYN), Event(*LEFT_UP), Event(*SYN)]]
+        after = [[Event(*MOVE), Event(*SYN)]]
+
+        def read():
+            if queued:
+                return queued.pop(0)
+            if dev.grabbed and after:
+                return after.pop(0)
+            if dev.grabbed:
+                raise OSError(errno.ENODEV, "No such device")
+            raise BlockingIOError(errno.EAGAIN, "empty")
+        dev.read = read
+        dev.name, dev.path = "fake", "/dev/input/event9"
+        dev.ungrab = dev.close = lambda: None
+        ui = FakeUInput()
+        ctl = mock.MagicMock()
+        ctl.deadline = ctl.clicklock_deadline = None
+        ctl.cfg = {"lock_ms": 300, "pre_ms": 60, "hold_ms": 25, "clicklock": False,
+                   "clicklock_ms": 5000, "clicklock_mode": "repeat"}
+        ctl.handle_frame.side_effect = lambda frame, t, write: write([frame]) or []
+        ctl.handle_flush.return_value = []
+        with mock.patch.object(daemon.UInput, "from_device", return_value=ui), \
+                mock.patch.object(daemon, "service", return_value=[dev.fd]):
+            with self.assertRaises(OSError):
+                daemon.run_session(dev, ctl, server=None, tick_log=lambda d: None)
+        self.assertEqual(ui.log, [MOVE, "syn", "close"])
+
+
 class Event:
     def __init__(self, etype, code, value):
         self.type, self.code, self.value = etype, code, value
@@ -146,6 +204,8 @@ class SessionEnd(unittest.TestCase):
         batches = [[Event(*LEFT_DOWN), Event(*SYN)]]
 
         def read():
+            if not dev.grabbed:
+                raise BlockingIOError(errno.EAGAIN, "nothing queued yet")
             if batches:
                 return batches.pop(0)
             raise OSError(errno.ENODEV, "No such device")    # unplugged with the button down

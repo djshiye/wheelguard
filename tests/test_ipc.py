@@ -152,6 +152,32 @@ class Commands(Harness):
         self.assertEqual(self.recv(c)[0]["type"], "status")
 
 
+class Robustness(Harness):
+    """Nothing a client sends may crash the daemon: a crash also drops the mouse grab mid-use."""
+
+    def test_huge_number_is_an_error_not_a_crash(self):
+        c = self.connect()
+        (reply,) = self.rpc(c, '{"cmd":"set","config":{"lock_ms":1' + "0" * 400 + '}}')
+        self.assertEqual(reply["type"], "error")
+        self.assertIn("lock_ms", reply["message"])
+        (st,) = self.rpc(c, {"cmd": "status"})
+        self.assertEqual(st["config"]["lock_ms"], 300)
+
+    def test_deeply_nested_json_is_an_error_not_a_crash(self):
+        c = self.connect()
+        (reply,) = self.rpc(c, "[" * 4000)     # fits one read; well past the recursion limit
+        self.assertEqual(reply, {"type": "error", "message": "invalid JSON"})
+
+    def test_unexpected_exception_is_reported(self):
+        c = self.connect()
+        self.ctl.reset_stats = lambda: 1 / 0
+        with self.assertLogs("wheelguard", "ERROR"):
+            (reply,) = self.rpc(c, {"cmd": "reset_stats"})
+        self.assertEqual(reply, {"type": "error", "message": "internal error"})
+        (st,) = self.rpc(c, {"cmd": "status"})      # still answering
+        self.assertEqual(st["type"], "status")
+
+
 class Clients(Harness):
     def test_disconnect_removes_client(self):
         c = self.connect()

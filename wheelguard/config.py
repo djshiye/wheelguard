@@ -35,7 +35,11 @@ CLICKLOCK_KEYS = ("clicklock", "clicklock_ms", "clicklock_mode", "clicklock_rate
 
 
 def _number(key, v):
-    if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
+    try:
+        ok = not isinstance(v, bool) and isinstance(v, (int, float)) and math.isfinite(v)
+    except OverflowError:           # an integer too big for a float, e.g. 1 followed by 400 zeros
+        ok = False
+    if not ok:
         raise ValueError(f"{key} must be a number")
     return int(v) if float(v).is_integer() else float(v)
 
@@ -103,7 +107,7 @@ def load(path=None):
         return normalize({})
     try:
         return normalize(json.loads(text))
-    except (ValueError, json.JSONDecodeError) as ex:
+    except (ValueError, RecursionError) as ex:   # RecursionError: absurdly deep nesting
         raise ValueError(f"{path}: {ex}") from None
 
 

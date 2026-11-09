@@ -2,6 +2,7 @@
 import errno
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from wheelguard.hw import codec, endgame, hidraw, mock, session
@@ -378,6 +379,28 @@ class SessionTests(unittest.TestCase):
     def test_read_never_sends_a_write_command(self):
         self.make().read()
         self.assertFalse({p[1] for p in self.dev.sent} & {0x13, 0x14, 0x15, 0x16, 0x70, 0x71, 0x72})
+
+    def test_timer_switched_on_from_zero_minutes_is_written_whole(self):
+        # Stored as "off, 0 minutes": switching it on used to pass the checks, send the sensor group,
+        # then have the advanced group refused, leaving the mouse half-updated.
+        blob = bytearray(BLOB)
+        blob[0x04] = 0x80
+        s = self.make(blob=bytes(blob))
+        res = s.apply({"dpi_x0": 500, "dpi_y0": 500, "sleep_on": True})
+        self.assertEqual(res.written, ["sensor", "advanced"])
+        v = codec.decode(res.snapshot.blob)
+        self.assertEqual((v.sleep_on, v.sleep_min), (True, 1))
+
+    def test_enabled_timer_with_zero_minutes_is_refused_before_writing(self):
+        s = replace(codec.decode(BLOB), sleep_on=True, sleep_min=0)
+        with self.assertRaisesRegex(ValueError, "Sleep timeout"):
+            codec.validate_settings(s)
+
+    def test_bad_value_type_is_a_clean_error(self):
+        s = self.make()
+        with self.assertRaises(session.HwError):
+            s.apply({"dpi_x0": None})
+        self.assertFalse({p[1] for p in self.dev.sent} & {0x14, 0x15, 0x16})
 
     def test_asleep(self):
         with self.assertRaises(session.MouseAsleep):
