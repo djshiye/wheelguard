@@ -38,6 +38,13 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.6.1" date="2026-11-09">
+      <description>
+        <ul>
+          <li>Fixed: when the computer was busy, a click could get lost, or the left button could stay pressed and swallow the next click</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.6.0" date="2026-11-09">
       <description>
         <ul>
