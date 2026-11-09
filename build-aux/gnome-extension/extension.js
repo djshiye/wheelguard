@@ -51,7 +51,7 @@ const EMPTY_STATE = {
     ProtectionEnabled: true, DaemonState: 'connecting', Preset: '', Dropped: 0,
     StatusLabel: 'Connecting…', StatusTone: 'muted', ProtectionDetail: '', BatteryNote: 'Mouse not connected',
     ClickLockEnabled: false, ClickLockMs: 5000, ClickLockActive: false, ClickLockDetail: 'Off',
-    ClickLockMode: 'repeat',
+    ClickLockMode: 'repeat', BatteryLow: false, OfflineNote: 'Mouse asleep or not connected', SetupNames: [],
 };
 
 function msToFraction(ms) {
@@ -117,7 +117,13 @@ class WheelguardIndicator extends PanelMenu.Button {
             gicon: fileIcon(`${extension.path}/icons/wheelguard-symbolic.svg`),
             style_class: 'system-status-icon wg-panel-icon',
         });
-        this.add_child(this._icon);
+        // The icon with a small amber dot in its corner while the battery is low.
+        const iconBox = new St.Widget({layout_manager: new Clutter.BinLayout(), y_align: Clutter.ActorAlign.CENTER});
+        iconBox.add_child(this._icon);
+        this._lowDot = new St.Widget({style_class: 'wg-low-dot', visible: false, x_expand: true, y_expand: true,
+            x_align: Clutter.ActorAlign.END, y_align: Clutter.ActorAlign.START});
+        iconBox.add_child(this._lowDot);
+        this.add_child(iconBox);
 
         this.menu.actor.add_style_class_name('wg-boxpointer');
         this.menu.box.add_style_class_name('wg-menu');
@@ -386,6 +392,7 @@ class WheelguardIndicator extends PanelMenu.Button {
         const s = this._state;
         const running = this._running;
         this._icon.opacity = running ? 255 : 110;
+        this._lowDot.visible = running && s.BatteryLow;
         this._body.visible = running;
         this._offline.visible = !running;
 

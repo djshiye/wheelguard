@@ -29,7 +29,7 @@ PROPS_IFACE = "org.freedesktop.DBus.Properties"
 
 PROPERTIES = ("Online", "Battery", "Charging", "StageLabels", "ActiveStage", "StageReason",
               "ProtectionEnabled", "DaemonState", "Preset", "Dropped",
-              "ClickLockEnabled", "ClickLockMs", "ClickLockActive", "ClickLockMode")
+              "ClickLockEnabled", "ClickLockMs", "ClickLockActive", "ClickLockMode", "BatteryLow")
 IDLE_STATE = traymodel.state_dict(traymodel.TrayState())
 
 
@@ -196,3 +196,4 @@ class Adaptor(QDBusAbstractAdaptor):
     ClickLockMs = _prop("ClickLockMs", int)
     ClickLockActive = _prop("ClickLockActive", bool)
     ClickLockMode = _prop("ClickLockMode", str)
+    BatteryLow = _prop("BatteryLow", bool)

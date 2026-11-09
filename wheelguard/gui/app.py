@@ -103,7 +103,9 @@ def main(argv=None):
     from PySide6.QtQml import QQmlApplicationEngine
     from PySide6.QtQuickControls2 import QQuickStyle
     from . import shellext, tray
+    from .appsettings import AppSettings
     from .backend import Appearance, Autostart, DaemonClient, LiquidGlass, PointerSettings
+    from .batteryalert import BatteryAlerts
     from .mouse import MouseController
 
     QQuickStyle.setStyle("Basic")
@@ -148,6 +150,9 @@ def main(argv=None):
     pointer = PointerSettings(engine)
     mouse = MouseController(parent=engine)
     shell = tray.AppShell(engine)
+    app_settings = AppSettings(parent=engine, welcome_enabled=not shot)
+    if not shot:
+        BatteryAlerts(mouse, app_settings, parent=engine)
 
     engine.addImportPath(str(QML_DIR))
     ctx = engine.rootContext()
@@ -157,6 +162,7 @@ def main(argv=None):
     ctx.setContextProperty("appearance", appearance)
     ctx.setContextProperty("liquidGlass", glass)
     ctx.setContextProperty("shell", shell)
+    ctx.setContextProperty("appSettings", app_settings)
     ctx.setContextProperty("autostart", Autostart(engine))
     ctx.setContextProperty("iconUrl", QUrl.fromLocalFile(str(icon_path)))
     engine.load(QUrl.fromLocalFile(str(QML_DIR / "Main.qml")))

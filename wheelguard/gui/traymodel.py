@@ -8,6 +8,7 @@ REASON_OFFLINE = "Mouse not connected"
 REASON_EDITS = "Unsaved changes on the Mouse page"
 REASON_READONLY = "This mouse's settings are read-only"
 REASON_READING = "Reading the mouse…"
+REASON_ASLEEP = "Mouse asleep or not connected"
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,7 @@ class TrayState:
     clicklock_ms: int = 5000        # how long the left button must be held
     clicklock_active: bool = False  # the lock is engaged right now (clicking or holding on its own)
     clicklock_mode: str = "repeat"  # "repeat" | "hold"
+    setups: Tuple[str, ...] = ()    # names of the saved mouse setups for this model
 
 
 @dataclass(frozen=True)
@@ -43,7 +45,7 @@ def snapshot(daemon, mouse) -> TrayState:
     return TrayState(daemon.state, daemon.enabled, mouse.online, mouse.battery, mouse.charging,
                      tuple(mouse.stageLabels), mouse.activeStage, mouse.stageReason,
                      daemon.presetName, daemon.dropped, daemon.clickLock, daemon.clickLockMs,
-                     daemon.clickLockActive, daemon.clickLockMode)
+                     daemon.clickLockActive, daemon.clickLockMode, tuple(getattr(mouse, "setupNames", ())))
 
 
 def stage_labels(flat: Dict[str, object]) -> List[str]:
@@ -161,6 +163,20 @@ def clicklock_detail(daemon_state: str, on: bool, ms: int, active: bool, mode: s
     return "Off"
 
 
+LOW_BATTERY_PERCENT = 20        # the amber dot on the panel icon; also the first low-battery alert
+
+
+def is_low(online: bool, percent: int, charging: bool) -> bool:
+    return bool(online) and 0 <= percent <= LOW_BATTERY_PERCENT and not charging
+
+
+def offline_note(online: bool, stage_reason: str) -> str:
+    """The calm one-liner that replaces the battery and DPI cards while there is no mouse to show."""
+    if online:
+        return ""
+    return REASON_READING if stage_reason == REASON_READING else REASON_ASLEEP
+
+
 def battery_note(online: bool, charging: bool) -> str:
     if not online:
         return REASON_OFFLINE
@@ -191,5 +207,8 @@ def state_dict(s: TrayState) -> Dict[str, object]:
         "ClickLockMode": s.clicklock_mode,
         "ClickLockDetail": clicklock_detail(s.daemon_state, s.clicklock, s.clicklock_ms, s.clicklock_active,
                                             s.clicklock_mode),
+        "BatteryLow": is_low(s.online, s.battery, s.charging),
+        "OfflineNote": offline_note(s.online, s.stage_reason),
+        "SetupNames": list(s.setups) if s.online else [],
         "Tooltip": tooltip(s),
     }

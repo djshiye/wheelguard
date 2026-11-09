@@ -59,6 +59,18 @@ WgScrollPage {
 
     WgCard {
         width: parent.width
+        WgToggleRow {
+            Layout.topMargin: 0
+            Layout.bottomMargin: 0
+            title: "Low-battery alerts"
+            description: "Get a desktop notification when the mouse battery drops to 20% and again at 5%. The panel icon also shows an amber dot at 20% or below."
+            checked: appSettings.batteryAlerts
+            onToggled: (value) => appSettings.setBatteryAlerts(value)
+        }
+    }
+
+    WgCard {
+        width: parent.width
         spacing: 12
         Text {
             text: "How it works"

@@ -304,3 +304,12 @@
   border-color: rgba(95, 101, 117, 0.38); }
 .wg-light .wg-tone-muted .wg-dot {
   background-color: #5F6575; }
+
+/* Low battery: a small amber dot in the corner of the panel icon (the panel is dark in every GNOME theme) */
+.wg-low-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 4px;
+  background-color: #FFB547;
+  border: 1px solid #1B1D24;
+  margin: 1px 0 0 0; }
