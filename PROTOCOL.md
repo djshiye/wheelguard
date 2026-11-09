@@ -20,13 +20,21 @@ Messages are UTF-8 JSON objects, one per line (`\n`-terminated), both directions
   "clicklock_rate": 10,
   "clicklock_max_s": 600,
   "clicklock_ignore_drag": true,
-  "debounce_ms": 0
+  "debounce_ms": 0,
+  "mouse": "auto"
 }
 ```
 
 `vendor` / `product` pick the mouse to filter. If it isn't connected, the daemon falls back to any
 other supported mouse (Endgame Gear XM2w 4k v2, Razer DeathAdder V4 Pro, Logitech G Pro X
 Superlight), so the defaults work for all of them.
+
+`mouse` chooses the mouse differently: `"auto"` (the default) is the behaviour just described;
+`"vvvv:pppp"` (hex vendor and product ID, lower-case, as listed in the status `mice`) filters exactly that
+mouse, any model with a scroll wheel, and does not fall back to another one: while it isn't connected the
+status says "selected mouse not found". Changing `mouse` while a mouse is being filtered switches over at
+once. Keyboard and consumer-control nodes are never used. If the chosen mouse's device node can't be
+opened, the status error is `permission denied: /dev/input/eventN` as for any mouse.
 
 Click-Lock: with `clicklock: true`, holding the left button for `clicklock_ms` (500 to 30000) engages
 the lock. Mode `repeat` releases the button and clicks `clicklock_rate` times a second (1 to 30);
@@ -64,6 +72,7 @@ reported with `kind: "pass"`). Missing keys take defaults. The daemon also notic
 | `{"cmd": "status"}` | | one `status` event |
 | `{"cmd": "subscribe"}` | start streaming `tick` and `status` events to this client | one `status` event, then the stream |
 | `{"cmd": "set", "config": {...partial...}}` | validate, merge, write config.json atomically, apply live | `{"type":"ok"}` or `{"type":"error","message":"..."}`, then a `status` event to all subscribers |
+| `{"cmd": "mice"}` | rescan the input devices (at most every 5 s, otherwise the last scan is reused) | one `{"type":"mice","mice":[...]}` event, same list as in `status` |
 | `{"cmd": "reload"}` | re-read config.json | `ok`/`error` |
 | `{"cmd": "clicklock_stop"}` | end a running Click-Lock now and release any held button (nothing to do if none runs) | `ok`, then `status` to subscribers if a lock ended |
 | `{"cmd": "reset_stats"}` | zero the counters | `ok`, then `status` to subscribers |
@@ -81,6 +90,9 @@ Validation: `0 < hold_ms < lock_ms`, `0 <= pre_ms <= lock_ms`, all ms values <= 
  "connection": "dongle",            // "dongle", "receiver" or "cable"; null when the model is unknown
  "error": null,                     // e.g. "permission denied: /dev/input/event2" when the udev rule is missing
  "config": {...full effective config...},
+ "mice": [{"name": "Endgame Gear XM2w 4k v2",   // friendly model name, else the device name
+           "device": "Endgame Gear HS Dongle", "vendor": "3367", "product": "1970",
+           "supported": true, "connection": "dongle"}],   // connected mice with a scroll wheel; refreshed by status/subscribe/mice (<= every 5 s)
  "stats": {"ticks": 1234, "passed": 1120, "dropped": 114, "debounced": 3, "since": 1729400000.0},
  "clicklock_active": false}         // Click-Lock is engaged right now (a status event goes out when it changes)
 ```

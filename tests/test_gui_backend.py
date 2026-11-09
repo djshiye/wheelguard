@@ -213,7 +213,7 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(protocol.status_config(st),
                          {"enabled": False, "pre_ms": 90, "hold_ms": 35, "lock_ms": 400, "clicklock": False,
                           "clicklock_ms": 5000, "clicklock_mode": "repeat", "clicklock_rate": 10,
-                          "clicklock_max_s": 600, "clicklock_ignore_drag": True, "debounce_ms": 0})
+                          "clicklock_max_s": 600, "clicklock_ignore_drag": True, "debounce_ms": 0, "mouse": "auto"})
         st["config"].update(clicklock=True, clicklock_ms=7500, clicklock_mode=3)
         cfg = protocol.status_config(st)
         self.assertEqual((cfg["clicklock"], cfg["clicklock_ms"], cfg["clicklock_mode"]), (True, 7500, "repeat"))
@@ -438,6 +438,32 @@ class DaemonClientTests(unittest.TestCase):
         self.assertTrue(self.pump(lambda: {"cmd": "set", "config": {"debounce_ms": 0}} in self.received))
         self.client.setDebounce(True)                   # remembers the last value used
         self.assertTrue(self.pump(lambda: self.received.count({"cmd": "set", "config": {"debounce_ms": 10}}) == 2))
+
+    def test_mouse_picker_state_and_commands(self):
+        mice = [{"name": "Endgame Gear XM2w 4k v2", "vendor": "3367", "product": "1970", "supported": True,
+                 "connection": "dongle"},
+                {"name": "Acme Mouse", "vendor": "1111", "product": "2222", "supported": False}]
+        status = dict(self.STATUS, mice=mice[:1])
+
+        def reply(m):
+            if m["cmd"] == "subscribe":
+                return [status]
+            if m["cmd"] == "mice":
+                return [{"type": "mice", "mice": mice}]
+            return [{"type": "ok"}]
+        self.reply_for = reply
+        self.client.start()
+        self.assertTrue(self.pump(lambda: len(self.client.mouseIds) == 2))
+        self.assertEqual(list(self.client.mouseIds), ["auto", "3367:1970"])
+        self.assertEqual(self.client.mouseIndex, 0)
+        self.client.refreshMice()
+        self.assertTrue(self.pump(lambda: len(self.client.mouseIds) == 3))
+        self.assertEqual(list(self.client.mouseLabels)[2], "Acme Mouse (not tested)")
+        self.client.setMouse("nonsense")                # never sent
+        self.client.setMouse("1111:2222")
+        self.assertTrue(self.pump(lambda: {"cmd": "set", "config": {"mouse": "1111:2222"}} in self.received))
+        self.assertEqual([m for m in self.received if m.get("config", {}).get("mouse") == "nonsense"], [])
+        self.assertEqual(self.client.mouseIndex, 2)     # the picker follows the choice at once
 
     def test_status_does_not_clobber_pending_edit(self):
         status = self.STATUS

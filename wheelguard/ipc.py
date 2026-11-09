@@ -14,6 +14,7 @@ import stat
 log = logging.getLogger("wheelguard")
 SOCKET_NAME = "wheelguard.sock"
 MAX_LINE = 64 * 1024
+MICE_MAX_AGE = 5.0      # seconds a scan of the input devices is reused
 
 
 class AlreadyRunning(Exception):
@@ -208,10 +209,14 @@ class Server:
         cmd = msg["cmd"]
         ctl = self.ctl
         if cmd == "status":
+            ctl.refresh_mice(MICE_MAX_AGE)
             return ctl.status()
         if cmd == "subscribe":
             client.subscribed = True
+            ctl.refresh_mice(MICE_MAX_AGE)
             return ctl.status()
+        if cmd == "mice":
+            return {"type": "mice", "mice": ctl.refresh_mice(MICE_MAX_AGE)}
         if cmd == "set":
             err = ctl.set_config(msg.get("config"))
         elif cmd == "reload":

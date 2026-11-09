@@ -13,6 +13,7 @@ import argparse
 import json
 import os
 import random
+import re
 import selectors
 import signal
 import socket
@@ -27,7 +28,15 @@ DEVICE = "Endgame Gear Endgame Gear HS Dongle"
 DEFAULT_CONFIG = {"enabled": True, "lock_ms": 300, "pre_ms": 60, "hold_ms": 25,
                   "vendor": "3367", "product": "1970", "retry_s": 2,
                   "clicklock": False, "clicklock_ms": 5000, "clicklock_mode": "repeat", "clicklock_rate": 10,
-                  "clicklock_max_s": 600, "clicklock_ignore_drag": True, "debounce_ms": 0}
+                  "clicklock_max_s": 600, "clicklock_ignore_drag": True, "debounce_ms": 0, "mouse": "auto"}
+MICE = [   # what the mock reports as connected (mice with a scroll wheel), supported ones first
+    {"name": "Endgame Gear XM2w 4k v2", "device": "Endgame Gear HS Dongle", "vendor": "3367", "product": "1970",
+     "supported": True, "connection": "dongle"},
+    {"name": "Logitech G Pro X Superlight", "device": "Logitech USB Receiver", "vendor": "046d", "product": "4093",
+     "supported": True, "connection": "receiver"},
+    {"name": "Razer Viper Mini", "device": "Razer Viper Mini", "vendor": "1532", "product": "008a",
+     "supported": False, "connection": None},
+]
 MODEL, CONNECTION = "Endgame Gear XM2w 4k v2", "dongle"
 BOUNCE_RATE = 0.09
 
@@ -55,6 +64,11 @@ def validate(cfg, patch):
             continue
         elif k in ("vendor", "product"):
             merged[k] = str(v)
+            continue
+        elif k == "mouse":
+            if not (v == "auto" or (isinstance(v, str) and re.fullmatch(r"[0-9a-fA-F]{4}:[0-9a-fA-F]{4}", v))):
+                return None, 'mouse must be "auto" or the hex IDs of a mouse like "3367:1970"'
+            merged[k] = v.lower()
             continue
         elif isinstance(v, bool) or not isinstance(v, (int, float)):
             return None, f"{k} must be a number"
@@ -160,7 +174,7 @@ class Mock:
                 "device": DEVICE if connected else None,
                 "model": MODEL if connected else None, "connection": CONNECTION if connected else None,
                 "error": error,
-                "config": dict(self.cfg), "stats": dict(self.stats),
+                "config": dict(self.cfg), "mice": MICE, "stats": dict(self.stats),
                 "clicklock_active": self.clicklock_active and self.cfg["clicklock"]}
 
     def send(self, c, msg):
@@ -208,6 +222,8 @@ class Mock:
             self.filter = WheelFilter(merged["lock_ms"], merged["pre_ms"], merged["hold_ms"])
             self.send(c, {"type": "ok"})
             self.broadcast(self.status())
+        elif cmd == "mice":
+            self.send(c, {"type": "mice", "mice": MICE})
         elif cmd == "clicklock_stop":
             was, self.clicklock_active = self.clicklock_active, False
             self.send(c, {"type": "ok"})

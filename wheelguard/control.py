@@ -9,7 +9,7 @@ import time
 
 from . import __version__
 from . import config as C
-from . import mice
+from . import mice, scan
 from .clicklock import ClickLock
 from .debounce import ClickDebounce
 from .core import DROP, EMIT, PASS, Decision, WheelFilter
@@ -21,7 +21,8 @@ POLL_S = 2.0  # config.json mtime poll interval
 
 
 class Controller:
-    def __init__(self, overrides=None, config_path=None, publish=None, clock=time.time, power=None):
+    def __init__(self, overrides=None, config_path=None, publish=None, clock=time.time, power=None,
+                 mouse_lister=None):
         self.config_path = config_path or C.CONFIG_PATH
         self.overrides = dict(overrides or {})  # command-line flags; win over the file
         self.publish = publish or (lambda msg: None)
@@ -38,6 +39,12 @@ class Controller:
             log.error("ignoring config: %s", ex)
         self.cfg = C.normalize(self.overrides, self.file_cfg)  # ValueError: bad flags
         self.power = power or SuspendWatch()
+        # the connected mice with a wheel, for the "Mouse" choice; the real daemon (no config_path given) scans
+        self.mouse_lister = mouse_lister or (scan.list_mice if config_path is None else None)
+        self.mice = []
+        self._mice_at = None
+        self.restart_requested = False      # the mouse choice changed under a running session
+        scan.set_selected(self.cfg["mouse"])
         self.wf = self._new_filter()
         self.cl = ClickLock(*self._clicklock_args())
         self.deb = ClickDebounce(self.cfg["debounce_ms"])
@@ -51,7 +58,19 @@ class Controller:
     def status(self):
         return {"type": "status", "version": __version__, "connected": self.connected,
                 "device": self.device, "model": self.model, "connection": self.connection, "error": self.error, "config": C.to_wire(self.cfg),
-                "stats": dict(self.stats), "clicklock_active": self.cl.active}
+                "stats": dict(self.stats), "mice": self.mice, "clicklock_active": self.cl.active}
+
+    def refresh_mice(self, max_age=0.0):
+        """Rescan for mice with a scroll wheel unless the last scan is newer than max_age seconds."""
+        now = self.clock()
+        if self.mouse_lister is None or (self._mice_at is not None and now - self._mice_at < max_age):
+            return self.mice
+        self._mice_at = now
+        try:
+            self.mice = self.mouse_lister()
+        except OSError as ex:
+            log.warning("scanning for mice failed: %s", ex)
+        return self.mice
 
     def set_device(self, connected, device=None, error=None, ident=None):
         """`ident` is the (vendor, product) of the mouse being filtered, when there is one."""
@@ -203,6 +222,9 @@ class Controller:
                 self._outbox += frames
                 if was_active:
                     log.info("click-lock released (switched off)")
+        scan.set_selected(new["mouse"])
+        if self.connected and any(old[k] != new[k] for k in ("mouse", "vendor", "product")):
+            self.restart_requested = True
         log.info("config applied: %s", C.to_wire(new))
         return True
 

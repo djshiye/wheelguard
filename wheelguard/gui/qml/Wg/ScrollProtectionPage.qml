@@ -115,6 +115,70 @@ WgScrollPage {
         }
     }
 
+    // ---------------------------------------------------------------- mouse
+    WgCard {
+        id: mouseCard
+        width: parent.width
+        pad: 20
+        spacing: 10
+        opacity: page.reachable ? 1 : 0.5
+        enabled: page.reachable
+        Behavior on opacity { NumberAnimation { duration: Theme.normal } }
+        readonly property bool untested: daemon.mouseChoice !== "auto" && daemon.mouseIndex > 0
+                                         && daemon.mouseLabels[daemon.mouseIndex].indexOf("(not tested)") >= 0
+
+        Timer {   // keeps the list current while this page is on screen (the service rescans at most every few seconds)
+            running: page.visible && page.reachable
+            repeat: true
+            triggeredOnStart: true
+            interval: 5000
+            onTriggered: daemon.refreshMice()
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 16
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 2
+                Text {
+                    text: "Mouse"
+                    font.pixelSize: Theme.fsH2
+                    font.weight: Font.DemiBold
+                    color: Theme.text
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: "Which mouse's scroll wheel to protect. Automatic picks your supported mouse; any other mouse with a wheel can be chosen too."
+                    font.pixelSize: Theme.fsSmall
+                    color: Theme.textMuted
+                    wrapMode: Text.WordWrap
+                }
+            }
+            WgSelect {
+                Layout.alignment: Qt.AlignVCenter
+                Layout.preferredWidth: 300
+                Accessible.name: "Mouse to protect"
+                model: daemon.mouseLabels
+                currentIndex: daemon.mouseIndex
+                onActivated: (i) => daemon.setMouse(daemon.mouseIds[i])
+            }
+        }
+        RowLayout {
+            Layout.fillWidth: true
+            visible: mouseCard.untested
+            spacing: 10
+            WgIcon { name: "alert"; size: 16; color: Theme.amber }
+            Text {
+                Layout.fillWidth: true
+                text: "We haven't tested this mouse. Scroll protection should work, but if the wheel misbehaves, switch back to Automatic."
+                font.pixelSize: Theme.fsSmall
+                color: Theme.textMuted
+                wrapMode: Text.WordWrap
+            }
+        }
+    }
+
     // ---------------------------------------------------------------- strength
     WgCard {
         width: parent.width

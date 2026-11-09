@@ -36,6 +36,7 @@ class DaemonClient(QObject):
     editErrorChanged = Signal()
     serviceChanged = Signal()
     clickLockActiveChanged = Signal()
+    miceChanged = Signal()
     tick = Signal(int, str, bool, float)     # sign, kind, held, t
 
     def __init__(self, path: Optional[str] = None, parent=None):
@@ -48,6 +49,7 @@ class DaemonClient(QObject):
         self._version = ""
         self._server_cfg = dict(protocol.CONFIG_DEFAULTS)
         self._clicklock_active = False
+        self._mice: list = []
         self._cfg = dict(self._server_cfg)
         self._staged: dict = {}
         self._inflight = 0
@@ -155,6 +157,8 @@ class DaemonClient(QObject):
                     self._dropped += tk.kind == "drop"
                     self.statsChanged.emit()
                 self.tick.emit(tk.sign, tk.kind, tk.held, tk.t)
+        elif t == "mice":
+            self._set_mice(msg.get("mice"))
         elif t == "status":
             self._on_status(msg)
         elif t in ("ok", "error"):
@@ -169,6 +173,8 @@ class DaemonClient(QObject):
             self._server_cfg = cfg
             if not self._dirty():
                 self._set_cfg(cfg)
+        if "mice" in msg:
+            self._set_mice(msg.get("mice"))
         active = protocol.clicklock_active(msg)
         if active != self._clicklock_active:
             self._clicklock_active = active
@@ -177,6 +183,12 @@ class DaemonClient(QObject):
         if (st["ticks"], st["dropped"], st["debounced"]) != (self._ticks, self._dropped, self._debounced):
             self._ticks, self._dropped, self._debounced = st["ticks"], st["dropped"], st["debounced"]
             self.statsChanged.emit()
+
+    def _set_mice(self, mice):
+        mice = mice if isinstance(mice, list) else []       # raw dicts from the daemon; protocol.mouse_options vets them
+        if mice != self._mice:
+            self._mice = mice
+            self.miceChanged.emit()
 
     def _on_reply(self, msg: dict):
         res = self._queue.resolve(msg)
@@ -201,6 +213,7 @@ class DaemonClient(QObject):
         if cfg != self._cfg:
             self._cfg = dict(cfg)
             self.configChanged.emit()
+            self.miceChanged.emit()         # the picker's selection follows the config
 
     def _stage(self, patch: dict, immediate=False):
         if self._state == "stopped":
@@ -267,6 +280,17 @@ class DaemonClient(QObject):
     @Slot(bool)
     def setDebounce(self, on: bool):
         self.setDebounceMs(self._last_debounce_ms if on else 0, immediate=True)
+
+    @Slot()
+    def refreshMice(self):
+        """Ask the daemon which mice with a scroll wheel are connected (it rescans at most every few seconds)."""
+        self._send({"cmd": "mice"})
+
+    @Slot(str)
+    def setMouse(self, choice: str):
+        """"auto" or the "vvvv:pppp" id of a mouse from the list."""
+        if choice == "auto" or protocol.mouse_ids.parse_choice(choice):
+            self._stage({"mouse": choice}, immediate=True)
 
     @Slot(bool)
     def setClickLockIgnoreDrag(self, on: bool):
@@ -369,6 +393,15 @@ class DaemonClient(QObject):
     debounceMs = Property(int, lambda s: s._cfg["debounce_ms"], notify=configChanged)
     debounceOn = Property(bool, lambda s: s._cfg["debounce_ms"] > 0, notify=configChanged)
     debouncedClicks = Property(int, lambda s: s._debounced, notify=statsChanged)
+    mouseChoice = Property(str, lambda s: s._cfg["mouse"], notify=configChanged)
+    mouseLabels = Property("QStringList",
+                           lambda s: [o["label"] for o in protocol.mouse_options(s._mice, s._cfg["mouse"])],
+                           notify=miceChanged)
+    mouseIds = Property("QStringList",
+                        lambda s: [o["id"] for o in protocol.mouse_options(s._mice, s._cfg["mouse"])],
+                        notify=miceChanged)
+    mouseIndex = Property(int, lambda s: protocol.mouse_index(protocol.mouse_options(s._mice, s._cfg["mouse"]),
+                                                              s._cfg["mouse"]), notify=miceChanged)
     clickLockIgnoreDrag = Property(bool, lambda s: s._cfg["clicklock_ignore_drag"], notify=configChanged)
     clickLockMaxS = Property(int, lambda s: s._cfg["clicklock_max_s"], notify=configChanged)
     clickLockActive = Property(bool, lambda s: s._clicklock_active, notify=clickLockActiveChanged)

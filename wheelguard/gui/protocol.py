@@ -6,13 +6,15 @@ import json
 from collections import deque
 from typing import Any, Deque, List, NamedTuple, Optional
 
+from .. import mice as mouse_ids
+
 TICK_KINDS = ("emit", "drop", "hold", "pass")
 
 # The config keys the app shows, with what it assumes before the daemon has said otherwise.
 CONFIG_DEFAULTS = {"enabled": True, "pre_ms": 60, "hold_ms": 25, "lock_ms": 300,
                    "clicklock": False, "clicklock_ms": 5000, "clicklock_mode": "repeat",
                    "clicklock_rate": 10, "clicklock_max_s": 600,
-                   "clicklock_ignore_drag": True, "debounce_ms": 0}
+                   "clicklock_ignore_drag": True, "debounce_ms": 0, "mouse": "auto"}
 # Click-Lock slider range in the app and the panel (the daemon accepts 0.5 to 30 s).
 CLICKLOCK_MS_RANGE = (1000, 15000)
 CLICKLOCK_MS_STEP = 500
@@ -142,6 +144,40 @@ def status_config(status: dict) -> Optional[dict]:
         else:
             out[k] = int(round(float(v)))
     return out
+
+
+def status_mice(status: dict) -> List[dict]:
+    """The connected mice with a scroll wheel from a status (or `mice`) message; malformed entries are dropped."""
+    raw = status.get("mice")
+    out = []
+    for m in raw if isinstance(raw, list) else []:
+        if not isinstance(m, dict):
+            continue
+        try:
+            ident = mouse_ids.format_choice(int(str(m.get("vendor")), 16), int(str(m.get("product")), 16))
+        except ValueError:
+            continue
+        name = m.get("name") if isinstance(m.get("name"), str) and m.get("name").strip() else "Mouse"
+        conn = m.get("connection")
+        out.append({"id": ident, "name": name.strip(), "supported": m.get("supported") is True,
+                    "connection": conn if isinstance(conn, str) and conn else ""})
+    return out
+
+
+def mouse_options(mice: List[dict], selected: str) -> List[dict]:
+    """The choices of the "Mouse" picker as [{"id", "label"}]: automatic, each connected mouse, and the saved
+    choice when that mouse isn't connected right now (so the picker still says what is selected)."""
+    opts = [{"id": mouse_ids.AUTO, "label": "Automatic (supported mice)"}]
+    for m in status_mice({"mice": mice}):
+        label = m["name"] + (f" \u00b7 {m['connection']}" if m["connection"] else "")
+        opts.append({"id": m["id"], "label": label if m["supported"] else f"{label} (not tested)"})
+    if selected != mouse_ids.AUTO and all(o["id"] != selected for o in opts):
+        opts.append({"id": selected, "label": f"Saved mouse {selected} (not connected)"})
+    return opts
+
+
+def mouse_index(options: List[dict], selected: str) -> int:
+    return next((i for i, o in enumerate(options) if o["id"] == selected), 0)
 
 
 def clicklock_active(status: dict) -> bool:

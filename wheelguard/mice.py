@@ -34,7 +34,7 @@ def pretty_name(name):
 
 def parse_choice(value):
     """"3367:1970" -> (0x3367, 0x1970); None for "auto" (or anything that is not an ID pair)."""
-    m = _ID.match(value) if isinstance(value, str) else None
+    m = _ID.fullmatch(value) if isinstance(value, str) else None
     return (int(m.group(1), 16), int(m.group(2), 16)) if m else None
 
 

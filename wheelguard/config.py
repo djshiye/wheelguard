@@ -8,7 +8,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from . import clicklock, core
+from . import clicklock, core, mice
 
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "wheelguard"
 CONFIG_PATH = CONFIG_DIR / "config.json"
@@ -28,6 +28,7 @@ DEFAULTS = {
     "clicklock_max_s": clicklock.DEFAULT_MAX_S,
     "clicklock_ignore_drag": True,
     "debounce_ms": 0,
+    "mouse": mice.AUTO,
 }
 MS_KEYS = ("lock_ms", "pre_ms", "hold_ms")
 MAX_MS = 2000
@@ -59,6 +60,16 @@ def _usb_id(key, v):
     return v
 
 
+def _mouse(v):
+    """"auto" or the "vvvv:pppp" hex IDs of the mouse to filter (lower case)."""
+    if v == mice.AUTO:
+        return v
+    ids = mice.parse_choice(v)
+    if ids is None:
+        raise ValueError('mouse must be "auto" or the hex IDs of a mouse like "3367:1970"')
+    return mice.format_choice(*ids)
+
+
 def normalize(partial, base=None):
     """Merge `partial` over `base` (default: DEFAULTS), validate, return a new full config.
 
@@ -78,6 +89,8 @@ def normalize(partial, base=None):
             if v not in clicklock.MODES:
                 raise ValueError("clicklock_mode must be " + " or ".join(f'"{m}"' for m in clicklock.MODES))
             cfg[k] = v
+        elif k == "mouse":
+            cfg[k] = _mouse(v)
         elif k in ("vendor", "product"):
             cfg[k] = _usb_id(k, v)
         else:

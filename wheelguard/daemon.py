@@ -13,7 +13,7 @@ import evdev
 from evdev import UInput, UInputError, ecodes as e
 
 from . import config as C
-from . import mice
+from . import mice, scan
 from .control import POLL_S, Controller
 from .core import DROP, EMIT, HOLD
 from .ipc import AlreadyRunning, Server
@@ -61,10 +61,12 @@ def _sysfs_is_wheel_mouse(path, vendor, product):
         return False
 
 
-def discover(vendor, product):
+def discover(vendor, product, mouse=None):
     """(device, error): the wheel-bearing event node of the configured mouse or, failing that, of the
-    first supported mouse found (KNOWN_MICE order); or a reason."""
-    ids = _wanted(vendor, product)
+    first supported mouse found (KNOWN_MICE order); or a reason. `mouse` ("vvvv:pppp") pins one mouse
+    instead (default: the config's "mouse" setting; "auto" = the behaviour above)."""
+    pinned = mice.parse_choice(scan.selected() if mouse is None else mouse)
+    ids = [pinned] if pinned else _wanted(vendor, product)
     denied = None
     best = None                 # (rank, device)
     # not evdev.list_devices(): that silently skips nodes we are not allowed to open
@@ -94,7 +96,7 @@ def discover(vendor, product):
         return best[1], None
     if denied:
         return None, f"permission denied: {denied}"
-    return None, "mouse not found"
+    return None, "selected mouse not found" if pinned else "mouse not found"
 
 
 def describe(ex):
@@ -269,10 +271,16 @@ def run_session(dev, ctl, server, tick_log):
                  cfg["lock_ms"], cfg["pre_ms"], cfg["hold_ms"],
                  f"after {cfg['clicklock_ms'] / 1000:g}s ({cfg['clicklock_mode']})" if cfg["clicklock"] else "off")
         ctl.reset_filter()
+        ctl.restart_requested = False
         ctl.set_device(True, dev.name, None, ident=_ident(dev))
         reader = FrameReader(dev.active_keys)
         reader.state.down = set(dev.active_keys())   # normally empty (see wait_for_buttons_up)
         while True:
+            if ctl.restart_requested is True:
+                ctl.restart_requested = False
+                log.info("mouse choice changed, switching")
+                ctl.set_device(False, None, "switching mouse")
+                return
             timeout = None
             now = time.time()
             if (deadline := ctl.deadline) is not None:
