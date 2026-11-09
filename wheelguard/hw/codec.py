@@ -239,6 +239,12 @@ def encode(blob: bytes, edits: Dict[str, object]) -> bytes:
         elif key in ("sleep_min", "deep_min"):
             o = 0x04 if key == "sleep_min" else 0x03
             ba[o] = (ba[o] & 0x80) | v
+    for key, o in (("deep_on", 0x03), ("sleep_on", 0x04)):
+        if edits.get(key) is True and ba[o] == 0x00:
+            # A timer switched on while the mouse had stored 0 minutes (stored as "off, 0"). The page
+            # shows 1 minute then, so store what it shows: 0 would be refused at the write, after the
+            # sensor group had already gone out.
+            ba[o] = SLEEP_MIN
     return bytes(ba)
 
 
@@ -252,6 +258,9 @@ def validate_settings(s: MouseSettings) -> None:
         raise ValueError("At least one button must stay Left click.")
     if not 1 <= s.stage_count <= 4 or s.active_stage >= s.stage_count:
         raise ValueError("The active DPI stage must be one of the enabled stages.")
+    for on, minutes, name in ((s.sleep_on, s.sleep_min, "Sleep"), (s.deep_on, s.deep_min, "Deep sleep")):
+        if on and not SLEEP_MIN <= minutes <= SLEEP_MAX:
+            raise ValueError(f"{name} timeout must be {SLEEP_MIN}-{SLEEP_MAX} minutes.")
     if s.glass:
         if s.lod not in GLASS_LOD:
             raise ValueError("Glass mode only supports the 1.0 mm and 2.0 mm lift-off settings.")

@@ -255,7 +255,7 @@ class MouseSession:
                 try:
                     new = codec.encode(fresh, edits)
                     codec.validate_settings(codec.decode(new))
-                except ValueError as e:
+                except (ValueError, TypeError, OverflowError) as e:     # e.g. a DPI of None
                     raise HwError(str(e), snap) from e
                 if not drv.plan_writes(fresh, new):
                     return ApplyResult(self._snapshot(drv, snap, fresh, None), [], None, unchanged=True)

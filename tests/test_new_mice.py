@@ -249,6 +249,15 @@ class LogitechSessionTests(TmpCase):
         self.assertEqual(new[13:250], before[1][13:250])          # buttons, name, lighting untouched
         self.assertEqual(logitech.decode(new + b"\x01")["dpi_x2"], 2000)
 
+    def test_active_stage_past_the_last_stage_is_refused(self):
+        # 4 stages (0-3): stage index 4 is an empty slot. It used to be sent and pass the verify.
+        s, dev = make_session("logitech", self.tmp)
+        before = dict(dev.sectors)
+        with self.assertRaisesRegex(session.HwError, "enabled stages"):
+            s.apply({"active_stage": 4})
+        self.assertEqual(dev.sectors, before)
+        self.assertEqual(s.apply({"active_stage": 3}).written, ["DPI stage"])
+
     def test_switches_back_to_onboard_mode(self):
         s, dev = make_session("logitech", self.tmp)
         dev.onboard = 2

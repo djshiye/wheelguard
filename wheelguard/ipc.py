@@ -189,12 +189,16 @@ class Server:
     def _line(self, client, line):
         try:
             msg = json.loads(line)
-        except ValueError:
+        except (ValueError, RecursionError):
             self._send(client, {"type": "error", "message": "invalid JSON"})
             return
         self._deferred = []
         try:
             reply = self.dispatch(client, msg)
+        except Exception:
+            # A bad command must never take the daemon (and with it the mouse grab) down.
+            log.exception("command failed: %.200r", line)
+            reply = {"type": "error", "message": "internal error"}
         finally:
             events, self._deferred = self._deferred, None
         self._send(client, reply)

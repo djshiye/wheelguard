@@ -629,6 +629,8 @@ class WheelguardIndicator extends PanelMenu.Button {
             }
             if (this._proxy || this._cancellable.is_cancelled())
                 return;
+            if (proxy.g_name_owner === null)    // the app quit while the proxy was being made
+                return;
             this._proxy = proxy;
             this._signalId = proxy.connectSignal('StateChanged',
                 (_proxy, _sender, [state]) => this._setState(unpack(state)));

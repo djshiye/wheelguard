@@ -147,6 +147,10 @@ def encode(blob: bytes, edits: Dict[str, object]) -> bytes:
             ba[sector_len] = v
         elif key == "polling":
             ba[P_REPORT_RATE] = v
+    if "active_stage" in edits and current["active_stage"] != edits["active_stage"] \
+            and ba[sector_len] >= _count(ba[:sector_len]):
+        # decode() hides a live index past the last stage, so the checks after encode can't see it
+        raise ValueError("The active DPI stage must be one of the enabled stages.")
     if bytes(ba[:sector_len]) != bytes(blob[:sector_len]):
         ba[:sector_len] = with_crc(bytes(ba[:sector_len]))
     return bytes(ba)
