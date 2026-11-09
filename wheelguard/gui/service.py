@@ -11,6 +11,8 @@ panel extension talks to the running app through it.
         SetClickLock(b)                  Click-Lock on/off
         SetClickLockMs(i)                Click-Lock hold time in ms (clamped to the slider range)
         SetClickLockMode(s)              "repeat" (keep clicking) or "hold" (keep the button pressed)
+        ToggleClickLock() -> s           flip Click-Lock; "ok:Click-Lock on" or "error:<why>" (commands.py)
+        NextDpiStage() -> s              switch to the next DPI stage, wrapping round; same reply format
         ShowWindow()                     bring the settings window forward
         Refresh()                        re-read the mouse quietly (rate-limited)
         read-only properties             the same keys, with org.freedesktop.DBus.Properties.PropertiesChanged
@@ -20,7 +22,7 @@ from typing import Dict, Optional
 from PySide6.QtCore import ClassInfo, Property, QObject, QTimer, Signal, Slot
 from PySide6.QtDBus import QDBus, QDBusAbstractAdaptor, QDBusConnection, QDBusMessage
 
-from . import protocol, traymodel
+from . import commands, protocol, traymodel
 
 BUS_NAME = "io.github.djshiye.Wheelguard"
 OBJECT_PATH = "/io/github/djshiye/Wheelguard"
@@ -43,6 +45,15 @@ def call_remote(method: str, bus: Optional[QDBusConnection] = None, timeout_ms: 
     msg = QDBusMessage.createMethodCall(BUS_NAME, OBJECT_PATH, INTERFACE, method)
     reply = (bus or QDBusConnection.sessionBus()).call(msg, QDBus.CallMode.Block, timeout_ms)
     return reply.type() == QDBusMessage.MessageType.ReplyMessage
+
+
+def call_remote_text(method: str, bus: Optional[QDBusConnection] = None, timeout_ms: int = 4000) -> Optional[str]:
+    """Call a no-argument method that returns a string on the running instance; None when nobody answered."""
+    msg = QDBusMessage.createMethodCall(BUS_NAME, OBJECT_PATH, INTERFACE, method)
+    reply = (bus or QDBusConnection.sessionBus()).call(msg, QDBus.CallMode.Block, timeout_ms)
+    if reply.type() != QDBusMessage.MessageType.ReplyMessage or not reply.arguments():
+        return None
+    return str(reply.arguments()[0])
 
 
 class Service(QObject):
@@ -121,6 +132,27 @@ class Service(QObject):
         if d is not None and d.state in ("running", "waiting") and mode in protocol.CLICKLOCK_MODES:
             d.setClickLockMode(mode)
 
+    def toggle_clicklock(self) -> str:
+        d = self._daemon
+        if d is None or d.state not in ("running", "waiting"):
+            return commands.encode_result(False, commands.NO_SERVICE)
+        on = not d.clickLock
+        d.setClickLock(on)
+        return commands.encode_result(True, "Click-Lock on" if on else "Click-Lock off")
+
+    def next_dpi_stage(self) -> str:
+        m = self._mouse
+        if m is None:
+            return commands.encode_result(False, "Wheelguard is still starting. Try again in a moment.")
+        labels = list(m.stageLabels)
+        if m.stageReason or not labels:
+            return commands.encode_result(False, m.stageReason or "There are no DPI stages to switch.")
+        if not getattr(m, "stagesEnabled", True):
+            return commands.encode_result(False, "The mouse is busy. Try again in a moment.")
+        nxt = (m.activeStage + 1) % len(labels)
+        m.setActiveStage(nxt)
+        return commands.encode_result(True, f"DPI {labels[nxt]}")
+
     def show_window(self):
         if self._attached:
             self.showRequested.emit()
@@ -168,6 +200,14 @@ class Adaptor(QDBusAbstractAdaptor):
     @Slot(str)
     def SetClickLockMode(self, mode):
         self.parent().set_clicklock_mode(mode)
+
+    @Slot(result=str)
+    def ToggleClickLock(self):
+        return self.parent().toggle_clicklock()
+
+    @Slot(result=str)
+    def NextDpiStage(self):
+        return self.parent().next_dpi_stage()
 
     @Slot()
     def ShowWindow(self):

@@ -84,6 +84,7 @@ WgScrollPage {
 
     WgCard {
         width: parent.width
+        spacing: 14
         WgToggleRow {
             Layout.topMargin: 0
             Layout.bottomMargin: 0
@@ -92,10 +93,21 @@ WgScrollPage {
             checked: appSettings.batteryAlerts
             onToggled: (value) => appSettings.setBatteryAlerts(value)
         }
-    }
-
-    WgCard {
-        width: parent.width
+        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.border }
+        ActionRow {
+            visible: shortcuts.available
+            title: "Keyboard shortcuts"
+            description: shortcuts.message !== "" ? shortcuts.message
+                         : (shortcuts.installed ? "Super+Alt+C toggles Click-Lock and Super+Alt+D switches to the next DPI stage. Change the keys in GNOME Settings > Keyboard > Custom Shortcuts."
+                            : "Adds two GNOME shortcuts: Super+Alt+C toggles Click-Lock and Super+Alt+D switches to the next DPI stage. Your own shortcuts are left alone.")
+            WgButton {
+                text: shortcuts.installed ? "Added" : "Add keyboard shortcuts"
+                iconName: shortcuts.installed ? "check" : "keyboard"
+                enabled: !shortcuts.installed
+                onClicked: shortcuts.add()
+            }
+        }
+        Rectangle { visible: shortcuts.available; Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.border }
         ActionRow {
             title: "Diagnostics"
             description: "Copies a short report for bug reports: versions, your mouse model and what the Mouse page says. It has no names, folders or serial numbers."

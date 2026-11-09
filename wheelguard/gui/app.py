@@ -28,6 +28,9 @@ def parse_args(argv):
     ap.add_argument("--socket", help="daemon socket path (default $XDG_RUNTIME_DIR/wheelguard.sock)")
     ap.add_argument("--tray", action="store_true",
                     help="start hidden in the panel (does nothing if there is no panel icon or tray)")
+    keys = ap.add_argument_group("for keyboard shortcuts (talk to the running app, no window)")
+    keys.add_argument("--toggle-clicklock", action="store_true", help="switch Click-Lock on or off")
+    keys.add_argument("--next-dpi-stage", action="store_true", help="switch the mouse to its next DPI stage")
     shot = ap.add_argument_group("screenshots (development)")
     shot.add_argument("--screenshot", metavar="PNG", help="render the window to PNG after a delay, then quit")
     shot.add_argument("--page", choices=("scroll", "mouse", "pointer", "about"), default="scroll")
@@ -68,6 +71,11 @@ def wait_for(QEventLoop, QTimer, signal, ms):
 def main(argv=None):
     args = parse_args(sys.argv[1:] if argv is None else argv)
 
+    if args.toggle_clicklock or args.next_dpi_stage:
+        from . import commands
+        return commands.main(commands.TOGGLE_CLICKLOCK if args.toggle_clicklock else commands.NEXT_DPI_STAGE,
+                             args.socket)
+
     # Qt's QML disk cache trusts source mtimes, but RPM clamps every file to the build day, so two
     # releases built the same day look identical and stale bytecode gets loaded. Key it by version.
     from .. import __version__
@@ -107,6 +115,7 @@ def main(argv=None):
     from .backend import Appearance, Autostart, DaemonClient, LiquidGlass, PointerSettings
     from .batteryalert import BatteryAlerts
     from .diagnostics import Diagnostics
+    from .shortcuts import ShortcutsBackend
     from .mouse import MouseController
 
     QQuickStyle.setStyle("Basic")
@@ -164,6 +173,7 @@ def main(argv=None):
     ctx.setContextProperty("liquidGlass", glass)
     ctx.setContextProperty("shell", shell)
     ctx.setContextProperty("appSettings", app_settings)
+    ctx.setContextProperty("shortcuts", ShortcutsBackend(parent=engine))
     ctx.setContextProperty("diagnostics", Diagnostics(daemon, mouse, ext, app_settings, engine))
     ctx.setContextProperty("autostart", Autostart(engine))
     ctx.setContextProperty("iconUrl", QUrl.fromLocalFile(str(icon_path)))
