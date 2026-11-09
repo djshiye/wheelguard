@@ -130,7 +130,6 @@ fi
 - Double-click fix: ignores the extra click a worn mouse button sends, for every mouse
 - Scroll protection works with any mouse that has a wheel; pick it in the new Mouse box
 - Wheel health: a 7 and 30 day chart of how often the wheel needed blocking, with a warning if it starts bouncing more
-- Auto-tune: watches a minute of your scrolling and suggests the lightest protection strength that fixes it
 - Click-Lock lets go by itself after 10 minutes (adjustable), and when the computer sleeps or the screen locks
 - Click-Lock in Repeat mode no longer starts while you are dragging
 - Low-battery alerts at 20% and 5%, with an amber dot on the panel icon

@@ -32,8 +32,8 @@ installs its own `/etc/yum.repos.d/wheelguard.repo`, so the repository stays con
     low-battery warning, battery
 - **Scroll filter for any mouse with a wheel**: supported mice are picked up automatically, any other
   mouse can be chosen on the Scroll protection page
-- **Wheel health and Auto-tune**: a 7 and 30 day chart of how often the wheel needed blocking, a warning
-  if it starts bouncing more, and a suggested protection strength from a minute of your scrolling
+- **Wheel health**: a 7 and 30 day chart of how often the wheel needed blocking, a warning
+  if it starts bouncing more
 - **Double-click fix** for any mouse: ignores the extra click a worn button sends
 - **Per-game profiles**: switch scroll protection, Click-Lock and the DPI stage while a chosen app is in front
 - **Saved mouse setups**, low-battery alerts and keyboard shortcuts for Click-Lock and the DPI stage
