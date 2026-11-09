@@ -109,6 +109,13 @@ class StateDictTests(unittest.TestCase):
         self.assertEqual((d["Online"], d["Battery"], d["Charging"], d["StageLabels"]), (False, -1, False, []))
         self.assertEqual((d["StageReason"], d["BatteryNote"]), ("Mouse not connected", "Mouse not connected"))
 
+    def test_offline_note_replaces_the_empty_cards(self):
+        off = traymodel.state_dict(state(online=False, stages=(), active=-1, stage_reason=traymodel.REASON_OFFLINE))
+        self.assertEqual(off["OfflineNote"], "Mouse asleep or not connected")
+        reading = traymodel.state_dict(state(online=False, stages=(), active=-1, stage_reason=traymodel.REASON_READING))
+        self.assertEqual(reading["OfflineNote"], "Reading the mouse…")
+        self.assertEqual(traymodel.state_dict(state())["OfflineNote"], "")
+
     def test_values_are_plain_dbus_types(self):
         d = traymodel.state_dict(state(preset="Balanced"))
         self.assertTrue(all(isinstance(v, (bool, int, str, list)) for v in d.values()))

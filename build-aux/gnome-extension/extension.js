@@ -19,6 +19,7 @@ import * as Slider from 'resource:///org/gnome/shell/ui/slider.js';
 const BUS_NAME = 'io.github.djshiye.Wheelguard';
 const OBJECT_PATH = '/io/github/djshiye/Wheelguard';
 const APP_ICON = 'io.github.djshiye.Wheelguard';
+const MAX_SETUP_CHIPS = 4;               // the popup stays small: the app lists them all
 const START_COMMAND = ['wheelguard-settings', '--tray'];
 const START_TIMEOUT_S = 10;
 
@@ -38,6 +39,7 @@ const IFACE_XML = `
     <method name="SetClickLock"><arg type="b" direction="in" name="on"/></method>
     <method name="SetClickLockMs"><arg type="i" direction="in" name="ms"/></method>
     <method name="SetClickLockMode"><arg type="s" direction="in" name="mode"/></method>
+    <method name="ApplySetup"><arg type="s" direction="in" name="name"/></method>
     <method name="ShowWindow"/>
     <method name="Refresh"/>
     <signal name="StateChanged"><arg type="a{sv}" name="state"/></signal>
@@ -51,7 +53,7 @@ const EMPTY_STATE = {
     ProtectionEnabled: true, DaemonState: 'connecting', Preset: '', Dropped: 0,
     StatusLabel: 'Connecting…', StatusTone: 'muted', ProtectionDetail: '', BatteryNote: 'Mouse not connected',
     ClickLockEnabled: false, ClickLockMs: 5000, ClickLockActive: false, ClickLockDetail: 'Off',
-    ClickLockMode: 'repeat',
+    ClickLockMode: 'repeat', BatteryLow: false, OfflineNote: 'Mouse asleep or not connected', SetupNames: [], ActiveSetup: '',
 };
 
 function msToFraction(ms) {
@@ -117,7 +119,20 @@ class WheelguardIndicator extends PanelMenu.Button {
             gicon: fileIcon(`${extension.path}/icons/wheelguard-symbolic.svg`),
             style_class: 'system-status-icon wg-panel-icon',
         });
-        this.add_child(this._icon);
+        // The icon with a small amber dot in its corner while the battery is low.
+        const iconBox = new St.Widget({layout_manager: new Clutter.BinLayout(), y_align: Clutter.ActorAlign.CENTER});
+        iconBox.add_child(this._icon);
+        this._lowDot = new St.Widget({style_class: 'wg-low-dot', visible: false, x_expand: true, y_expand: true,
+            x_align: Clutter.ActorAlign.END, y_align: Clutter.ActorAlign.START});
+        iconBox.add_child(this._lowDot);
+        // On hover (menu closed) the battery percentage shows next to the icon: shell panel buttons have no tooltips.
+        this._hoverLabel = new St.Label({style_class: 'wg-hover-label', visible: false,
+            y_align: Clutter.ActorAlign.CENTER});
+        const panelRow = new St.BoxLayout({y_align: Clutter.ActorAlign.CENTER});
+        panelRow.add_child(iconBox);
+        panelRow.add_child(this._hoverLabel);
+        this.add_child(panelRow);
+        this.connect('notify::hover', () => this._updateHover());
 
         this.menu.actor.add_style_class_name('wg-boxpointer');
         this.menu.box.add_style_class_name('wg-menu');
@@ -128,6 +143,7 @@ class WheelguardIndicator extends PanelMenu.Button {
         this._applyScheme();
 
         this.menu.connect('open-state-changed', (_menu, open) => {
+            this._updateHover();
             if (open && this._proxy)
                 this._proxy.RefreshRemote(() => {});          // fire and forget: the signal brings the result
         });
@@ -178,10 +194,12 @@ class WheelguardIndicator extends PanelMenu.Button {
 
         this._body = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, style_class: 'wg-body'});
         this._root.add_child(this._body);
+        this._buildAsleep();
         this._buildBattery();
         this._buildProtection();
         this._buildClickLock();
         this._buildDpi();
+        this._buildSetups();
 
         this._offline = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, style_class: 'wg-card wg-offline'});
         this._offlineText = makeLabel("Wheelguard isn't running", 'wg-card-title');
@@ -201,8 +219,24 @@ class WheelguardIndicator extends PanelMenu.Button {
         return new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, style_class: 'wg-card'});
     }
 
+    // One calm row instead of an empty battery card and an empty DPI card.
+    _buildAsleep() {
+        const card = this._card();
+        const row = new St.BoxLayout({style_class: 'wg-row'});
+        this._asleepGlyph = new St.DrawingArea({style_class: 'wg-battery', width: 42, height: 20,
+            y_align: Clutter.ActorAlign.CENTER, opacity: 120});
+        this._asleepGlyph.connect('repaint', area => this._paintBattery(area, true));
+        row.add_child(this._asleepGlyph);
+        this._asleepText = makeLabel(EMPTY_STATE.OfflineNote, 'wg-card-title');
+        row.add_child(this._asleepText);
+        card.add_child(row);
+        this._asleepCard = card;
+        this._body.add_child(card);
+    }
+
     _buildBattery() {
         const card = this._card();
+        this._batteryCard = card;
         const row = new St.BoxLayout({style_class: 'wg-row'});
         this._battery = new St.DrawingArea({style_class: 'wg-battery', width: 42, height: 20,
             y_align: Clutter.ActorAlign.CENTER});
@@ -325,10 +359,58 @@ class WheelguardIndicator extends PanelMenu.Button {
         this._body.add_child(card);
     }
 
-    // ------------------------------------------------------------------ painting
-    _paintBattery(area) {
-        const palette = PALETTE[this._light ? 'light' : 'dark'];
+    // Saved mouse setups (Mouse page > Setups): one tap applies one, the same guarded path as the Apply button.
+    _buildSetups() {
+        const card = this._card();
+        const head = new St.BoxLayout({style_class: 'wg-row'});
+        head.add_child(new St.Label({text: 'Setups', style_class: 'wg-card-title', x_expand: true,
+            y_align: Clutter.ActorAlign.CENTER}));
+        card.add_child(head);
+        this._setupSeg = new St.BoxLayout({style_class: 'wg-seg', reactive: true, x_expand: true});
+        this._setupSeg.layout_manager.homogeneous = true;
+        card.add_child(this._setupSeg);
+        this._setupCard = card;
+        this._setupKey = null;
+        this._setupChips = [];
+        this._body.add_child(card);
+    }
+
+    _renderSetups() {
         const s = this._state;
+        const names = (s.SetupNames || []).slice(0, MAX_SETUP_CHIPS);
+        const key = names.join('|');
+        if (key !== this._setupKey) {
+            this._setupKey = key;
+            this._setupSeg.destroy_all_children();
+            this._setupChips = names.map(name => {
+                const shown = name.length > 14 ? `${name.slice(0, 13)}…` : name;
+                const chip = new St.Button({style_class: 'wg-chip', can_focus: true, x_expand: true, label: shown});
+                chip.connect('clicked', () => this._applySetup(name));
+                this._setupSeg.add_child(chip);
+                return chip;
+            });
+        }
+        this._setupCard.visible = s.Online && names.length > 0;
+        const enabled = s.StageReason === '';
+        this._setupSeg.opacity = enabled ? 255 : 128;
+        this._setupChips.forEach((chip, i) => {
+            chip.reactive = enabled;
+            if (names[i] === s.ActiveSetup)
+                chip.add_style_class_name('wg-chip-active');
+            else
+                chip.remove_style_class_name('wg-chip-active');
+        });
+    }
+
+    _applySetup(name) {
+        if (this._proxy)
+            this._proxy.ApplySetupRemote(name, () => this._pull());
+    }
+
+    // ------------------------------------------------------------------ painting
+    _paintBattery(area, dimmed = false) {
+        const palette = PALETTE[this._light ? 'light' : 'dark'];
+        const s = dimmed ? EMPTY_STATE : this._state;
         const known = s.Online && s.Battery >= 0;
         const tone = !known ? palette.faint
             : (s.Battery <= 15 ? palette.coral : (s.Battery <= 30 ? palette.amber : palette.good));
@@ -379,6 +461,16 @@ class WheelguardIndicator extends PanelMenu.Button {
         else
             this.menu.box.remove_style_class_name('wg-light');
         this._battery.queue_repaint();
+        this._asleepGlyph.queue_repaint();
+    }
+
+    // Percentage beside the panel icon while hovering it (and the same words for screen readers).
+    _updateHover() {
+        const s = this._state;
+        const known = this._running && s.Online && s.Battery >= 0;
+        this._hoverLabel.text = known ? `${s.Battery}%` : '';
+        this._hoverLabel.visible = known && this.hover && !this.menu.isOpen;
+        this.accessible_name = known ? `Wheelguard, mouse battery ${s.Battery}%` : 'Wheelguard';
     }
 
     // ------------------------------------------------------------------ rendering the cached state
@@ -386,6 +478,8 @@ class WheelguardIndicator extends PanelMenu.Button {
         const s = this._state;
         const running = this._running;
         this._icon.opacity = running ? 255 : 110;
+        this._lowDot.visible = running && s.BatteryLow;
+        this._updateHover();
         this._body.visible = running;
         this._offline.visible = !running;
 
@@ -404,6 +498,11 @@ class WheelguardIndicator extends PanelMenu.Button {
             return;
         }
 
+        const mouseHere = s.Online;
+        this._batteryCard.visible = mouseHere;
+        this._dpiCard.visible = mouseHere;
+        this._asleepCard.visible = !mouseHere;
+        this._asleepText.text = s.OfflineNote;
         const known = s.Online && s.Battery >= 0;
         this._percent.text = known ? `${s.Battery}%` : '—';
         if (known)
@@ -425,6 +524,7 @@ class WheelguardIndicator extends PanelMenu.Button {
 
         this._renderClickLock(canSwitch);
         this._renderChips();
+        this._renderSetups();
     }
 
     _setSwitch(button, on) {

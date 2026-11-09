@@ -339,6 +339,11 @@ WgScrollPage {
         }
     }
 
+    // ---------------------------------------------------------------- auto-tune
+    AutoTuneCard {
+        width: parent.width
+    }
+
     // ---------------------------------------------------------------- monitor
     WgCard {
         width: parent.width

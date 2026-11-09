@@ -28,6 +28,9 @@ def parse_args(argv):
     ap.add_argument("--socket", help="daemon socket path (default $XDG_RUNTIME_DIR/wheelguard.sock)")
     ap.add_argument("--tray", action="store_true",
                     help="start hidden in the panel (does nothing if there is no panel icon or tray)")
+    keys = ap.add_argument_group("for keyboard shortcuts (talk to the running app, no window)")
+    keys.add_argument("--toggle-clicklock", action="store_true", help="switch Click-Lock on or off")
+    keys.add_argument("--next-dpi-stage", action="store_true", help="switch the mouse to its next DPI stage")
     shot = ap.add_argument_group("screenshots (development)")
     shot.add_argument("--screenshot", metavar="PNG", help="render the window to PNG after a delay, then quit")
     shot.add_argument("--page", choices=("scroll", "mouse", "pointer", "about"), default="scroll")
@@ -35,8 +38,14 @@ def parse_args(argv):
     shot.add_argument("--theme", choices=("dark", "light"), help="force a theme instead of following GNOME")
     shot.add_argument("--text-scale", type=float, help="force a text size factor (GNOME Large Text is 1.25)")
     shot.add_argument("--size", default="1008x708", help="window size WxH including shadow margin")
+    shot.add_argument("--welcome", type=int, nargs="?", const=0, metavar="STEP",
+                      help="show the first-run welcome at this step (0 to 2)")
     shot.add_argument("--stage-demo", action="store_true",
                       help="on the Mouse page, stage two edits once the mouse has been read")
+    shot.add_argument("--setups-demo", action="store_true",
+                      help="on the Mouse page, save two example setups once the mouse has been read")
+    shot.add_argument("--hot-button", type=int, metavar="N",
+                      help="on the Mouse page, light up button N (0 to 4) on the drawing")
     shot.add_argument("--delay-ms", type=int, default=1500)
     return ap.parse_args(argv)
 
@@ -69,6 +78,11 @@ def wait_for(QEventLoop, QTimer, signal, ms):
 def main(argv=None):
     args = parse_args(sys.argv[1:] if argv is None else argv)
 
+    if args.toggle_clicklock or args.next_dpi_stage:
+        from . import commands
+        return commands.main(commands.TOGGLE_CLICKLOCK if args.toggle_clicklock else commands.NEXT_DPI_STAGE,
+                             args.socket)
+
     # Qt's QML disk cache trusts source mtimes, but RPM clamps every file to the build day, so two
     # releases built the same day look identical and stale bytecode gets loaded. Key it by version.
     from .. import __version__
@@ -76,7 +90,7 @@ def main(argv=None):
     os.environ.setdefault("QML_DISK_CACHE_PATH", str(cache_root / "Wheelguard" / f"qmlcache-{__version__}"))
 
     try:
-        from PySide6.QtCore import QEventLoop, QTimer, QUrl
+        from PySide6.QtCore import QEventLoop, QObject, QTimer, QUrl
         from PySide6.QtGui import QFont, QGuiApplication, QIcon
         from PySide6.QtWidgets import QApplication
     except ImportError:
@@ -104,7 +118,12 @@ def main(argv=None):
     from PySide6.QtQml import QQmlApplicationEngine
     from PySide6.QtQuickControls2 import QQuickStyle
     from . import shellext, tray
+    from .appsettings import AppSettings
     from .backend import Appearance, Autostart, DaemonClient, LiquidGlass, PointerSettings
+    from .autotune import AutoTune
+    from .batteryalert import BatteryAlerts
+    from .diagnostics import Diagnostics
+    from .shortcuts import ShortcutsBackend
     from .mouse import MouseController
 
     QQuickStyle.setStyle("Basic")
@@ -149,6 +168,11 @@ def main(argv=None):
     pointer = PointerSettings(engine)
     mouse = MouseController(parent=engine)
     shell = tray.AppShell(engine)
+    auto_tune = AutoTune(engine)
+    daemon.tick.connect(auto_tune.feed)
+    app_settings = AppSettings(parent=engine, welcome_enabled=not shot or args.welcome is not None)
+    if not shot:
+        BatteryAlerts(mouse, app_settings, parent=engine)
 
     engine.addImportPath(str(QML_DIR))
     ctx = engine.rootContext()
@@ -158,6 +182,10 @@ def main(argv=None):
     ctx.setContextProperty("appearance", appearance)
     ctx.setContextProperty("liquidGlass", glass)
     ctx.setContextProperty("shell", shell)
+    ctx.setContextProperty("autoTune", auto_tune)
+    ctx.setContextProperty("appSettings", app_settings)
+    ctx.setContextProperty("shortcuts", ShortcutsBackend(parent=engine))
+    ctx.setContextProperty("diagnostics", Diagnostics(daemon, mouse, ext, app_settings, engine))
     ctx.setContextProperty("autostart", Autostart(engine))
     ctx.setContextProperty("iconUrl", QUrl.fromLocalFile(str(icon_path)))
     engine.load(QUrl.fromLocalFile(str(QML_DIR / "Main.qml")))
@@ -182,6 +210,12 @@ def main(argv=None):
     win.setWidth(w)
     win.setHeight(h)
     win.setProperty("pageIndex", PAGES[args.page])
+    if args.hot_button is not None:
+        page = win.findChild(QObject, "mousePage")
+        if page is not None:
+            page.setProperty("hotButton", args.hot_button)
+    if args.welcome is not None:
+        win.setProperty("welcomeStep", max(0, min(2, args.welcome)))
     if args.advanced:
         win.setProperty("advancedOpen", True)
 
@@ -191,6 +225,16 @@ def main(argv=None):
                 mouse.stateChanged.disconnect(stage_once)
                 mouse.stageDemoEdits()
         mouse.stateChanged.connect(stage_once)
+
+    if args.setups_demo:
+        def setups_once():
+            if mouse.state == "ready":
+                mouse.stateChanged.disconnect(setups_once)
+                mouse.saveSetup("Desktop")
+                mouse.setValues({"dpi_x2": 3200, "dpi_y2": 3200, "active_stage": 2})
+                mouse.saveSetup("Gaming")
+                mouse.discard()
+        mouse.stateChanged.connect(setups_once)
 
     pointer.refresh()
     appearance.watch()

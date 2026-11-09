@@ -155,3 +155,14 @@ def prefers_dark(text: Optional[str] = None) -> bool:
     if text is None:
         text = _run(["get", INTERFACE_SCHEMA, "color-scheme"]) or ""
     return "prefer-dark" in text
+
+
+def run(args) -> Optional[str]:
+    """Run `gsettings ARGS` (stdout, or None on failure). With WHEELGUARD_GSETTINGS_READONLY=1 a `set` is only printed."""
+    args = list(args)
+    if args and args[0] == "set" and readonly():
+        print("[gsettings readonly] " + " ".join(args), flush=True)
+        return ""
+    if not available():
+        return None
+    return _run(args)

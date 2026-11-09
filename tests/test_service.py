@@ -54,6 +54,7 @@ if HAVE_QT:
             super().__init__()
             self.online, self.battery, self.charging = True, 80, False
             self.stageLabels, self.activeStage, self.stageReason = ["400", "800"], 1, ""
+            self.stagesEnabled = True
             self.calls = []
 
         def setActiveStage(self, i):
@@ -140,6 +141,46 @@ class ServiceTests(unittest.TestCase):
         self.svc.set_clicklock(True)
         self.svc.set_clicklock_ms(7000)
         self.assertEqual(self.d.calls, [])
+
+    def test_apply_setup_only_for_names_the_mouse_lists(self):
+        self.m.setupNames, self.m.activeSetup = ["Gaming"], "Gaming"
+        self.m.applySetup = lambda name: self.m.calls.append(("setup", name))
+        self.svc.attach(self.d, self.m)
+        s = self.svc.current()
+        self.assertEqual((s["SetupNames"], s["ActiveSetup"]), (["Gaming"], "Gaming"))
+        self.svc.apply_setup("Gaming")
+        self.svc.apply_setup("../../etc/passwd")
+        self.assertEqual(self.m.calls, [("setup", "Gaming")])
+
+    def test_toggle_clicklock_flips_and_reports(self):
+        self.svc.attach(self.d, self.m)
+        self.assertEqual(self.svc.toggle_clicklock(), "ok:Click-Lock on")
+        self.d.clickLock = True
+        self.assertEqual(self.svc.toggle_clicklock(), "ok:Click-Lock off")
+        self.assertEqual(self.d.calls, [("clicklock", True), ("clicklock", False)])
+
+    def test_toggle_clicklock_needs_the_service(self):
+        self.assertTrue(self.svc.toggle_clicklock().startswith("error:"))       # not attached yet
+        self.d.state = "stopped"
+        self.svc.attach(self.d, self.m)
+        self.assertTrue(self.svc.toggle_clicklock().startswith("error:"))
+        self.assertEqual(self.d.calls, [])
+
+    def test_next_dpi_stage_wraps_round(self):
+        self.svc.attach(self.d, self.m)
+        self.assertEqual(self.svc.next_dpi_stage(), "ok:DPI 400")       # stage 1 of 2 -> back to the first
+        self.m.activeStage = 0
+        self.assertEqual(self.svc.next_dpi_stage(), "ok:DPI 800")
+        self.assertEqual(self.m.calls, [("stage", 0), ("stage", 1)])
+
+    def test_next_dpi_stage_says_why_not(self):
+        self.assertTrue(self.svc.next_dpi_stage().startswith("error:"))
+        self.svc.attach(self.d, self.m)
+        self.m.stageReason = "Unsaved changes on the Mouse page"
+        self.assertEqual(self.svc.next_dpi_stage(), "error:Unsaved changes on the Mouse page")
+        self.m.stageReason, self.m.stageLabels = "", []
+        self.assertTrue(self.svc.next_dpi_stage().startswith("error:"))
+        self.assertEqual(self.m.calls, [])
 
     def test_show_window_after_attach_is_signalled(self):
         self.svc.attach(self.d, self.m)
@@ -284,6 +325,24 @@ class SingleInstanceTests(unittest.TestCase):
         self.assertEqual(out.split(), ["80", "True"])
         self.assertEqual(m.calls, [("stage", 0)])
         self.assertEqual(d.calls, [("enabled", False)])
+
+
+    def test_shortcut_commands_over_the_bus(self):
+        svc = service.Service(bus=self.first)
+        self.assertTrue(service.claim(self.first) and svc.register())
+        d, m = FakeDaemon(), FakeMouse()
+        svc.attach(d, m)
+        out = self.other_process(self.PRELUDE + (
+            "from wheelguard.gui import commands\n"
+            "print(commands.run_action('toggle-clicklock', service.call_remote_text, lambda: (False, 'x')))\n"
+            "print(commands.run_action('next-dpi-stage', service.call_remote_text, lambda: (False, 'x')))\n"))
+        self.assertEqual(out.splitlines(), ["(True, 'Click-Lock on')", "(True, 'DPI 400')"])
+        self.assertEqual(d.calls, [("clicklock", True)])
+        self.assertEqual(m.calls, [("stage", 0)])
+
+    def test_no_app_means_no_answer(self):
+        out = self.other_process(self.PRELUDE + "print(service.call_remote_text('NextDpiStage'))")
+        self.assertEqual(out.split(), ["None"])
 
 
 if __name__ == "__main__":
