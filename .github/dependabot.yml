@@ -1,10 +1,10 @@
-# Proposes updates to the pinned GitHub Actions once a week, as pull requests to review.
+# Proposes updates to the pinned GitHub Actions once a month, as pull requests to review.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
     groups:
       actions:
         patterns: ["*"]
