@@ -26,6 +26,7 @@
           <li>Click-Lock: hold the left button and Wheelguard keeps clicking (or keeps it pressed) until your next click</li>
           <li>Switch it, pick the mode and set the hold time from the panel popup or the Pointer page</li>
           <li>New mice: Logitech G Pro X Superlight (first generation) and Razer DeathAdder V4 Pro</li>
+          <li>Fixed: the left button could stay pressed after the mouse woke up or reconnected</li>
         </ul>
       </description>
     </release>

@@ -131,6 +131,7 @@ fi
 - Switch it on and off, pick the mode and set the hold time from the panel popup or the Pointer page
 - New mice: Logitech G Pro X Superlight (first generation) and Razer DeathAdder V4 Pro, with the scroll
   filter and their on-board settings (DPI stages, polling rate, battery; sleep timer on the Razer)
+- Fix: the left button could stay pressed after the mouse woke up or reconnected while it was held
 
 * Wed Nov 04 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.4.0-1
 - One package for every Fedora release: installed under /usr/share/wheelguard, runs on any Python 3
