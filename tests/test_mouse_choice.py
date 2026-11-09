@@ -8,7 +8,7 @@ from unittest import mock
 from evdev import ecodes as e
 
 from wheelguard import config as C
-from wheelguard import daemon, mice, scan
+from wheelguard import daemon, scan
 from wheelguard.control import Controller
 from wheelguard.gui import protocol
 from wheelguard.ipc import Server

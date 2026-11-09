@@ -156,7 +156,7 @@ class Engine(unittest.TestCase):
             for code in list(down):                     # the finger lets go of everything
                 t += 1.0
                 ev, _ = deb.process(k(code, 0), t)
-                for _, c, v in ev:
+                for _, c, _v in ev:
                     seen.discard(c)
             self.assertEqual(seen, set())
 
