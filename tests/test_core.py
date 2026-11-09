@@ -97,7 +97,7 @@ class RealIntent(unittest.TestCase):
         last = ticks[-1][0]
         ups = [(last + 0.100 + i * 0.015, 1) for i in range(3)]
         final, _ = run(ticks + ups)
-        for t, s in ticks + ups:
+        for t, _s in ticks + ups:
             self.assertEqual(final[t], EMIT, t)
         wf = WheelFilter()
         for t, s in ticks + ups:

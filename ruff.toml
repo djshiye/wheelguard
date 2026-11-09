@@ -1,0 +1,6 @@
+# Lint settings for CI (`ruff check`): real bugs only, no style rules.
+target-version = "py312"
+line-length = 120
+
+[lint]
+select = ["F", "E9", "B"]
