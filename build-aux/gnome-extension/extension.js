@@ -46,6 +46,7 @@ const IFACE_XML = `
     <method name="ShowWindow"/>
     <method name="Refresh"/>
     <signal name="StateChanged"><arg type="a{sv}" name="state"/></signal>
+    <signal name="StageAnnounced"><arg type="s" name="label"/><arg type="i" name="stage"/><arg type="i" name="count"/></signal>
   </interface>
 </node>`;
 const WgProxy = Gio.DBusProxy.makeProxyWrapper(IFACE_XML);
@@ -111,6 +112,7 @@ class WheelguardIndicator extends PanelMenu.Button {
         this._chipLabels = null;
         this._proxy = null;
         this._signalId = 0;
+        this._stageSignalId = 0;
         this._watchId = 0;
         this._startTimeout = 0;
         this._clickLockTimeout = 0;
@@ -712,6 +714,8 @@ class WheelguardIndicator extends PanelMenu.Button {
             this._proxy = proxy;
             this._signalId = proxy.connectSignal('StateChanged',
                 (_proxy, _sender, [state]) => this._setState(unpack(state)));
+            this._stageSignalId = proxy.connectSignal('StageAnnounced',
+                (_proxy, _sender, [label, stage, count]) => this._showStage(label, stage, count));
             this._running = true;
             this._starting = false;
             this._clearStartTimeout();
@@ -731,10 +735,25 @@ class WheelguardIndicator extends PanelMenu.Button {
     _dropProxy() {
         if (this._proxy && this._signalId)
             this._proxy.disconnectSignal(this._signalId);
+        if (this._proxy && this._stageSignalId)
+            this._proxy.disconnectSignal(this._stageSignalId);
         this._signalId = 0;
+        this._stageSignalId = 0;
         this._proxy = null;
         this._lastFocusApp = null;
         this._clearFocusTimeout();
+    }
+
+    // DPI popup: GNOME's own on-screen display, the one volume and brightness keys use. The bar shows
+    // where the stage sits in the cycle.
+    _showStage(label, stage, count) {
+        if (typeof label !== 'string' || label.length > 16 || !(count > 0) || stage < 0 || stage >= count)
+            return;
+        const osd = Main.osdWindowManager;
+        if (typeof osd?.showAll !== 'function')
+            return;
+        osd.showAll(fileIcon(`${this._extension.path}/icons/wheelguard-symbolic.svg`), `${label} DPI`,
+            (stage + 1) / count, 1);
     }
 
     _pull() {

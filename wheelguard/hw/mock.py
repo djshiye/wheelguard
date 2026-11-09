@@ -5,13 +5,14 @@ endgame.EndgameDevice, so every mock run goes through the real allow-list, gate 
 ever created when WHEELGUARD_HW_MOCK is set (see session.default_opener) or by tests.
 
     WHEELGUARD_HW_MOCK=connected|connected-wired|asleep|unsupported|denied|missing
-                       razer|razer-wired|razer-asleep
+                       razer|razer-wired|razer-asleep|razer-nobuttons
                        logitech|logitech-wired|logitech-factory|logitech-asleep
 
 FakeRazer and FakeLogitech do the same for the other two mice: they sit under razer.RazerDevice and
 hidpp.HidppDevice and answer like the real protocol (as documented by OpenRazer, libratbag and Solaar).
 """
 import os
+import time
 from collections import deque
 from typing import Deque, Dict, List, Optional
 
@@ -21,7 +22,7 @@ from .hidraw import (AccessDenied, LOGI_SUPERLIGHT_WIRED, LOGI_SUPERLIGHT_WIRELE
 
 MOCK_ENV = "WHEELGUARD_HW_MOCK"
 MODES = ("connected", "connected-wired", "asleep", "unsupported", "denied", "missing",
-         "razer", "razer-wired", "razer-asleep",
+         "razer", "razer-wired", "razer-asleep", "razer-nobuttons",
          "logitech", "logitech-wired", "logitech-factory", "logitech-asleep")
 
 
@@ -72,9 +73,23 @@ class FakeHidraw:
         self.mouse_pid = mouse_pid if mouse_pid is not None else (0x1983 if mode == "unsupported" else PID_WIRED)
         self.sent: List[bytes] = []      # every frame that reached the device
         self._reply: Optional[bytes] = None
+        self.events: Deque[bytes] = deque()     # input reports waiting to be read (report 3)
 
     def close(self):
         pass
+
+    def press_dpi_button(self) -> int:
+        """What the mouse does on its own: next stage, wrapping, and a "stage changed" report."""
+        n = max(1, self.blob[0x0E])
+        self.blob[0x0D] = (self.blob[0x0D] + 1) % n
+        self.events.append(bytes((0x03, 0x02, self.blob[0x0D], 0, 0, 0, 0, 0)))
+        return self.blob[0x0D]
+
+    def read(self, timeout: float, size: int = 64) -> Optional[bytes]:
+        if self.events:
+            return self.events.popleft()
+        time.sleep(min(timeout, 0.02))
+        return None
 
     def set_feature(self, data: bytes) -> None:
         data = bytes(data)
@@ -127,11 +142,19 @@ class FakeRazer:
         self.idle = 300                 # seconds
         self.low = 0x26
         self.level = 204                # of 255 -> 80%
+        # Button assignments (function, size, data...) by button id; the DPI button isn't modelled.
+        self.buttons = {bid: bytes((0x01, 0x01, bid, 0, 0, 0, 0)) for bid in (1, 2, 3, 4, 5)}
+        self.button_sizes = () if mode == "razer-nobuttons" else (0x0A, 0x50)
         self.sent: List[bytes] = []
         self._reply: Optional[bytes] = None
 
     def close(self):
         pass
+
+    def press_dpi_button(self) -> int:
+        """Next stage, wrapping; the mouse tells nobody (no event is documented for this one)."""
+        self.active = self.active % len(self.stages) + 1
+        return self.active - 1
 
     def set_feature(self, data: bytes) -> None:
         data = bytes(data)
@@ -171,6 +194,15 @@ class FakeRazer:
             self.idle = (r[8] << 8) | r[9]
         elif (cls, cid) == (0x07, 0x01):
             self.low = r[8]
+        elif (cls, cid) in ((0x02, 0x8C), (0x02, 0x0C)):
+            bid = r[9]
+            if r[5] not in self.button_sizes or bid not in self.buttons:
+                status = 0x05
+            elif cid == 0x8C:
+                a[0], a[1], a[2] = r[8], bid, r[10]
+                a[3:10] = self.buttons[bid]
+            else:
+                self.buttons[bid] = bytes(r[11:18])
         else:
             raise AssertionError(f"the mock Razer received unexpected command {cls:02x}:{cid:02x}")
         r[0] = status
@@ -211,6 +243,9 @@ def superlight_profile(size: int = 255, dpis=(400, 800, 1600, 3200, 0), rate_ms:
     p[0], p[1], p[2] = rate_ms, default, 0xFF
     for k, d in enumerate(dpis):
         p[3 + 2 * k], p[4 + 2 * k] = d & 0xFF, d >> 8
+    for k, mask in enumerate((0x01, 0x02, 0x04, 0x08, 0x10)):     # left, right, middle, back, forward
+        p[0x20 + 4 * k:0x24 + 4 * k] = bytes((0x80, 0x01, 0x00, mask))
+    p[0x34:0x38] = bytes((0x90, 0x05, 0x00, 0x00))                 # sixth binding: DPI cycle (left alone)
     return _sealed(p)
 
 
@@ -245,6 +280,15 @@ class FakeLogitech:
 
     def close(self):
         pass
+
+    def press_dpi_button(self) -> int:
+        """Next DPI slot, wrapping, and the onboard-profiles "DPI index changed" notification."""
+        sector = self.sectors[self.current]
+        n = sum(1 for k in range(5) if sector[3 + 2 * k] | (sector[4 + 2 * k] << 8)) or 1
+        self.dpi_index = (self.dpi_index + 1) % n
+        self._out.append(bytes((0x11, 0x01 if not self.wired else 0xFF, self.FEATURES[0x8100], 0x10, self.dpi_index))
+                         + bytes(15))
+        return self.dpi_index
 
     def _reply(self, req: bytes, params: bytes) -> None:
         self._out.append(bytes((0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)))   # pointer noise
@@ -327,7 +371,10 @@ class FakeLogitech:
             raise AssertionError(f"the mock Superlight received onboard-profile function {fn}")
 
     def read(self, timeout: float, size: int = 64) -> Optional[bytes]:
-        return self._out.popleft() if self._out else None
+        if self._out:
+            return self._out.popleft()
+        time.sleep(min(timeout, 0.02))
+        return None
 
 
 _singletons: dict = {}

@@ -1,6 +1,10 @@
 """QObject backend for the Mouse page: reads and writes the mouse's own settings over its vendor HID
 channel (wheelguard.hw). All HID I/O runs on one worker thread; the UI thread only stages edits.
 
+The DPI popup: while it is on, a watcher thread asks the session for the active stage (the mouse
+reports it, or it is read every POLL_S seconds, see Model.stage_watch) and the controller announces a
+stage the mouse switched to on its own (its DPI button) or that a keyboard shortcut picked.
+
 Edits are never sent live. `staged` holds only the keys that differ from what the mouse reported;
 Apply sends those (the session re-reads the mouse first and writes only the groups that changed).
 The tray is the one exception: setActiveStage() applies just the active DPI stage, and only when
@@ -9,6 +13,7 @@ that never touch the page state.
 """
 import os
 import tempfile
+import threading
 import time
 from typing import Dict, Optional
 
@@ -20,6 +25,9 @@ from ..hw.session import (ApplyResult, Battery, HwError, MouseSession, Snapshot,
                           WriteFailed, CODECS, codec_for)
 
 BUSY_STATES = ("reading", "applying")
+WATCH_S = 3.0               # one listening stretch for the mice that report their DPI button
+POLL_S = 1.5                # how often the stage is read on the mouse that doesn't
+WATCH_RETRY_S = (5, 15, 60)     # pause after the mouse couldn't be reached, growing
 REFRESH_MIN_S = 20          # at most one tray-triggered refresh per this many seconds
 BATTERY_EVERY_MS = 5 * 60 * 1000
 
@@ -58,6 +66,42 @@ class _Worker(QObject):
         self.finished.emit(kind, res)
 
 
+class _StageWatcher(threading.Thread):
+    """Background thread for the DPI popup. Read-only: it only ever calls MouseSession.watch_stage(),
+    which gives the mouse up at once when the page or the panel needs it."""
+
+    def __init__(self, session: MouseSession, seen):
+        super().__init__(name="wheelguard-stage-watch", daemon=True)
+        self._session = session
+        self._seen = seen
+        self.poll = False
+        self.active = threading.Event()        # set while the popup is on and a mouse is ready
+        self.stopped = threading.Event()
+
+    def _halt(self) -> bool:
+        return self.stopped.is_set() or not self.active.is_set()
+
+    def run(self):
+        fails = 0
+        while not self.stopped.is_set():
+            if not self.active.wait(0.5):
+                continue
+            began = time.monotonic()
+            try:
+                stage = self._session.watch_stage(self._halt, WATCH_S)
+            except Exception:       # noqa: BLE001 - asleep, unplugged, no access: wait and try again
+                self.stopped.wait(WATCH_RETRY_S[min(fails, len(WATCH_RETRY_S) - 1)])
+                fails += 1
+                continue
+            fails = 0
+            if stage is not None:
+                self._seen(stage)
+            if self.poll:
+                self.stopped.wait(POLL_S)
+            elif time.monotonic() - began < 0.1:
+                self.stopped.wait(0.2)          # handed the mouse to an operation: let it start
+
+
 class MouseController(QObject):
     stateChanged = Signal()
     infoChanged = Signal()
@@ -65,7 +109,9 @@ class MouseController(QObject):
     progressChanged = Signal()
     messageChanged = Signal()
     trayChanged = Signal()          # anything the tray icon or popup shows
+    stageAnnounced = Signal(str, int, int)      # DPI popup: label ("1600"), stage, stage count
     _request = Signal(str, object)
+    _stageSeen = Signal(int)        # from the watcher thread
 
     def __init__(self, session: Optional[MouseSession] = None, parent=None, clock=time.monotonic):
         super().__init__(parent)
@@ -114,6 +160,13 @@ class MouseController(QObject):
         self._worker.finished.connect(self._on_finished)
         self._request.connect(self._worker.run)
 
+        self._popup = False                     # DPI popup on (app setting)
+        self._announce: Optional[int] = None    # a shortcut asked for this stage: announce it once set
+        self._watcher: Optional[_StageWatcher] = None
+        self._stageSeen.connect(self._on_stage_seen)
+        self.stateChanged.connect(self._update_watch)
+        self.infoChanged.connect(self._update_watch)
+
     # ---- thread management
     def _submit(self, kind: str, arg=None):
         if self._thread is None:
@@ -124,6 +177,9 @@ class MouseController(QObject):
 
     def shutdown(self):
         """Let an operation in flight finish (a half-applied settings update is worse than a short wait)."""
+        if self._watcher is not None:
+            self._watcher.stopped.set()
+            self._watcher.join(5)
         if self._thread is not None:
             self._thread.quit()
             self._thread.wait(40000)
@@ -206,6 +262,9 @@ class MouseController(QObject):
             self.valuesChanged.emit()
             if kind == "stage":
                 self._set_message("")
+                if self._announce is not None and self._baseline["active_stage"] == self._announce:
+                    self._announce_stage(self._announce)
+                self._announce = None
             elif res.unchanged:
                 self._set_message("The mouse already has these settings.", "ok")
             elif kind == "restore":
@@ -326,15 +385,64 @@ class MouseController(QObject):
         elif self._state == "ready":
             self._background("battery")
 
+    # ---- DPI popup
+    @Slot(bool)
+    def setStagePopup(self, on: bool):
+        """App setting: announce DPI stage changes (and watch the mouse for them) or not."""
+        self._popup = bool(on)
+        self._update_watch()
+
+    @Slot()
+    def startStageWatch(self):
+        """Start the watcher thread (the real app only; screenshots and tests that don't ask stay quiet)."""
+        if self._watcher is None:
+            self._watcher = _StageWatcher(self._session, self._stageSeen.emit)
+            self._watcher.start()
+        self._update_watch()
+
+    def _update_watch(self):
+        w = self._watcher
+        if w is None:
+            return
+        w.poll = self._model.stage_watch == "poll"
+        if self._popup and self._state == "ready" and self._known and self._blob is not None:
+            w.active.set()
+        else:
+            w.active.clear()
+
+    def _announce_stage(self, stage: int):
+        labels = traymodel.stage_labels(self._baseline)
+        if self._popup and 0 <= stage < len(labels):
+            self.stageAnnounced.emit(labels[stage], stage, len(labels))
+
     @Slot(int)
-    def setActiveStage(self, index: int):
+    def _on_stage_seen(self, stage: int):
+        """The mouse reports this stage. Take it as the new baseline when it differs (its DPI button)."""
+        if self._state != "ready" or self._blob is None or self._pending_stage is not None:
+            return
+        if stage == self._baseline["active_stage"] or not 0 <= stage < int(self._baseline["stage_count"]):
+            return
+        try:
+            blob = self._codec.encode(self._blob, {"active_stage": stage})
+        except ValueError:
+            return
+        self._blob = blob
+        self._baseline = self._codec.flat(self._codec.decode(blob))
+        self.infoChanged.emit()
+        self._retain_edits()
+        self._announce_stage(stage)
+
+    @Slot(int)
+    def setActiveStage(self, index: int, announce: bool = False):
         """Switch the active DPI stage now (tray/popup). Goes through the normal apply path, so only the
-        0x14 group is written, and only when nothing else is staged: pending edits are never sent."""
+        0x14 group is written, and only when nothing else is staged: pending edits are never sent.
+        announce: show the DPI popup once it is set (keyboard shortcut)."""
         if self._stage_reason() or self._state != "ready":
             return
         if not 0 <= index < self._baseline["stage_count"] or index == self._baseline["active_stage"]:
             return
         self._set_message("")
+        self._announce = index if announce else None
         self._pending_stage = index
         self._set_state("applying")
         self._set_progress(0.0, "Switching DPI stage…")
@@ -468,10 +576,13 @@ class MouseController(QObject):
     idleMax = Property(int, lambda s: razer.IDLE_MAX, constant=True)
     lowBatteryCodes = Property("QVariantList", lambda s: [c for c, _l in razer.LOW_BATTERY], constant=True)
     lowBatteryLabels = Property("QVariantList", lambda s: [l for _c, l in razer.LOW_BATTERY], constant=True)
-    # Endgame Gear constants shared with its codec so the QML never duplicates an encoding.
-    actionCodes = Property("QVariantList", lambda s: [(t << 8) | c for (t, c), _n in codec.ACTIONS], constant=True)
-    actionNames = Property("QVariantList", lambda s: [n for _k, n in codec.ACTIONS], constant=True)
-    buttonNames = Property("QVariantList", lambda s: list(codec.BUTTON_NAMES), constant=True)
+    # Button actions of the connected model, from its codec, so the QML never duplicates an encoding.
+    actionCodes = Property("QVariantList", lambda s: [c for c, _n in s._codec.ACTION_LIST], notify=infoChanged)
+    actionNames = Property("QVariantList", lambda s: [n for _c, n in s._codec.ACTION_LIST], notify=infoChanged)
+    buttonNames = Property("QVariantList", lambda s: list(s._codec.BUTTON_NAMES), notify=infoChanged)
+    # False when the mouse didn't answer the button commands (Razer firmware that lacks them).
+    buttonsKnown = Property(bool, lambda s: bool(s._baseline.get("buttons_known", True)), notify=infoChanged)
+    # Endgame Gear constants shared with its codec.
     filterMax = Property(int, lambda s: codec.FILTER_MAX, constant=True)
     filterDefault = Property(int, lambda s: codec.FILTER_DEFAULT, constant=True)
     gxSpeed = Property(int, lambda s: codec.GX_SPEED, constant=True)

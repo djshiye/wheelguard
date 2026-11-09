@@ -29,6 +29,9 @@ class Model:
     features: FrozenSet[str]    # see FEATURES
     wireless_text: str = "Wireless via dongle"
     usb_vendor: int = 0         # USB vendor id (the product id comes from the connected device)
+    # How the app notices the mouse's own DPI button: "events" (the mouse reports the new stage on its
+    # hidraw node) or "poll" (the stage is read every POLL_S seconds while the DPI popup is on).
+    stage_watch: str = "events"
 
     @property
     def polling_codes(self) -> Tuple[int, ...]:
@@ -39,7 +42,8 @@ class Model:
 FEATURES = (
     "xy",               # separate X and Y DPI per stage
     "motion_sync", "angle_snapping", "ripple", "glass", "lod",
-    "buttons",          # button actions + per-button multiclick filters (Endgame)
+    "buttons",          # button actions for the five main buttons
+    "click_filter",     # Endgame: per-button multiclick filters
     "sleep_deep",       # Endgame: sleep + deep sleep in minutes, LED-off-on-lift
     "idle",             # Razer: one sleep timer, 1-15 minutes
     "low_battery",      # Razer: low-battery warning threshold
@@ -56,7 +60,7 @@ ENDGAME_XM2W = Model(
              Polling(0x02, "4000 Hz", "Full speed")),
     usb_vendor=0x3367,
     features=frozenset(("xy", "motion_sync", "angle_snapping", "ripple", "glass", "lod", "buttons",
-                        "sleep_deep")),
+                        "click_filter", "sleep_deep")),
 )
 
 # Logitech stores the report interval in milliseconds in the onboard profile.
@@ -67,7 +71,7 @@ SUPERLIGHT = Model(
     dpi_min=100, dpi_max=25600, dpi_step=50,
     max_stages=5,
     polling=(Polling(8, "125 Hz"), Polling(4, "250 Hz"), Polling(2, "500 Hz"), Polling(1, "1000 Hz")),
-    features=frozenset(),
+    features=frozenset(("buttons",)),
     wireless_text="Wireless via LIGHTSPEED receiver",
     usb_vendor=0x046D,
 )
@@ -82,9 +86,10 @@ DEATHADDER_V4_PRO = Model(
     max_stages=5,
     polling=(Polling(0x40, "125 Hz"), Polling(0x20, "250 Hz"), Polling(0x10, "500 Hz"), Polling(0x08, "1000 Hz"),
              Polling(0x04, "2000 Hz"), Polling(0x02, "4000 Hz"), Polling(0x01, "8000 Hz")),
-    features=frozenset(("xy", "idle", "low_battery")),
+    features=frozenset(("xy", "idle", "low_battery", "buttons")),
     wireless_text="Wireless via HyperSpeed dongle",
     usb_vendor=0x1532,
+    stage_watch="poll",         # no DPI event is documented for this mouse
 )
 
 MODELS: Dict[str, Model] = {m.key: m for m in (ENDGAME_XM2W, SUPERLIGHT, DEATHADDER_V4_PRO)}

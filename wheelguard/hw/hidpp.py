@@ -179,6 +179,28 @@ class HidppDevice:
         elif fn == OP_MEM_WRITE_END:
             self._writing = None
 
+    def wait_event(self, fid: int, event: int, should_stop: Callable[[], bool], seconds: float) -> Optional[bytes]:
+        """Listen for a notification (software id 0) of feature `fid`, up to `seconds`; its parameter
+        bytes, or None. Nothing is sent. The feature must already be resolved."""
+        idx = self._index.get(fid)
+        if not idx:
+            return None
+        end = self._clock() + seconds
+        while not should_stop():
+            left = end - self._clock()
+            if left <= 0:
+                return None
+            try:
+                r = self._dev.read(min(left, 0.25))
+            except OSError as e:
+                raise LinkError(e.errno or 0, "HID++ read") from e
+            if r is None:
+                continue
+            r = bytes(r)
+            if len(r) >= 5 and r[0] in (REPORT_SHORT, REPORT_LONG) and r[2] == idx and r[3] == event << 4:
+                return r[4:].ljust(16, b"\x00")[:16]
+        return None
+
     # ---- reads
     def ping(self) -> None:
         r = self.request(ROOT, 0x1, bytes((0, 0, 0x5A)))

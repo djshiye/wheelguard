@@ -13,6 +13,7 @@ own DPI button changes) is left exactly as the mouse has it.
 import os
 import threading
 import time
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
@@ -87,6 +88,22 @@ class MouseSession:
         self._backup_dir = Path(backup_dir) if backup_dir else None
         self._sleep = sleep or time.sleep
         self._lock = threading.Lock()      # one operation at a time, like the vendor tools
+        self._waiting = 0                  # operations queued for the lock: a stage watch gives way to them
+        self._count_lock = threading.Lock()
+
+    @contextmanager
+    def _operation(self):
+        """Hold the device for one user-visible operation. A stage watch in progress notices the waiting
+        operation within a fraction of a second and hands the device over."""
+        with self._count_lock:
+            self._waiting += 1
+        with self._lock:
+            with self._count_lock:
+                self._waiting -= 1
+            yield
+
+    def _others_waiting(self) -> bool:
+        return self._waiting > 0
 
     @property
     def backup_dir(self) -> Path:
@@ -165,7 +182,7 @@ class MouseSession:
 
     # ---- operations
     def read(self, progress: Progress = _noprogress) -> Snapshot:
-        with self._lock:
+        with self._operation():
             drv = self._open()
             try:
                 snap = drv.identify(progress, 0.0, 0.5)
@@ -187,7 +204,7 @@ class MouseSession:
 
     def read_battery(self) -> Battery:
         """Battery only (link check + battery read): the cheap read the tray refreshes in the background."""
-        with self._lock:
+        with self._operation():
             drv = self._open()
             try:
                 try:
@@ -246,7 +263,7 @@ class MouseSession:
 
     def apply(self, edits: Dict[str, object], progress: Progress = _noprogress) -> ApplyResult:
         """Write the edited settings. Raises HwError subclasses; nothing is sent if validation fails."""
-        with self._lock:
+        with self._operation():
             drv = self._open()
             try:
                 snap = drv.identify(progress, 0.0, 0.25)
@@ -273,7 +290,7 @@ class MouseSession:
 
     def restore(self, progress: Progress = _noprogress) -> ApplyResult:
         """Write the original backup back, through the same diff-only path."""
-        with self._lock:
+        with self._operation():
             drv = self._open()
             try:
                 snap = drv.identify(progress, 0.0, 0.25)
@@ -294,6 +311,23 @@ class MouseSession:
                 want = codec.flat(codec.decode(new))
                 keys = codec.changed_keys(codec.flat(codec.decode(fresh)), want)
                 return self._write_and_verify(drv, snap, fresh, new, keys, progress, 0.4)
+            finally:
+                drv.close()
+
+
+    def watch_stage(self, should_stop: Callable[[], bool], seconds: float) -> Optional[int]:
+        """The active DPI stage as the mouse reports it, listening up to `seconds` on models that send a
+        report when their DPI button is pressed (see Model.stage_watch). Read-only. Returns early, with
+        None, when another operation wants the mouse or should_stop() says so. Raises HwError when the
+        mouse can't be reached."""
+        if self._others_waiting():
+            return None
+        with self._lock:
+            drv = self._open()
+            try:
+                return drv.watch_stage(lambda: should_stop() or self._others_waiting(), seconds)
+            except drv.link_errors as e:
+                raise drv.unreachable(None, e) from e
             finally:
                 drv.close()
 

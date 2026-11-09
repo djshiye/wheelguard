@@ -251,6 +251,9 @@ def main(argv=None):
     if not shot:
         mouse.ensureLoaded()            # the panel needs the stages and battery before the Mouse page is opened
         mouse.startBackground()
+        mouse.setStagePopup(app_settings.dpiPopup)
+        app_settings.changed.connect(lambda: mouse.setStagePopup(app_settings.dpiPopup))
+        mouse.startStageWatch()
     if (svc is not None and svc.pending_show) or not (args.tray and shell.panel_ok()):
         win.show()
 

@@ -7,6 +7,7 @@ each codec). The session reads it, lets the codec patch a copy, asks the driver 
 of writes, sends them, reads the blob back and compares. Backups are blobs too.
 """
 import re
+import time
 from typing import Callable, List, Optional
 
 from . import codec as endgame_codec
@@ -16,6 +17,8 @@ from .hidraw import PID_WIRED
 from .models import ENDGAME_XM2W, Model
 
 Progress = Callable[[float, str], None]
+StopCheck = Callable[[], bool]
+WATCH_SLICE_S = 0.25        # how often a listener checks whether it should give the mouse back
 
 
 def fw_key(fw: str) -> str:
@@ -58,6 +61,12 @@ class Driver:
     def state_problem(self) -> str:
         """Why writes are refused although the blob looks fine ("" = no reason)."""
         return ""
+
+    def watch_stage(self, should_stop: StopCheck, seconds: float) -> Optional[int]:
+        """The active DPI stage (0-based) as the mouse reports it, waiting up to `seconds` for a report
+        when the model sends one. None when nothing arrived. Reads only; sends nothing that changes
+        anything."""
+        return None
 
     # ---- writes
     def plan_writes(self, old: bytes, new: bytes) -> list:
@@ -127,6 +136,19 @@ class EndgameDriver(Driver):
 
     def link_check(self) -> None:
         self.eg.probe()
+
+    def watch_stage(self, should_stop: StopCheck, seconds: float) -> Optional[int]:
+        """Listen on the config node for the mouse's "DPI stage changed" input report (report 3, event
+        0x02, endgame-protocol.md 3.4). Nothing is sent to the mouse."""
+        end = time.monotonic() + seconds
+        while not should_stop():
+            left = end - time.monotonic()
+            if left <= 0:
+                return None
+            r = self.dev.read(min(left, WATCH_SLICE_S), 64)
+            if r and len(r) >= 3 and r[0] == 0x03 and r[1] == 0x02 and r[2] <= 3:
+                return r[2]
+        return None
 
     def battery(self) -> Battery:
         return Battery(self.eg.battery())

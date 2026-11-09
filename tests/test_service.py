@@ -57,7 +57,7 @@ if HAVE_QT:
             self.stagesEnabled = True
             self.calls = []
 
-        def setActiveStage(self, i):
+        def setActiveStage(self, i, announce=False):
             self.calls.append(("stage", i))
 
         def refreshQuietly(self):

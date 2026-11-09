@@ -94,6 +94,15 @@ WgScrollPage {
             onToggled: (value) => appSettings.setBatteryAlerts(value)
         }
         Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.border }
+        WgToggleRow {
+            Layout.topMargin: 0
+            Layout.bottomMargin: 0
+            title: "DPI popup"
+            description: "Show the new DPI on screen for a moment when the mouse's DPI button or the shortcut changes the stage. Needs the Wheelguard panel extension."
+            checked: appSettings.dpiPopup
+            onToggled: (value) => appSettings.setDpiPopup(value)
+        }
+        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.border }
         ActionRow {
             visible: shortcuts.available
             title: "Keyboard shortcuts"
@@ -164,7 +173,7 @@ WgScrollPage {
         }
         Text {
             Layout.fillWidth: true
-            text: "DPI stages, polling rate and, depending on the mouse, lift-off distance, click filters, button actions and sleep timers are stored on the mouse itself. This app reads them over the receiver (or the cable) and writes them only when you press Apply, after saving a backup of the original settings. Wheelguard reads the mouse when it starts and now and then (battery and DPI stage, for the panel icon), and writes only when you press Apply or switch the DPI stage from the panel icon."
+            text: "DPI stages, polling rate and, depending on the mouse, lift-off distance, click filters, button actions and sleep timers are stored on the mouse itself. This app reads them over the receiver (or the cable) and writes them only when you press Apply, after saving a backup of the original settings. Wheelguard reads the mouse when it starts and now and then (battery and DPI stage, for the panel icon). While the DPI popup is on it also listens for the DPI button; the Razer, which doesn't announce it, has its DPI stage read every 1.5 seconds. It writes only when you press Apply or switch the DPI stage from the panel icon."
             font.pixelSize: Theme.fsBody
             color: Theme.textMuted
             wrapMode: Text.WordWrap
@@ -172,7 +181,7 @@ WgScrollPage {
         }
         Text {
             Layout.fillWidth: true
-            text: "None of the vendors publish these protocols. The Endgame Gear one was reverse-engineered from the vendor's Windows configuration tool; the Logitech and Razer ones follow the open-source libratbag, Solaar and OpenRazer projects. They haven't been verified on every mouse and firmware. Wheelguard is an independent project and isn't affiliated with or endorsed by Endgame Gear, Logitech or Razer."
+            text: "None of the vendors publish these protocols. The Endgame Gear one was reverse-engineered from the vendor's Windows configuration tool; the Logitech and Razer ones follow the open-source libratbag, Solaar, OpenRazer and razerctl projects. They haven't been verified on every mouse and firmware. Wheelguard is an independent project and isn't affiliated with or endorsed by Endgame Gear, Logitech or Razer."
             font.pixelSize: Theme.fsBody
             color: Theme.textMuted
             wrapMode: Text.WordWrap

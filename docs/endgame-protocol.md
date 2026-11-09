@@ -167,6 +167,7 @@ The tool starts a thread (0x416ad0) that reads 8 bytes (`03 t d1 d2 d3 d4 d5 d6`
 | 0xB4 | 0x4184f3 | battery percent in `d1` (clamped to 100) |
 
 On Linux this is the dongle's `hidraw` interface 1 report ID 3 (7 data bytes). Usable for live updates; not required.
+Wheelguard's DPI popup listens for event `0x02` here (read-only; nothing is sent).
 
 ## 4. Configuration blob (cmd 0x12) and field meanings
 
