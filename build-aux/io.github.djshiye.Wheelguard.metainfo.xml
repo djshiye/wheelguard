@@ -19,6 +19,24 @@
   <url type="homepage">https://github.com/djshiye/wheelguard</url>
   <developer id="io.github.djshiye"><name>djshiye</name></developer>
   <content_rating type="oars-1.1"/>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Scroll protection with the live wheel monitor</caption>
+      <image type="source" width="1008" height="708">https://raw.githubusercontent.com/djshiye/wheelguard/main/docs/screenshots/scroll-dark.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>The mouse's own settings: battery, DPI stages and more</caption>
+      <image type="source" width="1008" height="708">https://raw.githubusercontent.com/djshiye/wheelguard/main/docs/screenshots/mouse-light.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Pointer settings and Click-Lock</caption>
+      <image type="source" width="1008" height="708">https://raw.githubusercontent.com/djshiye/wheelguard/main/docs/screenshots/pointer-dark.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Per-game profiles</caption>
+      <image type="source" width="1008" height="708">https://raw.githubusercontent.com/djshiye/wheelguard/main/docs/screenshots/profiles-light.png</image>
+    </screenshot>
+  </screenshots>
   <releases>
     <release version="1.5.0" date="2026-11-09">
       <description>
