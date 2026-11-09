@@ -7,7 +7,7 @@
 %global __brp_python_bytecompile %{nil}
 
 Name:           wheelguard
-Version:        1.5.1
+Version:        1.6.0
 # CI appends .<commit count> so every build from main is a newer release.
 Release:        1%{?release_suffix}%{?dist}
 Summary:        Scroll bounce filter and advanced mouse settings (Endgame Gear, Logitech, Razer)
@@ -125,6 +125,26 @@ fi
 %{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-djshiye-%{name}
 
 %changelog
+* Mon Nov 09 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.6.0-1
+- Per-game profiles: pick an app, such as a game, and Wheelguard switches scroll protection, Click-Lock and the DPI stage while it is in front, then back to your settings
+- Double-click fix: ignores the extra click a worn mouse button sends, for every mouse
+- Scroll protection works with any mouse that has a wheel; pick it in the new Mouse box
+- Wheel health: a 7 and 30 day chart of how often the wheel needed blocking, with a warning if it starts bouncing more
+- Auto-tune: watches a minute of your scrolling and suggests the lightest protection strength that fixes it
+- Click-Lock lets go by itself after 10 minutes (adjustable), and when the computer sleeps or the screen locks
+- Click-Lock in Repeat mode no longer starts while you are dragging
+- Low-battery alerts at 20% and 5%, with an amber dot on the panel icon
+- Saved mouse setups: store your mouse settings under a name and switch in one click, from the app or the panel
+- Keyboard shortcuts for Click-Lock and the next DPI stage, added from the About page
+- A drawing of your mouse on the Mouse page that lights up the button you are editing
+- A short welcome for new users that checks the mouse, permissions and protection strength
+- The status pill shows your mouse's real name and how it is connected
+- Calmer panel popup when the mouse is asleep; hover the icon to see the battery
+- Copy diagnostics: one click on About copies a privacy-safe report for bug reports
+- Works with screen readers and the keyboard, and follows GNOME's Large Text and Reduce Animation settings
+- The mouse is picked up the moment it wakes or is plugged in
+- The background service runs in a tight sandbox: read-only system and home folder, no network
+
 * Mon Nov 09 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.5.1-1
 - Fix: a click at the exact moment Wheelguard took over the mouse could still leave the button stuck
 - Fix: clicks, scrolls and moves made while Wheelguard was starting could happen twice
