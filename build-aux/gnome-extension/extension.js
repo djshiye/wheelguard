@@ -249,6 +249,10 @@ class WheelguardIndicator extends PanelMenu.Button {
         this._asleepGlyph.connect('repaint', area => this._paintBattery(area, true));
         row.add_child(this._asleepGlyph);
         this._asleepText = makeLabel(EMPTY_STATE.OfflineNote, 'wg-card-title');
+        // Wrap instead of cutting the note off: it is too long for one line beside the glyph.
+        this._asleepText.x_expand = true;
+        this._asleepText.clutter_text.line_wrap = true;
+        this._asleepText.clutter_text.ellipsize = 0;   // Pango.EllipsizeMode.NONE
         row.add_child(this._asleepText);
         card.add_child(row);
         this._asleepCard = card;
@@ -475,7 +479,7 @@ class WheelguardIndicator extends PanelMenu.Button {
         this._batteryCard.visible = mouseHere;
         this._dpiCard.visible = mouseHere;
         this._asleepCard.visible = !mouseHere;
-        this._asleepText.text = s.OfflineNote;
+        this._asleepText.text = s.OfflineNote || EMPTY_STATE.OfflineNote;
         const known = mouseHere && s.Battery >= 0;
         this._percent.text = known ? `${s.Battery}%` : '—';
         if (known)
