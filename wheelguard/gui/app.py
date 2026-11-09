@@ -119,6 +119,7 @@ def main(argv=None):
     from . import shellext, tray
     from .appsettings import AppSettings
     from .backend import Appearance, Autostart, DaemonClient, LiquidGlass, PointerSettings
+    from .autotune import AutoTune
     from .batteryalert import BatteryAlerts
     from .diagnostics import Diagnostics
     from .shortcuts import ShortcutsBackend
@@ -166,6 +167,8 @@ def main(argv=None):
     pointer = PointerSettings(engine)
     mouse = MouseController(parent=engine)
     shell = tray.AppShell(engine)
+    auto_tune = AutoTune(engine)
+    daemon.tick.connect(auto_tune.feed)
     app_settings = AppSettings(parent=engine, welcome_enabled=not shot or args.welcome is not None)
     if not shot:
         BatteryAlerts(mouse, app_settings, parent=engine)
@@ -178,6 +181,7 @@ def main(argv=None):
     ctx.setContextProperty("appearance", appearance)
     ctx.setContextProperty("liquidGlass", glass)
     ctx.setContextProperty("shell", shell)
+    ctx.setContextProperty("autoTune", auto_tune)
     ctx.setContextProperty("appSettings", app_settings)
     ctx.setContextProperty("shortcuts", ShortcutsBackend(parent=engine))
     ctx.setContextProperty("diagnostics", Diagnostics(daemon, mouse, ext, app_settings, engine))
