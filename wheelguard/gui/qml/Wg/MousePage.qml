@@ -1,8 +1,9 @@
 import QtQuick
 import QtQuick.Layouts
 
-// Hardware settings of the Endgame Gear XM2w 4k v2, stored on the mouse itself. Edits are staged
-// locally and only sent when the user presses Apply (see the action bar at the bottom).
+// Hardware settings stored on the mouse itself (Endgame Gear XM2w 4k v2, Logitech G Pro X Superlight,
+// Razer DeathAdder V4 Pro). Cards and controls follow mouse.features, so each model only shows what it
+// has. Edits are staged locally and only sent when the user presses Apply (see the action bar).
 Item {
     id: root
 
@@ -12,8 +13,17 @@ Item {
     readonly property bool barShown: shown && (mouse.changeCount > 0 || st === "applying")
     readonly property var v: mouse.values
     readonly property var edited: mouse.editedKeys
-    readonly property var polling: ["125 Hz", "1000 Hz", "1000 Hz", "2000 Hz", "4000 Hz"]
-    readonly property var pollingSub: ["Office mode", "Power saving", "No saving", "No saving", "No saving"]
+    readonly property var polling: mouse.pollingLabels
+    readonly property var pollingSub: mouse.pollingSubs
+    readonly property bool hasSubs: pollingSub.some(function (t) { return t !== "" })
+    readonly property var feat: mouse.features
+    function has(f) { return feat.indexOf(f) >= 0 }
+    readonly property var stageNumbers: {
+        var out = []
+        for (var i = 1; i <= mouse.maxStages; ++i) out.push("" + i)
+        return out
+    }
+    readonly property string countWord: ["zero", "one", "two", "three", "four", "five", "six"][mouse.maxStages] || ("" + mouse.maxStages)
     readonly property color valueTint: Theme.dark ? "#B79DFF" : Theme.accentA
 
     // The editor's stage selection is view state only; the unlink toggles are too.
@@ -27,13 +37,18 @@ Item {
         return false
     }
     function stageLinked(i) {
+        if (!mouse.xyDpi) return true
         return unlinked[i] !== undefined ? !unlinked[i] : v["dpi_x" + i] === v["dpi_y" + i]
     }
     function stageLabel(i) {
         var x = v["dpi_x" + i], y = v["dpi_y" + i]
+        if (!x) return "–"
         return x === y ? "" + x : x + " × " + y
     }
-    function dpiFromPos(p) { return Math.round((mouse.dpiMin + (mouse.dpiMax - mouse.dpiMin) * p * p) / 50) * 50 }
+    function dpiFromPos(p) {
+        var step = mouse.dpiStep
+        return Math.max(mouse.dpiMin, Math.round((mouse.dpiMin + (mouse.dpiMax - mouse.dpiMin) * p * p) / step) * step)
+    }
     function posFromDpi(d) { return Math.sqrt(Math.max(0, d - mouse.dpiMin) / (mouse.dpiMax - mouse.dpiMin)) }
     function setUnlinked(i, un) { var u = Object.assign({}, unlinked); u[i] = un; unlinked = u }
     function lodModel() {
@@ -301,7 +316,7 @@ Item {
             suffix: " DPI"
             from: mouse.dpiMin
             to: mouse.dpiMax
-            stepSize: 50
+            stepSize: mouse.dpiStep
             value: root.v[dr.key]
             onValueModified: {
                 var patch = {}
@@ -329,6 +344,7 @@ Item {
             Text {
                 width: parent.width
                 text: "These settings live on the mouse itself, so they follow it to any computer. Changes are staged here and only sent when you press Apply."
+                      + (mouse.modelName === "" ? " Works with the " + mouse.supportedNames.join(", ").replace(/, ([^,]*)$/, " and $1") + "." : "")
                 font.pixelSize: Theme.fsBody
                 color: Theme.textMuted
                 wrapMode: Text.WordWrap
@@ -360,7 +376,7 @@ Item {
                         Layout.fillWidth: true
                         Text {
                             Layout.fillWidth: true
-                            text: "Endgame Gear XM2w 4k v2"
+                            text: mouse.modelName !== "" ? mouse.modelName : "Your mouse"
                             font.pixelSize: Theme.fsH2 + 3
                             font.weight: Font.DemiBold
                             color: Theme.text
@@ -378,7 +394,7 @@ Item {
                         Chip {
                             visible: mouse.connection !== ""
                             icon: mouse.connection === "wired" ? "plug" : "wireless"
-                            text: mouse.connection === "wired" ? "Wired" : "Wireless via dongle"
+                            text: mouse.connection === "wired" ? "Wired" : mouse.wirelessText
                         }
                         Chip {
                             visible: mouse.battery >= 0
@@ -460,7 +476,7 @@ Item {
             title: "Wake the mouse"
             body: mouse.connection === "wired"
                   ? "The mouse didn't answer. Check the cable, then press Refresh."
-                  : "The dongle is plugged in, but the mouse isn't answering. It is probably asleep or switched off: click a button or move it, then press Refresh."
+                  : "The receiver is plugged in, but the mouse isn't answering. It is probably asleep or switched off: click a button or move it, then press Refresh."
             WgButton { text: "Refresh"; iconName: "reset"; onClicked: mouse.refresh() }
         }
         Notice {
@@ -469,7 +485,7 @@ Item {
             tone: Theme.coral
             icon: "lock"
             title: "No permission to configure the mouse"
-            body: "Wheelguard isn't allowed to open the dongle's configuration channel. Reinstall Wheelguard (it installs the device-access rule), then replug the dongle."
+            body: "Wheelguard isn't allowed to open the mouse's configuration channel. Reinstall Wheelguard (it installs the device-access rule), then unplug the receiver or cable and plug it back in."
             WgButton { text: "Check again"; iconName: "reset"; onClicked: mouse.refresh() }
         }
         Notice {
@@ -477,8 +493,8 @@ Item {
             visible: mouse.state === "missing"
             tone: Theme.amber
             icon: "plug"
-            title: "Dongle not found"
-            body: "Plug in the Endgame Gear dongle, or connect the mouse with its cable, then press Refresh."
+            title: "No supported mouse found"
+            body: "Plug in the receiver, or connect the mouse with its cable, then press Refresh. Wheelguard can configure the " + mouse.supportedNames.join(", ").replace(/, ([^,]*)$/, " and $1") + "."
             WgButton { text: "Refresh"; iconName: "reset"; onClicked: mouse.refresh() }
         }
         Notice {
@@ -487,7 +503,7 @@ Item {
             tone: Theme.amber
             icon: "alert"
             title: mouse.detail !== "" ? mouse.detail : "Unsupported mouse"
-            body: "This page only knows the Endgame Gear XM2w 4k v2 (PID 0x1982). Other models may lay out their settings differently, so nothing is read or written and the page stays read-only."
+            body: "This dongle is talking to a mouse this page doesn't know (only the Endgame Gear XM2w 4k v2, PID 0x1982). Other models may lay out their settings differently, so nothing is read or written and the page stays read-only."
             WgButton { text: "Refresh"; iconName: "reset"; onClicked: mouse.refresh() }
         }
         Notice {
@@ -513,7 +529,7 @@ Item {
             tone: Theme.amber
             icon: "alert"
             title: "Settings are read-only"
-            body: "The mouse returned an unexpected settings block (" + mouse.problem + "), so nothing will be written."
+            body: "Wheelguard won't change anything on this mouse: " + mouse.problem + "."
         }
 
         // ---------------------------------------------------------------- sensitivity
@@ -526,14 +542,17 @@ Item {
             spacing: 14
 
             Heading { title: "Sensitivity" }
-            Hint { text: "Up to four DPI stages. Click a stage to edit it; the mouse's DPI button cycles through them." }
+            Hint {
+                text: "Up to " + root.countWord + " DPI stages. Click a stage to edit it; the mouse's DPI button cycles through them."
+                      + (mouse.modelKey === "logitech-pro-x-superlight" ? " Picking the active stage takes effect at once; after a restart the mouse begins in its default stage." : "")
+            }
 
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 10
                 uniformCellSizes: true
                 Repeater {
-                    model: 4
+                    model: mouse.maxStages
                     delegate: StageChip {
                         required property int index
                         Layout.fillWidth: true
@@ -575,6 +594,7 @@ Item {
                             color: Theme.text
                         }
                         WgButton {
+                            visible: mouse.xyDpi
                             implicitHeight: 32
                             variant: "ghost"
                             iconName: editor.linked ? "link" : "unlink"
@@ -614,10 +634,12 @@ Item {
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 6
-                        WgIcon { name: "alert"; size: 14; color: Theme.amber }
+                        WgIcon { visible: mouse.modelKey === "endgame-xm2w-4k-v2"; name: "alert"; size: 14; color: Theme.amber }
                         Text {
                             Layout.fillWidth: true
-                            text: "Range 50 to 30000 DPI. The top end hasn't been checked against this sensor's real limit."
+                            text: mouse.modelKey === "endgame-xm2w-4k-v2"
+                                  ? "Range 50 to 30000 DPI. The top end hasn't been checked against this sensor's real limit."
+                                  : "Range " + mouse.dpiMin + " to " + mouse.dpiMax + " DPI, in steps of " + mouse.dpiStep + "."
                             font.pixelSize: Theme.fsSmall
                             color: Theme.textFaint
                             wrapMode: Text.WordWrap
@@ -647,9 +669,9 @@ Item {
                     }
                 }
                 WgSegmented {
-                    Layout.preferredWidth: 220
+                    Layout.preferredWidth: 55 * mouse.maxStages
                     Layout.preferredHeight: 40
-                    model: ["1", "2", "3", "4"]
+                    model: root.stageNumbers
                     currentIndex: root.v.stage_count - 1
                     onActivated: (i) => mouse.setValue("stage_count", i + 1)
                 }
@@ -670,12 +692,13 @@ Item {
             WgSegmented {
                 Layout.fillWidth: true
                 model: root.polling
-                subLabels: root.pollingSub
+                subLabels: root.hasSubs ? root.pollingSub : []
                 currentIndex: mouse.pollingCodes.indexOf(root.v.polling)
                 onActivated: (i) => mouse.setValue("polling", mouse.pollingCodes[i])
             }
-            Divider {}
+            Divider { visible: root.has("motion_sync") }
             ColumnLayout {
+                visible: root.has("motion_sync")
                 Layout.fillWidth: true
                 spacing: 0
                 WgToggleRow {
@@ -715,7 +738,7 @@ Item {
         // ---------------------------------------------------------------- lift-off
         WgCard {
             width: parent.width
-            visible: root.shown
+            visible: root.shown && root.has("lod")
             enabled: root.editable
             opacity: root.editable ? 1 : 0.6
             Behavior on opacity { NumberAnimation { duration: Theme.normal } }
@@ -740,7 +763,7 @@ Item {
         // ---------------------------------------------------------------- buttons
         WgCard {
             width: parent.width
-            visible: root.shown
+            visible: root.shown && root.has("buttons")
             enabled: root.editable
             opacity: root.editable ? 1 : 0.6
             Behavior on opacity { NumberAnimation { duration: Theme.normal } }
@@ -886,7 +909,7 @@ Item {
         // ---------------------------------------------------------------- power
         WgCard {
             width: parent.width
-            visible: root.shown
+            visible: root.shown && (root.has("sleep_deep") || root.has("idle") || root.has("low_battery"))
             enabled: root.editable
             opacity: root.editable ? 1 : 0.6
             Behavior on opacity { NumberAnimation { duration: Theme.normal } }
@@ -894,7 +917,45 @@ Item {
             spacing: 0
 
             Heading { title: "Power"; Layout.topMargin: 10; Layout.bottomMargin: 4 }
+            WgToggleRow {   // Razer: one sleep timer
+                visible: root.has("idle")
+                title: "Sleep after"
+                description: "Go to sleep after this long without use. A click or a move wakes it."
+                switchVisible: false
+                edited: root.isEdited("idle_min")
+                WgSpinBox {
+                    suffix: " min"
+                    from: mouse.idleMin
+                    to: mouse.idleMax
+                    value: Math.max(mouse.idleMin, root.v.idle_min)
+                    onValueModified: mouse.setValue("idle_min", value)
+                }
+            }
+            Divider { visible: root.has("idle") && root.has("low_battery") }
+            WgToggleRow {   // Razer: low-battery warning
+                visible: root.has("low_battery")
+                title: "Low-battery warning"
+                description: "The mouse warns you, and saves power, when the battery drops to this level."
+                switchVisible: false
+                edited: root.isEdited("low_battery")
+                WgSelect {
+                    implicitWidth: 120
+                    model: mouse.lowBatteryLabels
+                    // The nearest preset, so a level set elsewhere (e.g. in Synapse) never shows a blank box.
+                    currentIndex: {
+                        const codes = mouse.lowBatteryCodes
+                        let best = 0
+                        for (let i = 1; i < codes.length; i++)
+                            if (Math.abs(codes[i] - root.v.low_battery) < Math.abs(codes[best] - root.v.low_battery))
+                                best = i
+                        return best
+                    }
+                    edited: root.isEdited("low_battery")
+                    onActivated: (i) => mouse.setValue("low_battery", mouse.lowBatteryCodes[i])
+                }
+            }
             WgToggleRow {
+                visible: root.has("sleep_deep")
                 title: "Sleep"
                 description: "Drop to a low-power state after this long without use."
                 checked: root.v.sleep_on
@@ -910,8 +971,9 @@ Item {
                     onValueModified: mouse.setValue("sleep_min", value)
                 }
             }
-            Divider {}
+            Divider { visible: root.has("sleep_deep") }
             WgToggleRow {
+                visible: root.has("sleep_deep")
                 title: "Deep sleep"
                 description: "Switch off almost completely after this long. A click wakes it, with a short delay."
                 checked: root.v.deep_on
@@ -927,8 +989,9 @@ Item {
                     onValueModified: mouse.setValue("deep_min", value)
                 }
             }
-            Divider {}
+            Divider { visible: root.has("sleep_deep") }
             WgToggleRow {
+                visible: root.has("sleep_deep")
                 title: "Turn LED off on lift-off"
                 description: "Switches the sensor LED off while the mouse is in the air."
                 checked: root.v.led_off
@@ -995,7 +1058,11 @@ Item {
         Text {
             width: parent.width
             visible: root.shown
-            text: "Wheelguard talks to the mouse with a protocol reverse-engineered from the vendor's Windows tool. It hasn't been tested on every firmware, and it isn't affiliated with or endorsed by Endgame Gear."
+            text: mouse.modelKey === "logitech-pro-x-superlight"
+                  ? "Wheelguard edits the mouse's onboard profile the way libratbag and Solaar do. It hasn't been tested on every firmware, and it isn't affiliated with or endorsed by Logitech."
+                  : mouse.modelKey === "razer-deathadder-v4-pro"
+                    ? "Wheelguard talks to the mouse with the protocol documented by the OpenRazer project. It hasn't been tested on every firmware, and it isn't affiliated with or endorsed by Razer."
+                    : "Wheelguard talks to the mouse with a protocol reverse-engineered from the vendor's Windows tool. It hasn't been tested on every firmware, and it isn't affiliated with or endorsed by Endgame Gear."
             font.pixelSize: Theme.fsSmall
             color: Theme.textFaint
             wrapMode: Text.WordWrap

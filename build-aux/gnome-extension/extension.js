@@ -14,6 +14,7 @@ import St from 'gi://St';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
+import * as Slider from 'resource:///org/gnome/shell/ui/slider.js';
 
 const BUS_NAME = 'io.github.djshiye.Wheelguard';
 const OBJECT_PATH = '/io/github/djshiye/Wheelguard';
@@ -21,12 +22,22 @@ const APP_ICON = 'io.github.djshiye.Wheelguard';
 const START_COMMAND = ['wheelguard-settings', '--tray'];
 const START_TIMEOUT_S = 10;
 
+// Click-Lock hold-time slider: 1 to 15 s in half-second steps (wheelguard/gui/protocol.py, CLICKLOCK_MS_*).
+const CLICKLOCK_MIN_MS = 1000;
+const CLICKLOCK_MAX_MS = 15000;
+const CLICKLOCK_STEP_MS = 500;
+const CLICKLOCK_SEND_DELAY_MS = 300;     // keyboard and scroll changes are sent once they settle
+const CLICKLOCK_MODES = [['repeat', 'Repeat clicks'], ['hold', 'Hold down']];
+
 const IFACE_XML = `
 <node>
   <interface name="io.github.djshiye.Wheelguard1">
     <method name="GetState"><arg type="a{sv}" direction="out" name="state"/></method>
     <method name="SetActiveStage"><arg type="i" direction="in" name="index"/></method>
     <method name="SetProtection"><arg type="b" direction="in" name="on"/></method>
+    <method name="SetClickLock"><arg type="b" direction="in" name="on"/></method>
+    <method name="SetClickLockMs"><arg type="i" direction="in" name="ms"/></method>
+    <method name="SetClickLockMode"><arg type="s" direction="in" name="mode"/></method>
     <method name="ShowWindow"/>
     <method name="Refresh"/>
     <signal name="StateChanged"><arg type="a{sv}" name="state"/></signal>
@@ -39,7 +50,23 @@ const EMPTY_STATE = {
     Online: false, Battery: -1, Charging: false, StageLabels: [], ActiveStage: -1, StageReason: '',
     ProtectionEnabled: true, DaemonState: 'connecting', Preset: '', Dropped: 0,
     StatusLabel: 'Connecting…', StatusTone: 'muted', ProtectionDetail: '', BatteryNote: 'Mouse not connected',
+    ClickLockEnabled: false, ClickLockMs: 5000, ClickLockActive: false, ClickLockDetail: 'Off',
+    ClickLockMode: 'repeat',
 };
+
+function msToFraction(ms) {
+    return (Math.min(Math.max(ms, CLICKLOCK_MIN_MS), CLICKLOCK_MAX_MS) - CLICKLOCK_MIN_MS) /
+        (CLICKLOCK_MAX_MS - CLICKLOCK_MIN_MS);
+}
+
+function fractionToMs(value) {
+    const raw = CLICKLOCK_MIN_MS + value * (CLICKLOCK_MAX_MS - CLICKLOCK_MIN_MS);
+    return Math.round(raw / CLICKLOCK_STEP_MS) * CLICKLOCK_STEP_MS;
+}
+
+function secondsText(ms) {
+    return `${ms % 1000 ? (ms / 1000).toFixed(1) : ms / 1000} s`;
+}
 
 // Battery glyph colours (the same palette as stylesheet.css).
 const PALETTE = {
@@ -80,6 +107,10 @@ class WheelguardIndicator extends PanelMenu.Button {
         this._signalId = 0;
         this._watchId = 0;
         this._startTimeout = 0;
+        this._clickLockTimeout = 0;
+        this._clickLockSending = false;     // the slider shows the user's value until the app confirms it
+        this._sliderDragging = false;
+        this._settingSlider = false;
         this._cancellable = new Gio.Cancellable();
 
         this._icon = new St.Icon({
@@ -149,6 +180,7 @@ class WheelguardIndicator extends PanelMenu.Button {
         this._root.add_child(this._body);
         this._buildBattery();
         this._buildProtection();
+        this._buildClickLock();
         this._buildDpi();
 
         this._offline = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, style_class: 'wg-card wg-offline'});
@@ -195,17 +227,79 @@ class WheelguardIndicator extends PanelMenu.Button {
         text.add_child(this._protectDetail);
         row.add_child(text);
 
-        this._switch = new St.Button({style_class: 'wg-switch', can_focus: true,
-            y_align: Clutter.ActorAlign.CENTER});
-        const track = new St.Widget({layout_manager: new Clutter.FixedLayout(), x_expand: true, y_expand: true});
-        this._thumb = new St.Widget({style_class: 'wg-thumb'});
-        this._thumb.set_size(20, 20);
-        this._thumb.set_position(4, 4);
-        track.add_child(this._thumb);
-        this._switch.set_child(track);
-        this._switch.connect('clicked', () => this._toggleProtection());
+        this._switch = this._makeSwitch(() => this._toggleProtection());
         row.add_child(this._switch);
         card.add_child(row);
+        this._body.add_child(card);
+    }
+
+    _makeSwitch(onClicked) {
+        const button = new St.Button({style_class: 'wg-switch', can_focus: true,
+            y_align: Clutter.ActorAlign.CENTER});
+        const track = new St.Widget({layout_manager: new Clutter.FixedLayout(), x_expand: true, y_expand: true});
+        const thumb = new St.Widget({style_class: 'wg-thumb'});
+        thumb.set_size(20, 20);
+        thumb.set_position(4, 4);
+        track.add_child(thumb);
+        button.set_child(track);
+        button._wgThumb = thumb;
+        button.connect('clicked', onClicked);
+        return button;
+    }
+
+    // Click-Lock: hold the left button and Wheelguard keeps clicking until the next click.
+    _buildClickLock() {
+        const card = this._card();
+        const row = new St.BoxLayout({style_class: 'wg-row'});
+        const text = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, x_expand: true,
+            y_align: Clutter.ActorAlign.CENTER});
+        const titleRow = new St.BoxLayout({style_class: 'wg-title-row'});
+        titleRow.add_child(new St.Label({text: 'Click-Lock', style_class: 'wg-card-title',
+            y_align: Clutter.ActorAlign.CENTER}));
+        this._clickLockLive = new St.BoxLayout({style_class: 'wg-live', y_align: Clutter.ActorAlign.CENTER});
+        this._clickLockLive.add_child(new St.Widget({style_class: 'wg-live-dot', y_align: Clutter.ActorAlign.CENTER}));
+        this._clickLockLiveLabel = makeLabel('Clicking', 'wg-live-label');
+        this._clickLockLive.add_child(this._clickLockLiveLabel);
+        titleRow.add_child(this._clickLockLive);
+        text.add_child(titleRow);
+        this._clickLockDetail = new St.Label({style_class: 'wg-card-sub'});
+        this._clickLockDetail.clutter_text.ellipsize = 3;    // Pango.EllipsizeMode.END
+        text.add_child(this._clickLockDetail);
+        row.add_child(text);
+        this._clickLockSwitch = this._makeSwitch(() => this._toggleClickLock());
+        row.add_child(this._clickLockSwitch);
+        card.add_child(row);
+
+        this._clickLockSeg = new St.BoxLayout({style_class: 'wg-seg wg-seg-small', reactive: true, x_expand: true});
+        this._clickLockSeg.layout_manager.homogeneous = true;
+        this._clickLockModeChips = CLICKLOCK_MODES.map(([mode, text]) => {
+            const chip = new St.Button({style_class: 'wg-chip', can_focus: true, x_expand: true, label: text});
+            chip.connect('clicked', () => this._setClickLockMode(mode));
+            this._clickLockSeg.add_child(chip);
+            return chip;
+        });
+        card.add_child(this._clickLockSeg);
+
+        const sliderHead = new St.BoxLayout({style_class: 'wg-row wg-slider-head'});
+        sliderHead.add_child(new St.Label({text: 'Hold for', style_class: 'wg-card-sub', x_expand: true,
+            y_align: Clutter.ActorAlign.CENTER}));
+        this._clickLockValue = makeLabel('', 'wg-dpi-active');
+        sliderHead.add_child(this._clickLockValue);
+        card.add_child(sliderHead);
+
+        this._clickLockSlider = new Slider.Slider(msToFraction(EMPTY_STATE.ClickLockMs));
+        this._clickLockSlider.add_style_class_name('wg-slider');
+        this._clickLockSlider.accessible_name = 'Click-Lock hold time';
+        this._clickLockSlider.connect('notify::value', () => this._onClickLockSlider());
+        this._clickLockSlider.connect('drag-begin', () => {
+            this._sliderDragging = true;
+        });
+        this._clickLockSlider.connect('drag-end', () => {
+            this._sliderDragging = false;
+            this._sendClickLockMs(0);
+        });
+        card.add_child(this._clickLockSlider);
+        this._clickLockSliderBox = [this._clickLockSeg, sliderHead, this._clickLockSlider];
         this._body.add_child(card);
     }
 
@@ -327,20 +421,51 @@ class WheelguardIndicator extends PanelMenu.Button {
         const canSwitch = s.DaemonState === 'running' || s.DaemonState === 'waiting';
         this._switch.reactive = canSwitch;
         this._switch.opacity = canSwitch ? 255 : 128;
-        this._setSwitch(s.ProtectionEnabled);
+        this._setSwitch(this._switch, s.ProtectionEnabled);
 
+        this._renderClickLock(canSwitch);
         this._renderChips();
     }
 
-    _setSwitch(on) {
+    _setSwitch(button, on) {
         if (on)
-            this._switch.add_style_class_name('wg-on');
+            button.add_style_class_name('wg-on');
         else
-            this._switch.remove_style_class_name('wg-on');
+            button.remove_style_class_name('wg-on');
+        const thumb = button._wgThumb;
         const x = on ? 26 : 4;
-        if (this._thumb.x !== x) {
-            this._thumb.remove_all_transitions();
-            this._thumb.ease({x, duration: 200, mode: Clutter.AnimationMode.EASE_OUT_CUBIC});
+        if (thumb.x !== x) {
+            thumb.remove_all_transitions();
+            thumb.ease({x, duration: 200, mode: Clutter.AnimationMode.EASE_OUT_CUBIC});
+        }
+    }
+
+    _renderClickLock(canSwitch) {
+        const s = this._state;
+        this._clickLockSwitch.reactive = canSwitch;
+        this._clickLockSwitch.opacity = canSwitch ? 255 : 128;
+        this._setSwitch(this._clickLockSwitch, s.ClickLockEnabled);
+        this._clickLockDetail.text = s.ClickLockDetail;
+        this._clickLockLive.visible = s.ClickLockActive;
+        this._clickLockLiveLabel.text = s.ClickLockMode === 'hold' ? 'Holding' : 'Clicking';
+        const usable = canSwitch && s.ClickLockEnabled;
+        this._clickLockSlider.reactive = usable;
+        this._clickLockSlider.can_focus = usable;
+        for (const actor of this._clickLockSliderBox)
+            actor.opacity = usable ? 255 : 110;
+        CLICKLOCK_MODES.forEach(([mode], i) => {
+            const chip = this._clickLockModeChips[i];
+            chip.reactive = usable;
+            if (mode === s.ClickLockMode)
+                chip.add_style_class_name('wg-chip-active');
+            else
+                chip.remove_style_class_name('wg-chip-active');
+        });
+        if (!this._sliderDragging && !this._clickLockSending) {    // never yank the slider from under the user
+            this._settingSlider = true;
+            this._clickLockSlider.value = msToFraction(s.ClickLockMs);
+            this._settingSlider = false;
+            this._clickLockValue.text = secondsText(s.ClickLockMs);
         }
     }
 
@@ -409,6 +534,60 @@ class WheelguardIndicator extends PanelMenu.Button {
         this._state = {...this._state, ProtectionEnabled: on};
         this._render();
         this._proxy.SetProtectionRemote(on, () => this._pull());
+    }
+
+    _toggleClickLock() {
+        if (!this._proxy)
+            return;
+        const on = !this._state.ClickLockEnabled;
+        this._state = {...this._state, ClickLockEnabled: on,
+            ClickLockDetail: on ? `Hold the left button ${secondsText(this._state.ClickLockMs)} to start` : 'Off'};
+        this._render();
+        this._proxy.SetClickLockRemote(on, () => this._pull());
+    }
+
+    _setClickLockMode(mode) {
+        if (!this._proxy || mode === this._state.ClickLockMode)
+            return;
+        this._state = {...this._state, ClickLockMode: mode};      // optimistic; _pull() corrects a refusal
+        this._render();
+        this._proxy.SetClickLockModeRemote(mode, () => this._pull());
+    }
+
+    _onClickLockSlider() {
+        if (this._settingSlider)
+            return;
+        const ms = fractionToMs(this._clickLockSlider.value);
+        this._clickLockValue.text = secondsText(ms);
+        this._clickLockSending = true;
+        if (!this._sliderDragging)
+            this._sendClickLockMs(CLICKLOCK_SEND_DELAY_MS);
+    }
+
+    _sendClickLockMs(delay) {
+        this._clearClickLockTimeout();
+        this._clickLockTimeout = GLib.timeout_add(GLib.PRIORITY_DEFAULT, delay, () => {
+            this._clickLockTimeout = 0;
+            const ms = fractionToMs(this._clickLockSlider.value);
+            if (!this._proxy || ms === this._state.ClickLockMs) {
+                this._clickLockSending = false;
+                this._render();
+                return GLib.SOURCE_REMOVE;
+            }
+            this._state = {...this._state, ClickLockMs: ms};
+            this._proxy.SetClickLockMsRemote(ms, () => {
+                this._clickLockSending = false;
+                this._pull();
+            });
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    _clearClickLockTimeout() {
+        if (this._clickLockTimeout) {
+            GLib.source_remove(this._clickLockTimeout);
+            this._clickLockTimeout = 0;
+        }
     }
 
     _showWindow() {
@@ -502,6 +681,7 @@ class WheelguardIndicator extends PanelMenu.Button {
         this._destroyed = true;
         this._cancellable.cancel();
         this._clearStartTimeout();
+        this._clearClickLockTimeout();
         if (this._watchId)
             Gio.bus_unwatch_name(this._watchId);
         this._watchId = 0;

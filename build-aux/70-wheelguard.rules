@@ -1,7 +1,28 @@
-# Give the logged-in user access to the Endgame Gear wireless mouse dongle (3367:1970) so
-# wheelguard can grab it. (Also matches the dongle's "Keyboard" node; wheelguard never opens it.)
-SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="3367", ATTRS{idProduct}=="1970", TAG+="uaccess"
+# Give the logged-in user (uaccess = the active seat only) access to the supported mice, so wheelguard
+# can grab their wheel and the Mouse page can configure them. Nothing else is opened: wheelguard
+# never reads a "Keyboard" or other non-wheel node even where these rules allow it.
 KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", OPTIONS+="static_node=uinput"
-# Config channel (hidraw) of the mouse, for the hardware settings page: dongle (1970) and wired (1982)
+
+# --- Endgame Gear XM2w 4k v2: dongle (1970) and wired (1982)
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="3367", ATTRS{idProduct}=="1970", TAG+="uaccess"
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="3367", ATTRS{idProduct}=="1982", TAG+="uaccess"
 SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3367", ATTRS{idProduct}=="1970", TAG+="uaccess"
 SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3367", ATTRS{idProduct}=="1982", TAG+="uaccess"
+
+# --- Razer DeathAdder V4 Pro: wired (00be) and HyperSpeed dongle (00bf)
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00be", TAG+="uaccess"
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00bf", TAG+="uaccess"
+# Settings travel on USB interface 0 only. udev can't match the device IDs and the interface number on
+# the same parent, so mark the device's hidraw nodes first and grant only the interface-0 one.
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00be", ENV{WHEELGUARD_RAZER}="1"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00bf", ENV{WHEELGUARD_RAZER}="1"
+SUBSYSTEM=="hidraw", ENV{WHEELGUARD_RAZER}=="1", ATTRS{bInterfaceNumber}=="00", TAG+="uaccess"
+
+# --- Logitech G Pro X Superlight (first generation)
+# Through the LIGHTSPEED receiver, hid-logitech-dj gives the mouse its own HID device (046D:4093):
+# grant only that device's nodes, not the receiver's other interfaces.
+SUBSYSTEM=="input", KERNEL=="event*", KERNELS=="0003:046D:4093.*", TAG+="uaccess"
+SUBSYSTEM=="hidraw", KERNELS=="0003:046D:4093.*", TAG+="uaccess"
+# Wired (c094)
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="046d", ATTRS{idProduct}=="c094", TAG+="uaccess"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="046d", ATTRS{idProduct}=="c094", TAG+="uaccess"

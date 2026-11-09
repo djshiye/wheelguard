@@ -153,6 +153,47 @@
   background-color: #FFFFFF;
   border: 1px solid rgba(0, 0, 0, 0.12); }
 
+/* ---- Click-Lock */
+.wg-title-row {
+  spacing: 8px; }
+.wg-live {
+  height: 20px;
+  padding: 0 8px 0 7px;
+  spacing: 5px;
+  border-radius: 10px;
+  background-color: rgba(61, 220, 151, 0.14);
+  border: 1px solid rgba(61, 220, 151, 0.38); }
+.wg-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background-color: #3DDC97; }
+.wg-live-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #3DDC97; }
+.wg-seg.wg-seg-small {
+  height: 34px;
+  padding: 3px;
+  border-radius: 12px; }
+  .wg-seg.wg-seg-small .wg-chip {
+    border-radius: 9px;
+    font-size: 13px; }
+.wg-slider-head {
+  padding-top: 2px; }
+.wg-slider {
+  height: 22px;
+  -barlevel-height: 6px;
+  -barlevel-border-width: 0;
+  -barlevel-background-color: #272A35;
+  -barlevel-active-background-color: #8B5CF6;
+  -slider-handle-radius: 9px;
+  -slider-handle-border-width: 1px;
+  -slider-handle-border-color: rgba(0, 0, 0, 0.18);
+  color: #FFFFFF; }
+.wg-slider:focus {
+  -slider-handle-border-color: #22D3EE; }
+
 /* ---- DPI chips */
 .wg-seg {
   height: 40px;
@@ -233,6 +274,16 @@
 .wg-light .wg-start {
   background-gradient-start: #7C4DFF;
   background-gradient-end: #0BB5D6; }
+.wg-light .wg-slider {
+  -barlevel-background-color: #D9DCE6;
+  -barlevel-active-background-color: #7C4DFF; }
+.wg-light .wg-live {
+  background-color: rgba(22, 168, 112, 0.14);
+  border-color: rgba(22, 168, 112, 0.38); }
+.wg-light .wg-live-dot {
+  background-color: #16A870; }
+.wg-light .wg-live-label {
+  color: #16A870; }
 .wg-light .wg-tone-good {
   background-color: rgba(22, 168, 112, 0.14);
   border-color: rgba(22, 168, 112, 0.38); }

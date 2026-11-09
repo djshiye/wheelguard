@@ -2,94 +2,37 @@
 
 Pure Python (no Qt); the GUI runs these on a worker thread. Each operation opens the hidraw node,
 does its work and closes it, so nothing stays open between operations and nothing is sent unless
-the user asked for it.
+the user asked for it. The same flow serves every supported mouse; the model specifics live in its
+driver (drivers.py, razer.py, logitech.py) and codec.
 
-Apply = fresh read -> identity/PID gate -> sanity check -> backup before the first write ->
-apply the edits to the *fresh* blob -> write only the changed groups (14, 15, 16) -> read again
-and compare. Starting from a fresh blob means anything the user didn't touch (including the active
-DPI stage, which the mouse's own DPI button changes) is left exactly as the mouse has it.
+Apply = fresh read -> identity gate -> sanity check -> backup before the first write -> apply the
+edits to the *fresh* settings -> write only what changed -> read again and compare. Starting from a
+fresh read means anything the user didn't touch (including the active DPI stage, which the mouse's
+own DPI button changes) is left exactly as the mouse has it.
 """
 import os
-import re
 import threading
 import time
-from dataclasses import dataclass, field, replace
+from dataclasses import replace
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
-from . import codec, hidraw, mock
-from .endgame import EndgameDevice, LinkError, Rejected, StatusError
-from .hidraw import AccessDenied, PID_WIRED
+from . import hidraw, mock
+from .drivers import Driver, EndgameDriver, fw_key
+from .endgame import LinkError, Rejected, StatusError
+from .errors import (ApplyResult, Battery, HwError, MouseAsleep, NoAccess, NoDevice, Snapshot,  # noqa: F401
+                     UnsupportedMouse, VerifyMismatch, WriteFailed)
+from .hidraw import AccessDenied
+from .logitech import LogitechDriver
+from .models import supported_names
+from .razer import RazerDriver
 
 Progress = Callable[[float, str], None]
+_fw_key = fw_key           # older name, kept for callers
 
 
 def _noprogress(_f: float, _t: str) -> None:
     pass
-
-
-class HwError(Exception):
-    """Base class. `state` is what the UI should show; `snapshot` carries whatever was learned."""
-    state = "error"
-
-    def __init__(self, message: str, snapshot: Optional["Snapshot"] = None):
-        super().__init__(message)
-        self.snapshot = snapshot
-
-
-class NoDevice(HwError):
-    state = "missing"
-
-
-class NoAccess(HwError):
-    state = "denied"
-
-
-class MouseAsleep(HwError):
-    state = "asleep"
-
-
-class UnsupportedMouse(HwError):
-    state = "unsupported"
-
-    def __init__(self, message: str, pid: int, snapshot: Optional["Snapshot"] = None):
-        super().__init__(message, snapshot)
-        self.pid = pid
-
-
-class WriteFailed(HwError):
-    """A group write failed part-way. `written` lists the groups that did go through."""
-    def __init__(self, message: str, written: List[str]):
-        super().__init__(message)
-        self.written = written
-
-
-class VerifyMismatch(HwError):
-    """The mouse accepted the writes but a read-back shows different values."""
-    def __init__(self, message: str, snapshot: "Snapshot", keys: List[str]):
-        super().__init__(message, snapshot)
-        self.keys = keys
-
-
-@dataclass(frozen=True)
-class Snapshot:
-    wired: bool
-    dongle_fw: str          # "" when wired or unknown
-    mouse_fw: str
-    mouse_pid: int
-    battery: Optional[int] = None
-    blob: Optional[bytes] = None
-    writable: bool = False
-    problem: str = ""       # why writes are disabled although the PID is supported
-    backup: Optional[str] = None     # path of the original backup, if one exists
-
-
-@dataclass(frozen=True)
-class ApplyResult:
-    snapshot: Snapshot
-    written: List[str]
-    backup_created: Optional[str] = None
-    unchanged: bool = False
 
 
 def config_home() -> Path:
@@ -100,21 +43,41 @@ def default_backup_dir() -> Path:
     return config_home() / "wheelguard" / "backups"
 
 
+DRIVERS = {"endgame": EndgameDriver, "razer": RazerDriver, "logitech": LogitechDriver}
+CODECS = {d.model.key: d.codec for d in DRIVERS.values()}
+
+
+def codec_for(model_key: str):
+    """The codec of a model (Snapshot.model); Endgame Gear's for unknown keys."""
+    return CODECS.get(model_key, EndgameDriver.codec)
+
+
 def default_opener():
-    """(device, wired) for the real hardware, or the fake when WHEELGUARD_HW_MOCK is set.
-    Returns None when no config channel exists. Raises AccessDenied when the node can't be opened."""
+    """What to talk to: (device, wired) for an Endgame Gear mouse, or (device, wired, kind, pid) for
+    the others; the fake devices when WHEELGUARD_HW_MOCK is set. None when no supported mouse is
+    connected. Raises AccessDenied when the node can't be opened."""
     mode = mock.mock_mode()
     if mode:
         return mock.open_mock(mode)
-    cands = hidraw.discover()
+    cands = hidraw.discover_all()
     if not cands:
         return None
     c = cands[0]
-    return hidraw.HidrawDevice(c.path), c.wired
+    dev = hidraw.HidrawDevice(c.path)
+    return (dev, c.wired) if c.kind == "endgame" else (dev, c.wired, c.kind, c.pid)
 
 
-def _fw_key(fw: str) -> str:
-    return re.sub(r"[^0-9A-Za-z.]+", "_", fw) or "unknown"
+def make_driver(opened, sleep: Callable[[float], None]) -> Driver:
+    if len(opened) == 2:
+        dev, wired = opened
+        return EndgameDriver(dev, wired, sleep)
+    dev, wired, kind, pid = opened
+    return DRIVERS[kind](dev, wired, sleep, pid)
+
+
+def missing_text() -> str:
+    names = supported_names()
+    return "No supported mouse found (" + ", ".join(names[:-1]) + " or " + names[-1] + ")."
 
 
 class MouseSession:
@@ -123,34 +86,39 @@ class MouseSession:
         self._opener = opener or default_opener
         self._backup_dir = Path(backup_dir) if backup_dir else None
         self._sleep = sleep or time.sleep
-        self._lock = threading.Lock()      # one operation at a time, like the vendor tool
+        self._lock = threading.Lock()      # one operation at a time, like the vendor tools
 
     @property
     def backup_dir(self) -> Path:
         return self._backup_dir or default_backup_dir()
 
     # ---- backups
-    def backups(self, fw: str) -> List[Path]:
-        """Valid backups for this firmware, oldest first (the oldest is the original)."""
-        d, key = self.backup_dir, _fw_key(fw)
+    def backups(self, fw: str, drv: Optional[Driver] = None) -> List[Path]:
+        """Valid backups for this mouse and firmware, oldest first (the oldest is the original)."""
+        drv = drv or EndgameDriver(None, True, self._sleep)
+        d, prefix = self.backup_dir, drv.backup_prefix(fw)
+        out = []
         try:
-            files = sorted(p for p in d.glob(f"{key}-*.bin") if p.stat().st_size == codec.BLOB_LEN)
+            for p in sorted(d.glob(f"{prefix}-*.bin")):
+                if p.stat().st_size <= 65536 and drv.backup_ok(p.read_bytes()):
+                    out.append(p)
         except OSError:
-            return []
-        return files
+            return out
+        return out
 
-    def original_backup(self, fw: str) -> Optional[Path]:
-        b = self.backups(fw)
+    def original_backup(self, fw: str, drv: Optional[Driver] = None) -> Optional[Path]:
+        b = self.backups(fw, drv)
         return b[0] if b else None
 
-    def _save_backup(self, blob: bytes, fw: str) -> Path:
-        d = self.backup_dir
+    def _save_backup(self, blob: bytes, fw: str, drv: Optional[Driver] = None) -> Path:
+        drv = drv or EndgameDriver(None, True, self._sleep)
+        d, prefix = self.backup_dir, drv.backup_prefix(fw)
         d.mkdir(parents=True, exist_ok=True)
-        path = d / f"{_fw_key(fw)}-{time.strftime('%Y%m%d-%H%M%S')}.bin"
+        path = d / f"{prefix}-{time.strftime('%Y%m%d-%H%M%S')}.bin"
         n = 0
         while path.exists():
             n += 1
-            path = d / f"{_fw_key(fw)}-{time.strftime('%Y%m%d-%H%M%S')}-{n}.bin"
+            path = d / f"{prefix}-{time.strftime('%Y%m%d-%H%M%S')}-{n}.bin"
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         try:
             with os.fdopen(fd, "wb") as f:
@@ -166,183 +134,170 @@ class MouseSession:
         return path
 
     # ---- device plumbing
-    def _open(self):
+    def _open(self) -> Driver:
         try:
             opened = self._opener()
         except AccessDenied as e:
-            raise NoAccess("No permission to open the dongle's hidraw device.") from e
+            raise NoAccess("No permission to open the mouse's hidraw device.") from e
         except OSError as e:
             raise HwError(f"Could not open the device: {e.strerror or e}") from e
         if opened is None:
-            raise NoDevice("No Endgame Gear dongle or mouse found.")
-        dev, wired = opened
-        return dev, EndgameDevice(dev, wired, self._sleep)
+            raise NoDevice(missing_text())
+        return make_driver(opened, self._sleep)
 
-    def _unreachable(self, eg: EndgameDevice, snap: Optional[Snapshot], e: Exception) -> HwError:
-        if isinstance(e, LinkError) and e.errno == 19:       # ENODEV: unplugged mid-operation
-            return NoDevice("The device was unplugged.")
-        if eg.wired:
-            return HwError("The mouse isn't responding.", snap)
-        return MouseAsleep("The dongle can't reach the mouse.", snap)
+    def _snapshot(self, drv: Driver, snap: Snapshot, blob: bytes, battery: Optional[Battery]) -> Snapshot:
+        problems = drv.blob_problems(blob)
+        state = drv.state_problem()
+        if state:
+            problems = problems + [state]
+        backup = self.original_backup(snap.mouse_fw, drv)
+        return replace(snap, model=drv.model.key, battery=battery.percent if battery else None,
+                       charging=battery.charging if battery else None, blob=blob,
+                       writable=not problems and drv.write_enabled, problem="; ".join(problems),
+                       backup=str(backup) if backup else None)
 
-    def _identify(self, eg: EndgameDevice, progress: Progress, f0: float, f1: float):
-        """probe, dongle info, mouse info -> (dongle_fw, MouseInfo, partial Snapshot)."""
-        span = f1 - f0
-        dongle_fw = ""
+    def _read_fresh(self, drv: Driver, snap: Snapshot, progress: Progress, f: float) -> bytes:
         try:
-            progress(f0, "Contacting the dongle…" if not eg.wired else "Contacting the mouse…")
-            eg.probe()
-            if not eg.wired:
-                progress(f0 + span * 0.25, "Reading dongle firmware…")
-                w = eg.dongle_info()
-                dongle_fw = codec.fw_text(w)
-            progress(f0 + span * 0.5, "Identifying the mouse…")
-            info = eg.mouse_info()
-        except (StatusError, LinkError) as e:
-            raise self._unreachable(eg, Snapshot(eg.wired, dongle_fw, "", 0), e) from e
-        snap = Snapshot(eg.wired, dongle_fw, codec.fw_text(info.fw_word), info.pid)
-        if info.link_down:
-            raise MouseAsleep("The dongle reports no mouse.", snap)
-        if info.pid != PID_WIRED:
-            raise UnsupportedMouse(f"Unsupported mouse (PID {info.pid:#06x})", info.pid, snap)
-        return dongle_fw, info, snap
-
-    def _snapshot(self, eg: EndgameDevice, snap: Snapshot, blob: bytes, battery: Optional[int]) -> Snapshot:
-        problems = codec.blob_problems(blob)
-        backup = self.original_backup(snap.mouse_fw)
-        return replace(snap, battery=battery, blob=blob, writable=not problems and eg.write_enabled,
-                       problem="; ".join(problems), backup=str(backup) if backup else None)
+            progress(f, "Reading current settings…")
+            return drv.read_blob()
+        except drv.link_errors as e:
+            raise drv.unreachable(snap, e) from e
 
     # ---- operations
     def read(self, progress: Progress = _noprogress) -> Snapshot:
         with self._lock:
-            dev, eg = self._open()
+            drv = self._open()
             try:
-                _fw, _info, snap = self._identify(eg, progress, 0.0, 0.5)
+                snap = drv.identify(progress, 0.0, 0.5)
                 battery = None
                 try:
                     progress(0.55, "Reading battery…")
-                    battery = eg.battery()
-                except (StatusError, LinkError):
+                    battery = drv.battery()
+                except drv.link_errors:
                     pass
                 try:
                     progress(0.7, "Reading settings…")
-                    blob = eg.read_blob()
-                except (StatusError, LinkError) as e:
-                    raise self._unreachable(eg, snap, e) from e
+                    blob = drv.read_blob()
+                except drv.link_errors as e:
+                    raise drv.unreachable(snap, e) from e
                 progress(1.0, "Done")
-                return self._snapshot(eg, snap, blob, battery)
+                return self._snapshot(drv, snap, blob, battery)
             finally:
-                dev.close()
+                drv.close()
 
-    def read_battery(self) -> Optional[int]:
-        """Battery percentage only (link check + A1 B4): the cheap read the tray refreshes in the background."""
+    def read_battery(self) -> Battery:
+        """Battery only (link check + battery read): the cheap read the tray refreshes in the background."""
         with self._lock:
-            dev, eg = self._open()
+            drv = self._open()
             try:
                 try:
-                    eg.probe()
-                    return eg.battery()
-                except (StatusError, LinkError) as e:
-                    raise self._unreachable(eg, None, e) from e
+                    drv.link_check()
+                    return drv.battery()
+                except drv.link_errors as e:
+                    raise drv.unreachable(None, e) from e
             finally:
-                dev.close()
+                drv.close()
 
-    def _write_and_verify(self, eg: EndgameDevice, snap: Snapshot, fresh: bytes, new: bytes,
+    def _write_and_verify(self, drv: Driver, snap: Snapshot, fresh: bytes, new: bytes,
                           check_keys: List[str], progress: Progress, f0: float) -> ApplyResult:
-        plan = codec.plan_writes(fresh, new)
+        codec = drv.codec
+        plan = drv.plan_writes(fresh, new)
         written: List[str] = []
         n = max(1, len(plan))
-        for i, gw in enumerate(plan):
-            progress(f0 + (0.92 - f0) * i / n, f"Writing {gw.label} settings…" if gw.cmd != codec.CMD_BUTTONS
-                     else f"Writing button map ({gw.page}/2)…")
+        for i, op in enumerate(plan):
+            progress(f0 + (0.92 - f0) * i / n, drv.op_text(op))
             try:
-                eg.write_group(gw)
-            except (StatusError, LinkError) as e:
-                raise WriteFailed(f"The mouse didn't accept the {gw.label} update ({e}). "
-                                  "Some earlier groups may already be saved; refresh to see the real state.",
+                drv.write(op)
+            except drv.link_errors as e:
+                raise WriteFailed(f"The mouse didn't accept the {op.label} update ({e}). "
+                                  "Some earlier parts may already be saved; refresh to see the real state.",
                                   written) from e
             except Rejected as e:
-                raise WriteFailed(f"Refused to send the {gw.label} update: {e}", written) from e
-            written.append(gw.label if gw.cmd != codec.CMD_BUTTONS else f"buttons {gw.page}")
+                raise WriteFailed(f"Refused to send the {op.label} update: {e}", written) from e
+            written.append(drv.op_done(op))
         progress(0.94, "Checking what the mouse stored…")
         try:
-            eg.probe()
-            after = eg.read_blob()
-            battery = eg.battery()
-        except (StatusError, LinkError):
+            drv.link_check()
+            after = drv.read_blob()
+            battery = drv.battery()
+        except drv.link_errors:
             battery = None
             try:
-                after = eg.read_blob()
-            except (StatusError, LinkError) as e:
+                after = drv.read_blob()
+            except drv.link_errors as e:
                 raise WriteFailed("Written, but the read-back failed. Refresh to check the result.", written) from e
-        out = self._snapshot(eg, snap, after, battery)
+        out = self._snapshot(drv, snap, after, battery)
         want, got = codec.flat(codec.decode(new)), codec.flat(codec.decode(after))
-        bad = [k for k in check_keys if want[k] != got[k]]
+        bad = [k for k in check_keys if want.get(k) != got.get(k)]
         if bad:
             raise VerifyMismatch("The mouse reports different values than were written. "
                                  "The page now shows what it actually stored.", out, bad)
         progress(1.0, "Saved")
-        return ApplyResult(out, [g.label for g in plan], None)
+        return ApplyResult(out, [op.label for op in plan], None)
+
+    def _writable_fresh(self, drv: Driver, snap: Snapshot, progress: Progress, f: float) -> bytes:
+        fresh = self._read_fresh(drv, snap, progress, f)
+        probs = drv.blob_problems(fresh)
+        if drv.state_problem():
+            probs = probs + [drv.state_problem()]
+        if probs:
+            raise HwError("Refusing to write: " + "; ".join(probs) + ".", snap)
+        return fresh
 
     def apply(self, edits: Dict[str, object], progress: Progress = _noprogress) -> ApplyResult:
         """Write the edited settings. Raises HwError subclasses; nothing is sent if validation fails."""
         with self._lock:
-            dev, eg = self._open()
+            drv = self._open()
             try:
-                _fw, info, snap = self._identify(eg, progress, 0.0, 0.25)
-                try:
-                    progress(0.3, "Reading current settings…")
-                    fresh = eg.read_blob()
-                except (StatusError, LinkError) as e:
-                    raise self._unreachable(eg, snap, e) from e
-                probs = codec.blob_problems(fresh)
-                if probs:
-                    raise HwError("Refusing to write: " + "; ".join(probs) + ".", snap)
+                snap = drv.identify(progress, 0.0, 0.25)
+                fresh = self._writable_fresh(drv, snap, progress, 0.3)
+                codec = drv.codec
                 try:
                     new = codec.encode(fresh, edits)
                     codec.validate_settings(codec.decode(new))
                 except ValueError as e:
                     raise HwError(str(e), snap) from e
-                if not codec.plan_writes(fresh, new):
-                    return ApplyResult(self._snapshot(eg, snap, fresh, None), [], None, unchanged=True)
+                if not drv.plan_writes(fresh, new):
+                    return ApplyResult(self._snapshot(drv, snap, fresh, None), [], None, unchanged=True)
                 created = None
-                if self.original_backup(snap.mouse_fw) is None:
+                if self.original_backup(snap.mouse_fw, drv) is None:
                     progress(0.4, "Saving a backup of the mouse's settings…")
                     try:
-                        created = str(self._save_backup(fresh, snap.mouse_fw))
+                        created = str(self._save_backup(fresh, snap.mouse_fw, drv))
                     except OSError as e:
                         raise HwError(f"Couldn't save the backup first ({e}); nothing was written.", snap) from e
-                res = self._write_and_verify(eg, snap, fresh, new, list(edits), progress, 0.5)
+                res = self._write_and_verify(drv, snap, fresh, new, list(edits), progress, 0.5)
                 return replace(res, backup_created=created)
             finally:
-                dev.close()
+                drv.close()
 
     def restore(self, progress: Progress = _noprogress) -> ApplyResult:
         """Write the original backup back, through the same diff-only path."""
         with self._lock:
-            dev, eg = self._open()
+            drv = self._open()
             try:
-                _fw, info, snap = self._identify(eg, progress, 0.0, 0.25)
-                path = self.original_backup(snap.mouse_fw)
+                snap = drv.identify(progress, 0.0, 0.25)
+                fresh = self._writable_fresh(drv, snap, progress, 0.3)     # first: the backup name can depend on it
+                path = self.original_backup(snap.mouse_fw, drv)
                 if path is None:
                     raise HwError("There is no backup to restore for this firmware.", snap)
                 backup = path.read_bytes()
-                if codec.blob_problems(backup):
+                if drv.codec.blob_problems(backup):
                     raise HwError("The backup file doesn't look like a settings block.", snap)
+                codec = drv.codec
                 try:
-                    progress(0.3, "Reading current settings…")
-                    fresh = eg.read_blob()
-                except (StatusError, LinkError) as e:
-                    raise self._unreachable(eg, snap, e) from e
-                probs = codec.blob_problems(fresh)
-                if probs:
-                    raise HwError("Refusing to write: " + "; ".join(probs) + ".", snap)
-                new = codec.merge_backup(fresh, backup)
-                if not codec.plan_writes(fresh, new):
-                    return ApplyResult(self._snapshot(eg, snap, fresh, None), [], None, unchanged=True)
+                    new = codec.merge_backup(fresh, backup)
+                except ValueError as e:
+                    raise HwError(f"The backup doesn't fit this mouse ({e}).", snap) from e
+                if not drv.plan_writes(fresh, new):
+                    return ApplyResult(self._snapshot(drv, snap, fresh, None), [], None, unchanged=True)
                 want = codec.flat(codec.decode(new))
                 keys = codec.changed_keys(codec.flat(codec.decode(fresh)), want)
-                return self._write_and_verify(eg, snap, fresh, new, keys, progress, 0.4)
+                return self._write_and_verify(drv, snap, fresh, new, keys, progress, 0.4)
             finally:
-                dev.close()
+                drv.close()
+
+
+__all__ = ["MouseSession", "Snapshot", "ApplyResult", "Battery", "HwError", "NoDevice", "NoAccess",
+           "MouseAsleep", "UnsupportedMouse", "WriteFailed", "VerifyMismatch", "default_opener",
+           "make_driver", "LinkError", "StatusError"]

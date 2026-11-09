@@ -8,6 +8,15 @@ from typing import Any, Deque, List, NamedTuple, Optional
 
 TICK_KINDS = ("emit", "drop", "hold", "pass")
 
+# The config keys the app shows, with what it assumes before the daemon has said otherwise.
+CONFIG_DEFAULTS = {"enabled": True, "pre_ms": 60, "hold_ms": 25, "lock_ms": 300,
+                   "clicklock": False, "clicklock_ms": 5000, "clicklock_mode": "repeat",
+                   "clicklock_rate": 10}
+# Click-Lock slider range in the app and the panel (the daemon accepts 0.5 to 30 s).
+CLICKLOCK_MS_RANGE = (1000, 15000)
+CLICKLOCK_MS_STEP = 500
+CLICKLOCK_MODES = ("repeat", "hold")    # the daemon's clicklock.MODES (kept evdev-free here)
+
 
 class LineBuffer:
     """Accumulates bytes and yields complete newline-terminated lines (as bytes, without \\n)."""
@@ -108,10 +117,19 @@ def status_config(status: dict) -> Optional[dict]:
     if not isinstance(cfg, dict):
         return None
     out = {}
-    for k, default in (("enabled", True), ("pre_ms", 60), ("hold_ms", 25), ("lock_ms", 300)):
+    for k, default in CONFIG_DEFAULTS.items():
         v = cfg.get(k, default)
-        out[k] = bool(v) if k == "enabled" else int(round(float(v)))
+        if isinstance(default, bool):
+            out[k] = bool(v)
+        elif isinstance(default, str):
+            out[k] = v if isinstance(v, str) else default
+        else:
+            out[k] = int(round(float(v)))
     return out
+
+
+def clicklock_active(status: dict) -> bool:
+    return status.get("clicklock_active") is True
 
 
 def status_stats(status: dict) -> dict:

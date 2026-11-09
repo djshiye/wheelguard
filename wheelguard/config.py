@@ -8,7 +8,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from . import core
+from . import clicklock, core
 
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "wheelguard"
 CONFIG_PATH = CONFIG_DIR / "config.json"
@@ -21,10 +21,17 @@ DEFAULTS = {
     "vendor": 0x3367,
     "product": 0x1970,
     "retry_s": 2,
+    "clicklock": False,
+    "clicklock_ms": clicklock.DEFAULT_HOLD_MS,
+    "clicklock_mode": clicklock.REPEAT,
+    "clicklock_rate": clicklock.DEFAULT_RATE,
 }
 MS_KEYS = ("lock_ms", "pre_ms", "hold_ms")
 MAX_MS = 2000
 MAX_RETRY_S = 3600
+CLICKLOCK_MS = (500, 30000)     # how long the button must be held before Click-Lock engages
+CLICKLOCK_RATE = (1, 30)        # repeat clicks per second
+CLICKLOCK_KEYS = ("clicklock", "clicklock_ms", "clicklock_mode", "clicklock_rate")
 
 
 def _number(key, v):
@@ -57,9 +64,13 @@ def normalize(partial, base=None):
     for k, v in partial.items():
         if k not in DEFAULTS:
             raise ValueError(f"unknown key {k!r}")
-        if k == "enabled":
+        if k in ("enabled", "clicklock"):
             if not isinstance(v, bool):
-                raise ValueError("enabled must be true or false")
+                raise ValueError(f"{k} must be true or false")
+            cfg[k] = v
+        elif k == "clicklock_mode":
+            if v not in clicklock.MODES:
+                raise ValueError("clicklock_mode must be " + " or ".join(f'"{m}"' for m in clicklock.MODES))
             cfg[k] = v
         elif k in ("vendor", "product"):
             cfg[k] = _usb_id(k, v)
@@ -72,6 +83,12 @@ def normalize(partial, base=None):
         raise ValueError("need 0 < hold_ms < lock_ms")
     if not 0 <= cfg["pre_ms"] <= cfg["lock_ms"]:
         raise ValueError("need 0 <= pre_ms <= lock_ms")
+    lo, hi = CLICKLOCK_MS
+    if not lo <= cfg["clicklock_ms"] <= hi:
+        raise ValueError(f"clicklock_ms must be between {lo} and {hi}")
+    lo, hi = CLICKLOCK_RATE
+    if not lo <= cfg["clicklock_rate"] <= hi:
+        raise ValueError(f"clicklock_rate must be between {lo} and {hi}")
     if not 0 < cfg["retry_s"] <= MAX_RETRY_S:
         raise ValueError(f"retry_s must be > 0 and <= {MAX_RETRY_S}")
     return cfg

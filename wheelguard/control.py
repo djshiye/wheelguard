@@ -9,6 +9,7 @@ import time
 
 from . import __version__
 from . import config as C
+from .clicklock import ClickLock
 from .core import DROP, EMIT, PASS, Decision, WheelFilter
 from .frames import flush_frames, process_frame, tick_sign
 
@@ -33,6 +34,7 @@ class Controller:
             log.error("ignoring config: %s", ex)
         self.cfg = C.normalize(self.overrides, self.file_cfg)  # ValueError: bad flags
         self.wf = self._new_filter()
+        self.cl = ClickLock(*self._clicklock_args())
         self._outbox = []        # frames released when the config changed under a pending hold
         self._outbox_decisions = []
         self._prev_t = None      # previous tick time, for gap_ms while passing through
@@ -43,7 +45,7 @@ class Controller:
     def status(self):
         return {"type": "status", "version": __version__, "connected": self.connected,
                 "device": self.device, "error": self.error, "config": C.to_wire(self.cfg),
-                "stats": dict(self.stats)}
+                "stats": dict(self.stats), "clicklock_active": self.cl.active}
 
     def set_device(self, connected, device=None, error=None):
         changed = (connected, device, error) != (self.connected, self.device, self.error)
@@ -57,14 +59,24 @@ class Controller:
     def _new_filter(self):
         return WheelFilter(self.cfg["lock_ms"], self.cfg["pre_ms"], self.cfg["hold_ms"])
 
+    def _clicklock_args(self):
+        c = self.cfg
+        return c["clicklock"], c["clicklock_ms"], c["clicklock_mode"], c["clicklock_rate"]
+
     def reset_filter(self):
         self.wf = self._new_filter()
+        self.cl.reset()
         self._outbox, self._outbox_decisions = [], []
         self._prev_t = None
 
     @property
     def deadline(self):
+        """The wheel filter's hold deadline (None when nothing is held)."""
         return self.wf.deadline
+
+    @property
+    def clicklock_deadline(self):
+        return self.cl.deadline
 
     def _take_outbox(self):
         frames, decisions = self._outbox, self._outbox_decisions
@@ -78,6 +90,8 @@ class Controller:
         the IPC side never delays the input path.
         """
         frames, decisions = self._take_outbox()
+        lock_frames, events, lock_changed = self.cl.process(events, t)
+        frames += lock_frames
         if self.cfg["enabled"]:
             f, d = process_frame(self.wf, events, t)
         else:
@@ -91,18 +105,28 @@ class Controller:
         if frames:
             write(frames)
         self._record(decisions)
+        if lock_changed:
+            self._clicklock_changed()
         return decisions
 
     def handle_flush(self, now, write):
         """Release an expired hold (and anything left over from a config change)."""
         frames, decisions = self._take_outbox()
+        lock_frames, lock_changed = self.cl.flush(now)
+        frames += lock_frames
         if self.cfg["enabled"]:
             f, d = flush_frames(self.wf, now)
             frames, decisions = frames + f, decisions + d
         if frames:
             write(frames)
         self._record(decisions)
+        if lock_changed:
+            self._clicklock_changed()
         return decisions
+
+    def _clicklock_changed(self):
+        log.info("click-lock %s", "engaged" if self.cl.active else "released")
+        self.publish(self.status())
 
     def _record(self, decisions):
         for d in decisions:
@@ -134,9 +158,18 @@ class Controller:
         if any(old[k] != new[k] for k in keys):
             # Release a pending hold instead of losing the tick, then start from a clean filter.
             if self.wf.held is not None:
-                self._outbox, self._outbox_decisions = flush_frames(self.wf, float("inf"))
+                f, d = flush_frames(self.wf, float("inf"))
+                self._outbox += f                     # add: a Click-Lock release may be waiting there
+                self._outbox_decisions += d
             self.wf = self._new_filter()
             self._prev_t = None
+        if any(old[k] != new[k] for k in C.CLICKLOCK_KEYS):
+            self.cl.configure(*self._clicklock_args())
+            if not new["clicklock"] or old["clicklock_mode"] != new["clicklock_mode"]:
+                frames, was_active = self.cl.stop()       # switched off: hand the button back now
+                self._outbox += frames
+                if was_active:
+                    log.info("click-lock released (switched off)")
         log.info("config applied: %s", C.to_wire(new))
         return True
 

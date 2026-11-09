@@ -182,6 +182,14 @@ def _check_key_value(key: str, v) -> None:
             raise ValueError("unsupported button action")
 
 
+check_key_value = _check_key_value      # the name the other models' codecs use
+
+
+def empty() -> Dict[str, object]:
+    """Flat settings of an all-zero blob: what the page shows before anything was read."""
+    return flat(decode(bytes(BLOB_LEN)))
+
+
 def _put_dpi(ba: bytearray, k: int, axis: int, v: int) -> None:
     base = _DPI_BASE + _DPI_STRIDE * k
     o = base + 1 + 2 * axis

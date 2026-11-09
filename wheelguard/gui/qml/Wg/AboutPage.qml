@@ -87,7 +87,7 @@ WgScrollPage {
         }
         Text {
             Layout.fillWidth: true
-            text: "DPI stages, polling rate, lift-off distance, click filters, button actions and sleep timers are stored on the mouse itself. This app reads them over the dongle (or the cable) and writes them only when you press Apply, after saving a backup of the original settings. Wheelguard reads the mouse when it starts and now and then (battery and DPI stage, for the panel icon), and writes only when you press Apply or switch the DPI stage from the panel icon."
+            text: "DPI stages, polling rate and, depending on the mouse, lift-off distance, click filters, button actions and sleep timers are stored on the mouse itself. This app reads them over the receiver (or the cable) and writes them only when you press Apply, after saving a backup of the original settings. Wheelguard reads the mouse when it starts and now and then (battery and DPI stage, for the panel icon), and writes only when you press Apply or switch the DPI stage from the panel icon."
             font.pixelSize: Theme.fsBody
             color: Theme.textMuted
             wrapMode: Text.WordWrap
@@ -95,7 +95,7 @@ WgScrollPage {
         }
         Text {
             Layout.fillWidth: true
-            text: "Endgame Gear doesn't publish this protocol. It was reverse-engineered from the vendor's Windows configuration tool by reading its code, and hasn't been verified on every mouse and firmware. Wheelguard is an independent project and isn't affiliated with or endorsed by Endgame Gear."
+            text: "None of the vendors publish these protocols. The Endgame Gear one was reverse-engineered from the vendor's Windows configuration tool; the Logitech and Razer ones follow the open-source libratbag, Solaar and OpenRazer projects. They haven't been verified on every mouse and firmware. Wheelguard is an independent project and isn't affiliated with or endorsed by Endgame Gear, Logitech or Razer."
             font.pixelSize: Theme.fsBody
             color: Theme.textMuted
             wrapMode: Text.WordWrap

@@ -25,7 +25,8 @@ from wheelguard.core import DROP, EMIT, HOLD, WheelFilter  # noqa: E402
 VERSION = "1.0.0-mock"
 DEVICE = "Endgame Gear Endgame Gear HS Dongle"
 DEFAULT_CONFIG = {"enabled": True, "lock_ms": 300, "pre_ms": 60, "hold_ms": 25,
-                  "vendor": "3367", "product": "1970", "retry_s": 2}
+                  "vendor": "3367", "product": "1970", "retry_s": 2,
+                  "clicklock": False, "clicklock_ms": 5000, "clicklock_mode": "repeat", "clicklock_rate": 10}
 BOUNCE_RATE = 0.09
 
 
@@ -42,9 +43,14 @@ def validate(cfg, patch):
     for k, v in patch.items():
         if k not in DEFAULT_CONFIG:
             return None, f"unknown key: {k}"
-        if k == "enabled":
+        if k in ("enabled", "clicklock"):
             if not isinstance(v, bool):
-                return None, "enabled must be true or false"
+                return None, f"{k} must be true or false"
+        elif k == "clicklock_mode":
+            if v not in ("repeat", "hold"):
+                return None, 'clicklock_mode must be "repeat" or "hold"'
+            merged[k] = v
+            continue
         elif k in ("vendor", "product"):
             merged[k] = str(v)
             continue
@@ -56,6 +62,10 @@ def validate(cfg, patch):
             return None, f"{k} must be <= 2000"
         if merged[k] < 0:
             return None, f"{k} must be >= 0"
+    if not 500 <= merged["clicklock_ms"] <= 30000:
+        return None, "clicklock_ms must be between 500 and 30000"
+    if not 1 <= merged["clicklock_rate"] <= 30:
+        return None, "clicklock_rate must be between 1 and 30"
     if not 0 < merged["hold_ms"] < merged["lock_ms"]:
         return None, "hold_ms must be > 0 and < lock_ms"
     if not 0 <= merged["pre_ms"] <= merged["lock_ms"]:
@@ -120,6 +130,9 @@ class Mock:
     def __init__(self, args):
         self.scenario = args.scenario
         self.cfg = dict(DEFAULT_CONFIG)
+        self.clicklock_active = args.clicklock_active
+        if args.clicklock_active:
+            self.cfg["clicklock"] = True
         self.stats = {"ticks": 0, "passed": 0, "dropped": 0, "since": time.time()}
         self.sel = selectors.DefaultSelector()
         self.clients = {}
@@ -136,7 +149,8 @@ class Mock:
         error = "permission denied: /dev/input/event2" if self.scenario == "permission" else None
         return {"type": "status", "version": VERSION, "connected": connected,
                 "device": DEVICE if connected else None, "error": error,
-                "config": dict(self.cfg), "stats": dict(self.stats)}
+                "config": dict(self.cfg), "stats": dict(self.stats),
+                "clicklock_active": self.clicklock_active and self.cfg["clicklock"]}
 
     def send(self, c, msg):
         c.out += json.dumps(msg).encode() + b"\n"
@@ -291,6 +305,8 @@ def main():
     ap.add_argument("--socket", default=default_socket())
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--rate", type=float, default=1.0, help="tick speed multiplier (default 1)")
+    ap.add_argument("--clicklock-active", action="store_true",
+                    help="pretend Click-Lock is on and clicking right now (for the app and panel UI)")
     args = ap.parse_args()
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))   # let serve() unlink the socket
     try:

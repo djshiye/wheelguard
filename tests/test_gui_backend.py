@@ -211,7 +211,13 @@ class ProtocolTests(unittest.TestCase):
         st = {"config": {"enabled": False, "lock_ms": 400.0, "pre_ms": 90, "hold_ms": 35, "vendor": "3367"},
               "stats": {"ticks": 100, "passed": 91, "dropped": 9, "since": 1.0}}
         self.assertEqual(protocol.status_config(st),
-                         {"enabled": False, "pre_ms": 90, "hold_ms": 35, "lock_ms": 400})
+                         {"enabled": False, "pre_ms": 90, "hold_ms": 35, "lock_ms": 400, "clicklock": False,
+                          "clicklock_ms": 5000, "clicklock_mode": "repeat", "clicklock_rate": 10})
+        st["config"].update(clicklock=True, clicklock_ms=7500, clicklock_mode=3)
+        cfg = protocol.status_config(st)
+        self.assertEqual((cfg["clicklock"], cfg["clicklock_ms"], cfg["clicklock_mode"]), (True, 7500, "repeat"))
+        self.assertTrue(protocol.clicklock_active({"clicklock_active": True}))
+        self.assertFalse(protocol.clicklock_active({}))
         self.assertEqual(protocol.status_stats(st), {"ticks": 100, "dropped": 9})
         self.assertIsNone(protocol.status_config({}))
         self.assertEqual(protocol.status_stats({}), {"ticks": 0, "dropped": 0})
@@ -371,6 +377,32 @@ class DaemonClientTests(unittest.TestCase):
         sent = [m for m in self.received if m["cmd"] == "set"]
         self.assertEqual(len(sent), 1)
         self.assertEqual(sent[0]["config"], {"pre_ms": 100})
+
+    def test_clicklock_switch_slider_and_live_state(self):
+        status = self.STATUS
+
+        def reply(msg):
+            if msg["cmd"] == "subscribe":
+                return [status]
+            if msg["cmd"] == "set":
+                cfg = dict(status["config"], **msg["config"])
+                return [{"type": "ok"}, dict(status, config=cfg, clicklock_active=True)]
+            return []
+        self.reply_for = reply
+        self.client.start()
+        self.assertTrue(self.pump(lambda: self.client.state == "running"))
+        self.assertEqual((self.client.clickLock, self.client.clickLockMs, self.client.clickLockActive),
+                         (False, 5000, False))
+        self.client.setClickLock(True)                  # a switch goes out at once
+        self.assertTrue(self.client.clickLock)
+        self.assertTrue(self.pump(lambda: self.client.clickLockActive))
+        self.assertEqual([m["config"] for m in self.received if m["cmd"] == "set"], [{"clicklock": True}])
+        for ms in (6000, 99999):                        # a drag is coalesced and clamped to the slider range
+            self.client.setClickLockMs(ms)
+        self.assertTrue(self.pump(lambda: len([m for m in self.received if m["cmd"] == "set"]) == 2))
+        self.assertEqual(self.received[-1]["config"], {"clicklock_ms": 15000})
+        self.assertTrue(self.pump(lambda: self.client.clickLockMs == 15000))
+        self.assertEqual(self.client.presetName, "Balanced")     # wheel settings untouched
 
     def test_status_does_not_clobber_pending_edit(self):
         status = self.STATUS

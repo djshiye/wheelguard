@@ -231,7 +231,7 @@ Window {
                 anchors.leftMargin: 14
                 anchors.rightMargin: 10
                 anchors.bottomMargin: 6
-                text: "The Mouse page uses a reverse-engineered protocol. Not affiliated with Endgame Gear."
+                text: "The Mouse page uses reverse-engineered protocols. Not affiliated with Endgame Gear, Logitech or Razer."
                 font.pixelSize: Theme.fsSmall - 1
                 color: Theme.textFaint
                 wrapMode: Text.WordWrap

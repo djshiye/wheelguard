@@ -73,7 +73,7 @@ class TrayIcon(QObject):
         self._tray.setContextMenu(self._menu)
         self._tray.activated.connect(self._on_activated)
         self._menu.aboutToShow.connect(self._on_menu_open)
-        for sig in (daemon.stateChanged, daemon.configChanged, mouse.trayChanged):
+        for sig in (daemon.stateChanged, daemon.configChanged, daemon.clickLockActiveChanged, mouse.trayChanged):
             sig.connect(self.update)
         self.update()
         if not suppressed:
@@ -122,7 +122,7 @@ class TrayIcon(QObject):
             if r.kind == "stage":
                 self._group.addAction(act)
             if r.kind == "toggle":
-                act.toggled.connect(self._daemon.setEnabled)
+                act.toggled.connect(self._daemon.setClickLock if r.key == "clicklock" else self._daemon.setEnabled)
             elif r.kind == "stage":
                 act.triggered.connect(lambda _c=False, i=r.index: self._mouse.setActiveStage(i))
             elif r.kind == "action":

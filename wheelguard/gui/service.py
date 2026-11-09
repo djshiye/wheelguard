@@ -8,6 +8,9 @@ panel extension talks to the running app through it.
         StateChanged(a{sv})              the same dict, emitted when something in it changed
         SetActiveStage(i)                switch the DPI stage (the guarded MouseController path)
         SetProtection(b)                 scroll protection on/off
+        SetClickLock(b)                  Click-Lock on/off
+        SetClickLockMs(i)                Click-Lock hold time in ms (clamped to the slider range)
+        SetClickLockMode(s)              "repeat" (keep clicking) or "hold" (keep the button pressed)
         ShowWindow()                     bring the settings window forward
         Refresh()                        re-read the mouse quietly (rate-limited)
         read-only properties             the same keys, with org.freedesktop.DBus.Properties.PropertiesChanged
@@ -17,7 +20,7 @@ from typing import Dict, Optional
 from PySide6.QtCore import ClassInfo, Property, QObject, QTimer, Signal, Slot
 from PySide6.QtDBus import QDBus, QDBusAbstractAdaptor, QDBusConnection, QDBusMessage
 
-from . import traymodel
+from . import protocol, traymodel
 
 BUS_NAME = "io.github.djshiye.Wheelguard"
 OBJECT_PATH = "/io/github/djshiye/Wheelguard"
@@ -25,7 +28,8 @@ INTERFACE = "io.github.djshiye.Wheelguard1"
 PROPS_IFACE = "org.freedesktop.DBus.Properties"
 
 PROPERTIES = ("Online", "Battery", "Charging", "StageLabels", "ActiveStage", "StageReason",
-              "ProtectionEnabled", "DaemonState", "Preset", "Dropped")
+              "ProtectionEnabled", "DaemonState", "Preset", "Dropped",
+              "ClickLockEnabled", "ClickLockMs", "ClickLockActive", "ClickLockMode")
 IDLE_STATE = traymodel.state_dict(traymodel.TrayState())
 
 
@@ -70,7 +74,8 @@ class Service(QObject):
         """The backends exist now: start mirroring them."""
         self._daemon, self._mouse = daemon, mouse
         self._attached = True
-        for sig in (daemon.stateChanged, daemon.configChanged, daemon.statsChanged, mouse.trayChanged):
+        for sig in (daemon.stateChanged, daemon.configChanged, daemon.statsChanged,
+                    daemon.clickLockActiveChanged, mouse.trayChanged):
             sig.connect(self._timer.start)
         self.publish()
 
@@ -100,6 +105,21 @@ class Service(QObject):
         d = self._daemon
         if d is not None and d.state in ("running", "waiting"):
             d.setEnabled(bool(on))
+
+    def set_clicklock(self, on: bool):
+        d = self._daemon
+        if d is not None and d.state in ("running", "waiting"):
+            d.setClickLock(bool(on))
+
+    def set_clicklock_ms(self, ms: int):
+        d = self._daemon
+        if d is not None and d.state in ("running", "waiting"):
+            d.setClickLockMs(int(ms))
+
+    def set_clicklock_mode(self, mode: str):
+        d = self._daemon
+        if d is not None and d.state in ("running", "waiting") and mode in protocol.CLICKLOCK_MODES:
+            d.setClickLockMode(mode)
 
     def show_window(self):
         if self._attached:
@@ -137,6 +157,18 @@ class Adaptor(QDBusAbstractAdaptor):
     def SetProtection(self, on):
         self.parent().set_protection(on)
 
+    @Slot(bool)
+    def SetClickLock(self, on):
+        self.parent().set_clicklock(on)
+
+    @Slot(int)
+    def SetClickLockMs(self, ms):
+        self.parent().set_clicklock_ms(ms)
+
+    @Slot(str)
+    def SetClickLockMode(self, mode):
+        self.parent().set_clicklock_mode(mode)
+
     @Slot()
     def ShowWindow(self):
         self.parent().show_window()
@@ -160,3 +192,7 @@ class Adaptor(QDBusAbstractAdaptor):
     DaemonState = _prop("DaemonState", str)
     Preset = _prop("Preset", str)
     Dropped = _prop("Dropped", int)
+    ClickLockEnabled = _prop("ClickLockEnabled", bool)
+    ClickLockMs = _prop("ClickLockMs", int)
+    ClickLockActive = _prop("ClickLockActive", bool)
+    ClickLockMode = _prop("ClickLockMode", str)

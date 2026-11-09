@@ -22,7 +22,7 @@ WgScrollPage {
         }
         Text {
             width: parent.width
-            text: "These are GNOME's own mouse settings, so they apply to every mouse, not just this one."
+            text: "Most of these are GNOME's own mouse settings, so they apply to every mouse. Click-Lock is Wheelguard's and works on the mouse it protects."
             font.pixelSize: Theme.fsBody
             color: Theme.textMuted
             wrapMode: Text.WordWrap
@@ -168,6 +168,177 @@ WgScrollPage {
             description: "Press the left and right buttons together to middle-click."
             checked: pointer.middleClickEmulation
             onToggled: (v) => pointer.middleClickEmulation = v
+        }
+    }
+
+    // Click-Lock (done by the Wheelguard service, so it works whether or not GNOME's settings are reachable)
+    WgCard {
+        id: clCard
+        width: parent.width
+        spacing: 14
+        readonly property bool reachable: daemon.state === "running" || daemon.state === "waiting"
+        readonly property color valueColor: Theme.dark ? "#B79DFF" : Theme.accentA
+        function seconds(ms) { return (ms / 1000).toLocaleString(Qt.locale(), "f", ms % 1000 ? 1 : 0) + " s" }
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 16
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 4
+                RowLayout {
+                    spacing: 10
+                    Text {
+                        text: "Click-Lock"
+                        font.pixelSize: Theme.fsH2
+                        font.weight: Font.DemiBold
+                        color: Theme.text
+                    }
+                    Rectangle {   // live badge while the lock is clicking
+                        id: liveBadge
+                        visible: opacity > 0
+                        opacity: daemon.clickLockActive ? 1 : 0
+                        Behavior on opacity { NumberAnimation { duration: Theme.normal } }
+                        Layout.preferredHeight: 22
+                        Layout.preferredWidth: liveRow.implicitWidth + 18
+                        radius: 11
+                        color: Theme.alpha(Theme.good, 0.16)
+                        border.width: 1
+                        border.color: Theme.alpha(Theme.good, 0.35)
+                        Row {
+                            id: liveRow
+                            anchors.centerIn: parent
+                            spacing: 6
+                            Rectangle {
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: 7; height: 7; radius: 3.5
+                                color: Theme.good
+                                SequentialAnimation on opacity {
+                                    running: daemon.clickLockActive
+                                    loops: Animation.Infinite
+                                    NumberAnimation { to: 0.3; duration: 500 }
+                                    NumberAnimation { to: 1; duration: 500 }
+                                }
+                            }
+                            Text {
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: daemon.clickLockMode === "hold" ? "Holding · click to let go" : "Clicking · click to stop"
+                                font.pixelSize: Theme.fsSmall
+                                font.weight: Font.Medium
+                                color: Theme.good
+                            }
+                        }
+                    }
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: daemon.clickLockMode === "hold"
+                          ? "Hold the left button and Wheelguard keeps it pressed after you let go, handy for long drags. Click again to let go."
+                          : "Hold the left button and Wheelguard keeps clicking for you, even after you let go. Click again to stop."
+                    font.pixelSize: Theme.fsBody - 1
+                    color: Theme.textMuted
+                    wrapMode: Text.WordWrap
+                }
+            }
+            WgSwitch {
+                Layout.alignment: Qt.AlignTop
+                enabled: clCard.reachable
+                opacity: enabled ? 1 : 0.5
+                checked: daemon.clickLock
+                onToggled: daemon.setClickLock(checked)
+            }
+        }
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 10
+            enabled: clCard.reachable
+            opacity: daemon.clickLock && clCard.reachable ? 1 : 0.55
+            Behavior on opacity { NumberAnimation { duration: Theme.normal } }
+
+            WgSegmented {
+                Layout.fillWidth: true
+                model: ["Repeat clicks", "Hold down"]
+                subLabels: ["keeps clicking for you", "keeps the button pressed"]
+                currentIndex: daemon.clickLockMode === "hold" ? 1 : 0
+                onActivated: (i) => daemon.setClickLockMode(i === 1 ? "hold" : "repeat")
+            }
+            Rectangle { Layout.fillWidth: true; Layout.topMargin: 4; Layout.preferredHeight: 1; color: Theme.border }
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.topMargin: 4
+                Text {
+                    Layout.fillWidth: true
+                    text: "Hold time"
+                    font.pixelSize: Theme.fsBody
+                    font.weight: Font.DemiBold
+                    color: Theme.text
+                }
+                Text {
+                    text: clCard.seconds(daemon.clickLockMs)
+                    font.pixelSize: Theme.fsBody
+                    font.weight: Font.DemiBold
+                    color: clCard.valueColor
+                }
+            }
+            WgSlider {
+                Layout.fillWidth: true
+                from: 1000
+                to: 15000
+                stepSize: 500
+                snapMode: WgSlider.SnapAlways
+                value: daemon.clickLockMs
+                valueText: clCard.seconds(value)
+                onMoved: daemon.setClickLockMs(Math.round(value))
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.leftMargin: 4
+                Layout.rightMargin: 4
+                Text { text: "1 s"; font.pixelSize: Theme.fsSmall; color: Theme.textFaint }
+                Item { Layout.fillWidth: true }
+                Text { text: "15 s"; font.pixelSize: Theme.fsSmall; color: Theme.textFaint }
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 10
+                visible: daemon.clickLockMode !== "hold"
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 4
+                    Text {
+                        Layout.fillWidth: true
+                        text: "Click speed"
+                        font.pixelSize: Theme.fsBody
+                        font.weight: Font.DemiBold
+                        color: Theme.text
+                    }
+                    Text {
+                        text: daemon.clickLockRate + (daemon.clickLockRate === 1 ? " click/s" : " clicks/s")
+                        font.pixelSize: Theme.fsBody
+                        font.weight: Font.DemiBold
+                        color: clCard.valueColor
+                    }
+                }
+                WgSlider {
+                    Layout.fillWidth: true
+                    from: 1
+                    to: 30
+                    stepSize: 1
+                    snapMode: WgSlider.SnapAlways
+                    value: daemon.clickLockRate
+                    valueText: Math.round(value) + "/s"
+                    onMoved: daemon.setClickLockRate(Math.round(value))
+                }
+            }
+            Text {
+                Layout.fillWidth: true
+                text: "Also in the Wheelguard menu in the top bar, for switching it on and off quickly."
+                font.pixelSize: Theme.fsSmall
+                color: Theme.textFaint
+                wrapMode: Text.WordWrap
+            }
         }
     }
 
