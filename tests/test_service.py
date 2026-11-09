@@ -23,14 +23,26 @@ if HAVE_QT:
         stateChanged = Signal()
         configChanged = Signal()
         statsChanged = Signal()
+        clickLockActiveChanged = Signal()
 
         def __init__(self):
             super().__init__()
             self.state, self.enabled, self.presetName, self.dropped = "running", True, "Balanced", 0
+            self.clickLock, self.clickLockMs, self.clickLockActive = False, 5000, False
+            self.clickLockMode = "repeat"
             self.calls = []
 
         def setEnabled(self, on):
             self.calls.append(("enabled", on))
+
+        def setClickLock(self, on):
+            self.calls.append(("clicklock", on))
+
+        def setClickLockMs(self, ms):
+            self.calls.append(("clicklock_ms", ms))
+
+        def setClickLockMode(self, mode):
+            self.calls.append(("clicklock_mode", mode))
 
     class FakeMouse(QObject):
         trayChanged = Signal()
@@ -103,13 +115,17 @@ class ServiceTests(unittest.TestCase):
         self.svc.set_active_stage(0)
         self.svc.refresh()
         self.svc.set_protection(False)
+        self.svc.set_clicklock(True)
+        self.svc.set_clicklock_ms(7000)
         self.assertEqual(self.m.calls, [("stage", 0), ("refresh",)])
-        self.assertEqual(self.d.calls, [("enabled", False)])
+        self.assertEqual(self.d.calls, [("enabled", False), ("clicklock", True), ("clicklock_ms", 7000)])
 
     def test_protection_needs_the_service(self):
         self.d.state = "stopped"
         self.svc.attach(self.d, self.m)
         self.svc.set_protection(False)
+        self.svc.set_clicklock(True)
+        self.svc.set_clicklock_ms(7000)
         self.assertEqual(self.d.calls, [])
 
     def test_show_window_after_attach_is_signalled(self):
@@ -123,9 +139,15 @@ class ServiceTests(unittest.TestCase):
         self.svc.attach(self.d, self.m)
         self.svc.adaptor.SetActiveStage(1)
         self.svc.adaptor.SetProtection(True)
+        self.svc.adaptor.SetClickLock(True)
+        self.svc.adaptor.SetClickLockMs(6000)
+        self.svc.adaptor.SetClickLockMode("hold")
+        self.svc.adaptor.SetClickLockMode("turbo")      # ignored
         self.svc.adaptor.Refresh()
         self.assertEqual(self.m.calls, [("stage", 1), ("refresh",)])
-        self.assertEqual(self.d.calls, [("enabled", True)])
+        self.assertEqual(self.d.calls, [("enabled", True), ("clicklock", True), ("clicklock_ms", 6000),
+                                        ("clicklock_mode", "hold")])
+        self.assertEqual(self.svc.adaptor.GetState()["ClickLockDetail"], "Off")
         self.assertEqual(self.svc.adaptor.GetState()["Battery"], 80)
 
 

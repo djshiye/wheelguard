@@ -18,6 +18,14 @@
   <developer id="io.github.djshiye"><name>djshiye</name></developer>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.5.0" date="2026-11-09">
+      <description>
+        <ul>
+          <li>Click-Lock: hold the left button and Wheelguard keeps clicking (or keeps it pressed) until your next click</li>
+          <li>Switch it, pick the mode and set the hold time from the panel popup or the Pointer page</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.4.0" date="2026-11-04">
       <description>
         <ul>

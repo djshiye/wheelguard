@@ -13,9 +13,19 @@ Messages are UTF-8 JSON objects, one per line (`\n`-terminated), both directions
   "hold_ms": 25,
   "vendor": "3367",
   "product": "1970",
-  "retry_s": 2
+  "retry_s": 2,
+  "clicklock": false,
+  "clicklock_ms": 5000,
+  "clicklock_mode": "repeat",
+  "clicklock_rate": 10
 }
 ```
+
+Click-Lock: with `clicklock: true`, holding the left button for `clicklock_ms` (500 to 30000) engages
+the lock. Mode `repeat` releases the button and clicks `clicklock_rate` times a second (1 to 30);
+mode `hold` keeps it pressed. Letting go is ignored while locked; the next click ends the lock and is
+swallowed (in `hold` mode its release lets go of the button). Switching Click-Lock off or changing the
+mode ends a running lock at once.
 
 `enabled: false` = pass every wheel tick through untouched (device stays grabbed, ticks are still
 reported with `kind: "pass"`). Missing keys take defaults. The daemon also notices hand edits
@@ -42,7 +52,8 @@ Validation: `0 < hold_ms < lock_ms`, `0 <= pre_ms <= lock_ms`, all ms values <= 
  "device": "Endgame Gear Endgame Gear HS Dongle",
  "error": null,                     // e.g. "permission denied: /dev/input/event2" when the udev rule is missing
  "config": {...full effective config...},
- "stats": {"ticks": 1234, "passed": 1120, "dropped": 114, "since": 1729400000.0}}
+ "stats": {"ticks": 1234, "passed": 1120, "dropped": 114, "since": 1729400000.0},
+ "clicklock_active": false}         // Click-Lock is engaged right now (a status event goes out when it changes)
 ```
 
 ```json

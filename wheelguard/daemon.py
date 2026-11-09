@@ -130,17 +130,20 @@ def run_session(dev, ctl, server, tick_log):
         dev.grab()
         grabbed = True
         cfg = ctl.cfg
-        log.info("filtering %s (%s), lock=%gms pre=%gms hold=%gms", dev.name, dev.path,
-                 cfg["lock_ms"], cfg["pre_ms"], cfg["hold_ms"])
+        log.info("filtering %s (%s), lock=%gms pre=%gms hold=%gms, click-lock %s", dev.name, dev.path,
+                 cfg["lock_ms"], cfg["pre_ms"], cfg["hold_ms"],
+                 f"after {cfg['clicklock_ms'] / 1000:g}s ({cfg['clicklock_mode']})" if cfg["clicklock"] else "off")
         ctl.reset_filter()
         ctl.set_device(True, dev.name, None)
         frame = []
         skipping = False  # after SYN_DROPPED, discard everything up to the next SYN_REPORT
         while True:
-            deadline = ctl.deadline
             timeout = None
-            if deadline is not None:
-                timeout = min(max(deadline - time.time(), 0.0), ctl.cfg["hold_ms"] / 1000.0)
+            now = time.time()
+            if (deadline := ctl.deadline) is not None:
+                timeout = min(max(deadline - now, 0.0), ctl.cfg["hold_ms"] / 1000.0)
+            if (deadline := ctl.clicklock_deadline) is not None:
+                timeout = min(timeout if timeout is not None else POLL_S, max(deadline - now, 0.0))
             if service(ctl, server, timeout, (dev.fd,)):
                 for ev in dev.read():
                     if ev.type == e.EV_SYN:

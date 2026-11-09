@@ -25,14 +25,16 @@ class MenuTests(unittest.TestCase):
     def test_full_menu(self):
         rows = traymodel.menu_rows(state())
         self.assertEqual([(r.kind, r.text) for r in rows], [
-            ("info", "Battery 83%"), ("toggle", "Scroll protection"), ("separator", ""),
+            ("info", "Battery 83%"), ("toggle", "Scroll protection"), ("toggle", "Click-Lock (hold 5 s)"),
+            ("separator", ""),
             ("stage", "400 DPI"), ("stage", "800 DPI"), ("stage", "1600 DPI"), ("stage", "3200 DPI"),
             ("separator", ""), ("action", "Open Wheelguard"), ("action", "Quit")])
         self.assertFalse(rows[0].enabled)
         self.assertTrue(rows[1].checked and rows[1].enabled)
         self.assertEqual([r.checked for r in rows if r.kind == "stage"], [False, True, False, False])
         self.assertEqual([r.index for r in rows if r.kind == "stage"], [0, 1, 2, 3])
-        self.assertTrue(all(r.enabled for r in rows[3:]))
+        self.assertTrue(all(r.enabled for r in rows[4:]))
+        self.assertEqual((rows[2].key, rows[2].checked), ("clicklock", False))
         self.assertNotIn("Quick view", [r.text for r in rows])
         self.assertEqual([r.key for r in rows if r.kind == "action"], ["open", "quit"])
 
@@ -49,7 +51,7 @@ class MenuTests(unittest.TestCase):
                                          stage_reason="Mouse not connected"))
         self.assertEqual(rows[0], Row("info", "Mouse not connected", enabled=False))
         self.assertFalse([r for r in rows if r.kind == "stage"])
-        self.assertEqual(rows[3], Row("info", "DPI: Mouse not connected", enabled=False))
+        self.assertEqual(rows[4], Row("info", "DPI: Mouse not connected", enabled=False))
 
     def test_staged_edits_disable_but_keep_the_stage_rows(self):
         rows = traymodel.menu_rows(state(stage_reason=traymodel.REASON_EDITS))
@@ -130,6 +132,7 @@ class StateDictTests(unittest.TestCase):
     def test_snapshot_reads_the_backends(self):
         class D:
             state, enabled, presetName, dropped = "running", False, "Gentle", 4
+            clickLock, clickLockMs, clickLockActive, clickLockMode = True, 7500, True, "hold"
 
         class M:
             online, battery, charging = True, 40, False
@@ -137,6 +140,23 @@ class StateDictTests(unittest.TestCase):
         s = traymodel.snapshot(D, M)
         self.assertEqual((s.daemon_state, s.protecting, s.preset, s.dropped, s.stages, s.battery),
                          ("running", False, "Gentle", 4, ("800",), 40))
+        self.assertEqual((s.clicklock, s.clicklock_ms, s.clicklock_active, s.clicklock_mode),
+                         (True, 7500, True, "hold"))
+
+    def test_clicklock_text(self):
+        self.assertEqual(traymodel.seconds_text(7500), "7.5 s")
+        self.assertEqual(traymodel.menu_rows(state(clicklock=True, clicklock_active=True))[2].text,
+                         "Click-Lock (clicking, click to stop)")
+        detail = traymodel.clicklock_detail
+        self.assertEqual(detail("running", False, 5000, False), "Off")
+        self.assertEqual(detail("running", True, 5000, False), "Hold the left button 5 s to start")
+        self.assertEqual(detail("running", True, 5000, True), "Clicking for you · click to stop")
+        self.assertEqual(detail("stopped", True, 5000, False), "Service not running")
+        self.assertEqual(detail("running", True, 5000, True, "hold"), "Holding the button · click to let go")
+        self.assertEqual(traymodel.menu_rows(state(clicklock=True, clicklock_active=True, clicklock_mode="hold"))[2].text,
+                         "Click-Lock (holding, click to let go)")
+        d = traymodel.state_dict(state(clicklock=True, clicklock_ms=8000))
+        self.assertEqual((d["ClickLockEnabled"], d["ClickLockMs"], d["ClickLockActive"]), (True, 8000, False))
 
 
 @unittest.skipUnless(HAVE_QT, "PySide6 not installed")

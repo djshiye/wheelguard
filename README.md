@@ -25,6 +25,9 @@ installs its own `/etc/yum.repos.d/wheelguard.repo`, so the repository stays con
 - **Scroll bounce filter** that drops wrong-direction wheel ticks, with a live monitor of every tick
 - **Hardware mouse settings** for the Endgame Gear XM2w 4k v2: DPI, polling rate, lift-off distance,
   debounce, sleep and battery
+- **Click-Lock**: hold the left button for a few seconds (5 s by default, adjustable) and Wheelguard keeps
+  clicking for you, or keeps the button pressed for long drags, until your next click. Switch it on and off
+  from the panel popup
 - **GNOME pointer settings** (speed, acceleration, scrolling) in the same app
 - **Panel icon** with an instant popup (battery, scroll protection, DPI stage); closing the window keeps
   it running there, and it starts at login (switch on the About page). The icon is a GNOME Shell

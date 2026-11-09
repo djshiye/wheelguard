@@ -35,6 +35,7 @@ class DaemonClient(QObject):
     statsChanged = Signal()
     editErrorChanged = Signal()
     serviceChanged = Signal()
+    clickLockActiveChanged = Signal()
     tick = Signal(int, str, bool, float)     # sign, kind, held, t
 
     def __init__(self, path: Optional[str] = None, parent=None):
@@ -44,7 +45,8 @@ class DaemonClient(QObject):
         self._device = ""
         self._detail = ""
         self._version = ""
-        self._server_cfg = {"enabled": True, "pre_ms": 60, "hold_ms": 25, "lock_ms": 300}
+        self._server_cfg = dict(protocol.CONFIG_DEFAULTS)
+        self._clicklock_active = False
         self._cfg = dict(self._server_cfg)
         self._staged: dict = {}
         self._inflight = 0
@@ -111,6 +113,9 @@ class DaemonClient(QObject):
         if self._sock.state() != QLocalSocket.LocalSocketState.UnconnectedState:
             self._sock.abort()
         self._set_state("stopped", "", "")
+        if self._clicklock_active:
+            self._clicklock_active = False
+            self.clickLockActiveChanged.emit()
         if not self._retry.isActive():
             delay = BACKOFF_S[min(self._attempt, len(BACKOFF_S) - 1)]
             self._attempt += 1
@@ -160,6 +165,10 @@ class DaemonClient(QObject):
             self._server_cfg = cfg
             if not self._dirty():
                 self._set_cfg(cfg)
+        active = protocol.clicklock_active(msg)
+        if active != self._clicklock_active:
+            self._clicklock_active = active
+            self.clickLockActiveChanged.emit()
         st = protocol.status_stats(msg)
         if (st["ticks"], st["dropped"]) != (self._ticks, self._dropped):
             self._ticks, self._dropped = st["ticks"], st["dropped"]
@@ -195,7 +204,7 @@ class DaemonClient(QObject):
         self._staged.update(patch)
         merged = dict(self._cfg)
         merged.update(patch)
-        keys = [k for k in patch if k != "enabled"]
+        keys = [k for k in patch if k in ("pre_ms", "hold_ms", "lock_ms")]
         if keys:
             norm = presets.normalize(merged, keys[0])
             for k in ("pre_ms", "hold_ms", "lock_ms"):
@@ -227,6 +236,24 @@ class DaemonClient(QObject):
     def setMs(self, key: str, value: int):
         if key in ("pre_ms", "hold_ms", "lock_ms"):
             self._stage({key: int(value)})
+
+    @Slot(bool)
+    def setClickLock(self, on: bool):
+        self._stage({"clicklock": bool(on)}, immediate=True)
+
+    @Slot(int)
+    def setClickLockMs(self, value: int):
+        lo, hi = protocol.CLICKLOCK_MS_RANGE
+        self._stage({"clicklock_ms": max(lo, min(hi, int(value)))})
+
+    @Slot(int)
+    def setClickLockRate(self, value: int):
+        self._stage({"clicklock_rate": max(1, min(30, int(value)))})
+
+    @Slot(str)
+    def setClickLockMode(self, mode: str):
+        if mode in ("repeat", "hold"):
+            self._stage({"clicklock_mode": mode}, immediate=True)
 
     @Slot(int)
     def applyPreset(self, index: int):
@@ -302,6 +329,11 @@ class DaemonClient(QObject):
         s._cfg["pre_ms"], s._cfg["hold_ms"], s._cfg["lock_ms"]), notify=configChanged)
     presetSummary = Property(str, lambda s: presets.preset_summary(
         s._cfg["pre_ms"], s._cfg["hold_ms"], s._cfg["lock_ms"]), notify=configChanged)
+    clickLock = Property(bool, lambda s: s._cfg["clicklock"], notify=configChanged)
+    clickLockMs = Property(int, lambda s: s._cfg["clicklock_ms"], notify=configChanged)
+    clickLockMode = Property(str, lambda s: s._cfg["clicklock_mode"], notify=configChanged)
+    clickLockRate = Property(int, lambda s: s._cfg["clicklock_rate"], notify=configChanged)
+    clickLockActive = Property(bool, lambda s: s._clicklock_active, notify=clickLockActiveChanged)
     ticks = Property(int, lambda s: s._ticks, notify=statsChanged)
     dropped = Property(int, lambda s: s._dropped, notify=statsChanged)
     blockRate = Property(float, lambda s: protocol.block_rate(s._ticks, s._dropped), notify=statsChanged)

@@ -7,7 +7,7 @@
 %global __brp_python_bytecompile %{nil}
 
 Name:           wheelguard
-Version:        1.4.0
+Version:        1.5.0
 # CI appends .<commit count> so every build from main is a newer release.
 Release:        1%{?release_suffix}%{?dist}
 Summary:        Scroll bounce filter and advanced settings for the Endgame Gear XM2w 4k v2
@@ -123,6 +123,11 @@ fi
 %{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-djshiye-%{name}
 
 %changelog
+* Mon Nov 09 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.5.0-1
+- Click-Lock: hold the left button for a set time (default 5 s) and Wheelguard keeps clicking, or keeps
+  the button pressed, until the next click
+- Switch it on and off, pick the mode and set the hold time from the panel popup or the Pointer page
+
 * Wed Nov 04 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.4.0-1
 - One package for every Fedora release: installed under /usr/share/wheelguard, runs on any Python 3
 - Signed packages and repository metadata, published by GitHub Actions on every push

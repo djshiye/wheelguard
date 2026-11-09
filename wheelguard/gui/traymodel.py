@@ -22,13 +22,17 @@ class TrayState:
     stage_reason: str = ""          # why the stage rows are disabled; "" = switchable
     preset: str = ""                # name of the active scroll-protection preset
     dropped: int = 0                # ticks dropped since the daemon started
+    clicklock: bool = False         # Click-Lock switched on
+    clicklock_ms: int = 5000        # how long the left button must be held
+    clicklock_active: bool = False  # the lock is engaged right now (clicking or holding on its own)
+    clicklock_mode: str = "repeat"  # "repeat" | "hold"
 
 
 @dataclass(frozen=True)
 class Row:
     kind: str                       # "info" | "toggle" | "stage" | "action" | "separator"
     text: str = ""
-    key: str = ""                   # what a click does: "protect" | "stage" | "open" | "quit"
+    key: str = ""                   # what a click does: "protect" | "clicklock" | "stage" | "open" | "quit"
     index: int = -1
     checked: bool = False
     enabled: bool = True
@@ -38,7 +42,8 @@ def snapshot(daemon, mouse) -> TrayState:
     """Read the state from the DaemonClient and MouseController (or anything with the same properties)."""
     return TrayState(daemon.state, daemon.enabled, mouse.online, mouse.battery, mouse.charging,
                      tuple(mouse.stageLabels), mouse.activeStage, mouse.stageReason,
-                     daemon.presetName, daemon.dropped)
+                     daemon.presetName, daemon.dropped, daemon.clickLock, daemon.clickLockMs,
+                     daemon.clickLockActive, daemon.clickLockMode)
 
 
 def stage_labels(flat: Dict[str, object]) -> List[str]:
@@ -95,6 +100,8 @@ def menu_rows(s: TrayState) -> List[Row]:
     rows = [Row("info", battery_text(s.online, s.battery, s.charging), enabled=False),
             Row("toggle", "Scroll protection", key="protect", checked=s.protecting,
                 enabled=s.daemon_state in ("running", "waiting")),
+            Row("toggle", clicklock_menu_text(s), key="clicklock", checked=s.clicklock,
+                enabled=s.daemon_state in ("running", "waiting")),
             Row("separator")]
     if s.stages:
         for i, label in enumerate(s.stages):
@@ -131,6 +138,29 @@ def protection_detail(daemon_state: str, protecting: bool, preset: str, dropped:
     return f"{text} · {dropped} dropped" if dropped > 0 else text
 
 
+def seconds_text(ms: int) -> str:
+    """5000 -> "5 s", 7500 -> "7.5 s"."""
+    return f"{ms / 1000:g} s"
+
+
+def clicklock_menu_text(s: TrayState) -> str:
+    if s.clicklock_active:
+        return "Click-Lock (holding, click to let go)" if s.clicklock_mode == "hold" \
+            else "Click-Lock (clicking, click to stop)"
+    return f"Click-Lock (hold {seconds_text(s.clicklock_ms)})"
+
+
+def clicklock_detail(daemon_state: str, on: bool, ms: int, active: bool, mode: str = "repeat") -> str:
+    """The line under "Click-Lock" in the panel popup."""
+    if daemon_state in ("stopped", "permission"):
+        return "Service not running"
+    if active:
+        return "Holding the button · click to let go" if mode == "hold" else "Clicking for you · click to stop"
+    if on:
+        return f"Hold the left button {seconds_text(ms)} to start"
+    return "Off"
+
+
 def battery_note(online: bool, charging: bool) -> str:
     if not online:
         return REASON_OFFLINE
@@ -155,5 +185,11 @@ def state_dict(s: TrayState) -> Dict[str, object]:
         "StatusTone": tone,
         "ProtectionDetail": protection_detail(s.daemon_state, s.protecting, s.preset, s.dropped),
         "BatteryNote": battery_note(s.online, s.charging),
+        "ClickLockEnabled": bool(s.clicklock),
+        "ClickLockMs": int(s.clicklock_ms),
+        "ClickLockActive": bool(s.clicklock_active),
+        "ClickLockMode": s.clicklock_mode,
+        "ClickLockDetail": clicklock_detail(s.daemon_state, s.clicklock, s.clicklock_ms, s.clicklock_active,
+                                            s.clicklock_mode),
         "Tooltip": tooltip(s),
     }
