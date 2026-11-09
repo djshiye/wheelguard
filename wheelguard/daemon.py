@@ -152,17 +152,30 @@ class FrameReader:
 
     After SYN_DROPPED (the kernel's buffer overflowed, e.g. at 4000-8000 Hz polling while the daemon
     was busy) everything up to the next SYN_REPORT is unreliable and discarded, as libevdev does. A
-    button release can be among the lost events, so the button state is then re-read from the device
-    (`keys_now`, EVIOCGKEY) and the difference is replayed as a frame of its own. Without this the
-    virtual mouse could keep a button pressed until the next click. A press of a button that is already
-    down (a duplicate after the re-read) is left out.
+    button event can be among the lost ones, so the button state is then re-read from the device
+    (`keys_now`, EVIOCGKEY) and the difference is replayed as a frame of its own.
+
+    Two kernel details make this exact:
+    - EVIOCGKEY also throws away every key event still queued for us (evdev_handle_get_val), because
+      they are part of the state it returns. Key events we had already read in the same batch are part
+      of it too, so they are left out until the next batch (call `next_batch()` before each read).
+      Replaying them on top of the re-read would leave a button pressed whose release was thrown away
+      (and swallow the next real press), or lose a press made during the re-read.
+    - A read can end in the middle of a frame. The button state only takes in a frame once its
+      SYN_REPORT arrives, so a frame cut off by an overflow can't leave a press recorded that was
+      never sent.
     """
 
     def __init__(self, keys_now):
         self.keys_now = keys_now
-        self.state = KeyState()
+        self.state = KeyState()         # what the frames handed out so far leave pressed
         self.frame = []
         self.skipping = False
+        self.stale_keys = False         # key events from here to the end of this batch are in the re-read
+
+    def next_batch(self):
+        """A new read() from the device starts: its events are newer than any re-read so far."""
+        self.stale_keys = False
 
     def feed(self, etype, code, value):
         """One raw event; returns the frames it completes (usually none or one)."""
@@ -175,15 +188,16 @@ class FrameReader:
                     self.frame = []
                     return self._resync()
                 frame, self.frame = self.frame, []
-                return [frame] if frame else []
+                if not frame:
+                    return []
+                self.state.update(frame)
+                return [frame]
             return []
         if self.skipping:
             return []
-        if etype == e.EV_KEY and value == 1 and code in self.state.down:
-            return []                       # already pressed (replayed by a re-read)
+        if self.stale_keys and (etype == e.EV_KEY or (etype == e.EV_MSC and code == e.MSC_SCAN)):
+            return []                       # already counted by the re-read (see the class doc)
         self.frame.append((etype, code, value))
-        if etype == e.EV_KEY:
-            self.state.update([(etype, code, value)])
         return []
 
     def _resync(self):
@@ -191,6 +205,7 @@ class FrameReader:
             actual = set(self.keys_now())
         except OSError:
             return []
+        self.stale_keys = True
         fix = [(e.EV_KEY, code, 0) for code in sorted(self.state.down - actual)]
         fix += [(e.EV_KEY, code, 1) for code in sorted(actual - self.state.down)]
         if not fix:
@@ -325,8 +340,9 @@ def run_session(dev, ctl, server, tick_log, watcher=None):
         ctl.reset_filter()
         ctl.restart_requested = False
         ctl.set_device(True, dev.name, None, ident=_ident(dev))
+        # Nothing is held: grab_when_buttons_up() checked that after the grab. Not asked again here,
+        # because asking (EVIOCGKEY) would throw away a click queued since then (see FrameReader).
         reader = FrameReader(dev.active_keys)
-        reader.state.down = set(dev.active_keys())   # normally empty (see grab_when_buttons_up)
         while True:
             if ctl.restart_requested is True:
                 ctl.restart_requested = False
@@ -346,6 +362,7 @@ def run_session(dev, ctl, server, tick_log, watcher=None):
             if watcher is not None and watcher.fileno() in readable and watcher.drain():
                 ctl.invalidate_mice()
             if dev.fd in readable:
+                reader.next_batch()
                 for ev in dev.read():
                     for frame in reader.feed(ev.type, ev.code, ev.value):
                         tick_log(ctl.handle_frame(frame, ev.timestamp(), write))

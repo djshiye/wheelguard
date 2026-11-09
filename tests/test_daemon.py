@@ -56,8 +56,9 @@ class Reader(unittest.TestCase):
     def test_lost_press_is_replayed(self):
         r = FrameReader(lambda: [e.BTN_LEFT])
         self.assertEqual(feed(r, DROPPED, MOVE, SYN), [[LEFT_DOWN]])
-        # The real press, still queued after the re-read, isn't sent a second time.
+        # The real press, read in the same batch, is part of the re-read and isn't sent a second time.
         self.assertEqual(feed(r, LEFT_DOWN, SYN), [])
+        r.next_batch()
         self.assertEqual(feed(r, LEFT_UP, SYN), [[LEFT_UP]])
 
     def test_nothing_lost_nothing_replayed(self):
