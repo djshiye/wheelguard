@@ -43,6 +43,8 @@ def parse_args(argv):
                       help="on the Mouse page, stage two edits once the mouse has been read")
     shot.add_argument("--setups-demo", action="store_true",
                       help="on the Mouse page, save two example setups once the mouse has been read")
+    shot.add_argument("--hot-button", type=int, metavar="N",
+                      help="on the Mouse page, light up button N (0 to 4) on the drawing")
     shot.add_argument("--delay-ms", type=int, default=1500)
     return ap.parse_args(argv)
 
@@ -87,7 +89,7 @@ def main(argv=None):
     os.environ.setdefault("QML_DISK_CACHE_PATH", str(cache_root / "Wheelguard" / f"qmlcache-{__version__}"))
 
     try:
-        from PySide6.QtCore import QEventLoop, QTimer, QUrl
+        from PySide6.QtCore import QEventLoop, QObject, QTimer, QUrl
         from PySide6.QtGui import QFont, QGuiApplication, QIcon
         from PySide6.QtWidgets import QApplication
     except ImportError:
@@ -201,6 +203,10 @@ def main(argv=None):
     win.setWidth(w)
     win.setHeight(h)
     win.setProperty("pageIndex", PAGES[args.page])
+    if args.hot_button is not None:
+        page = win.findChild(QObject, "mousePage")
+        if page is not None:
+            page.setProperty("hotButton", args.hot_button)
     if args.welcome is not None:
         win.setProperty("welcomeStep", max(0, min(2, args.welcome)))
     if args.advanced:

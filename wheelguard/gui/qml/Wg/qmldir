@@ -21,3 +21,4 @@ BatteryGlyph 1.0 BatteryGlyph.qml
 MousePage 1.0 MousePage.qml
 WelcomeOverlay 1.0 WelcomeOverlay.qml
 WgTextField 1.0 WgTextField.qml
+MouseArt 1.0 MouseArt.qml

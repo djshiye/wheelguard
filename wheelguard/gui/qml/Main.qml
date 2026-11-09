@@ -281,6 +281,7 @@ Window {
                     Behavior on opacity { NumberAnimation { duration: Theme.normal } }
                 }
                 MousePage {
+                    objectName: "mousePage"
                     anchors.fill: parent
                     opacity: win.pageIndex === 1 ? 1 : 0
                     visible: opacity > 0

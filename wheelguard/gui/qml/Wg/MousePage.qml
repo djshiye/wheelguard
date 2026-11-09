@@ -30,6 +30,8 @@ Item {
     property int editStage: 0
     property var unlinked: ({})
     property bool confirmRestore: false
+    property int hotButton: -1         // button row under the pointer or focus (lights it on the drawing)
+    function setHot(i, on) { if (on) hotButton = i; else if (hotButton === i) hotButton = -1 }
     property bool namingSetup: false
     property string setupError: ""
 
@@ -360,16 +362,12 @@ Item {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 18
-                Rectangle {
-                    Layout.preferredWidth: 56
-                    Layout.preferredHeight: 56
+                MouseArt {
                     Layout.alignment: Qt.AlignTop
-                    radius: 18
-                    gradient: Gradient {
-                        GradientStop { position: 0.0; color: Theme.accentA }
-                        GradientStop { position: 1.0; color: Theme.accentB }
-                    }
-                    WgIcon { anchors.centerIn: parent; name: "mouse"; size: 28; color: "white"; strokeWidth: 1.9 }
+                    unit: 0.95
+                    modelKey: mouse.modelKey
+                    highlight: root.hotButton
+                    dim: !root.shown
                 }
                 ColumnLayout {
                     Layout.fillWidth: true
@@ -390,29 +388,37 @@ Item {
                             onClicked: mouse.refresh()
                         }
                     }
+                    RowLayout {   // battery and connection, big enough to read at a glance
+                        Layout.fillWidth: true
+                        spacing: 36
+                        ColumnLayout {
+                            visible: mouse.battery >= 0
+                            Layout.alignment: Qt.AlignTop
+                            spacing: 4
+                            Text { text: "BATTERY"; font.pixelSize: Theme.fsSmall - 1; font.weight: Font.DemiBold; font.letterSpacing: 0.8; color: Theme.textMuted }
+                            RowLayout {
+                                spacing: 10
+                                BatteryGlyph { Layout.preferredWidth: 38; Layout.preferredHeight: 18; percent: mouse.battery; charging: mouse.charging }
+                                Text { text: mouse.battery + "%"; font.pixelSize: Theme.fsH2 + 7; font.weight: Font.DemiBold; color: Theme.text }
+                                Text { visible: mouse.charging; text: "Charging"; font.pixelSize: Theme.fsSmall; color: Theme.good }
+                            }
+                        }
+                        ColumnLayout {
+                            visible: mouse.connection !== ""
+                            Layout.alignment: Qt.AlignTop
+                            spacing: 4
+                            Text { text: "CONNECTION"; font.pixelSize: Theme.fsSmall - 1; font.weight: Font.DemiBold; font.letterSpacing: 0.8; color: Theme.textMuted }
+                            RowLayout {
+                                spacing: 10
+                                WgIcon { name: mouse.connection === "wired" ? "plug" : "wireless"; size: 22; color: Theme.textMuted }
+                                Text { text: mouse.connection === "wired" ? "Wired" : mouse.wirelessText; font.pixelSize: Theme.fsBody + 1; font.weight: Font.DemiBold; color: Theme.text }
+                            }
+                        }
+                        Item { Layout.fillWidth: true }
+                    }
                     Flow {
                         Layout.fillWidth: true
                         spacing: 8
-                        Chip {
-                            visible: mouse.connection !== ""
-                            icon: mouse.connection === "wired" ? "plug" : "wireless"
-                            text: mouse.connection === "wired" ? "Wired" : mouse.wirelessText
-                        }
-                        Chip {
-                            visible: mouse.battery >= 0
-                            BatteryGlyph {
-                                anchors.verticalCenter: parent.verticalCenter
-                                percent: mouse.battery
-                                charging: mouse.charging
-                            }
-                            Text {
-                                anchors.verticalCenter: parent.verticalCenter
-                                text: mouse.charging ? mouse.battery + "% · Charging" : mouse.battery + "%"
-                                font.pixelSize: Theme.fsSmall
-                                font.weight: Font.Medium
-                                color: Theme.text
-                            }
-                        }
                         Chip { visible: mouse.mouseFw !== ""; text: "Mouse FW " + mouse.mouseFw }
                         Chip { visible: mouse.dongleFw !== ""; text: "Dongle FW " + mouse.dongleFw }
                     }
@@ -920,6 +926,7 @@ Item {
                     readonly property bool hasGx: index < 2
                     Layout.fillWidth: true
                     spacing: 8
+                    HoverHandler { onHoveredChanged: root.setHot(fr.index, hovered) }
                     RowLayout {
                         visible: fr.hasGx
                         Layout.fillWidth: true
@@ -991,10 +998,13 @@ Item {
                 color: Theme.text
             }
             Hint { text: "Pick what each button does. Only mouse buttons and wheel actions are supported; keyboard keys and macros can't be set here." }
+            RowLayout {     // the rows on the left, the mouse on the right: the row you touch lights its button
+                Layout.fillWidth: true
+                spacing: 28
             GridLayout {
                 Layout.fillWidth: true
-                columns: 2
-                columnSpacing: 28
+                Layout.alignment: Qt.AlignTop
+                columns: 1
                 rowSpacing: 10
                 Repeater {
                     model: 5
@@ -1003,8 +1013,8 @@ Item {
                         required property int index
                         readonly property int idx: mouse.actionCodes.indexOf(root.v["button" + index])
                         Layout.fillWidth: true
-                        Layout.preferredWidth: 1
                         spacing: 10
+                        HoverHandler { onHoveredChanged: root.setHot(br.index, hovered) }
                         Text {
                             Layout.fillWidth: true
                             text: mouse.buttonNames[br.index]
@@ -1013,8 +1023,9 @@ Item {
                             elide: Text.ElideRight
                         }
                         WgSelect {
-                            Layout.preferredWidth: 170
+                            Layout.preferredWidth: 190
                             model: mouse.actionNames
+                            onActiveFocusChanged: root.setHot(br.index, activeFocus)
                             currentIndex: br.idx
                             placeholder: "Custom (unchanged)"
                             enabled: br.idx >= 0
@@ -1023,6 +1034,13 @@ Item {
                         }
                     }
                 }
+            }
+            MouseArt {
+                Layout.alignment: Qt.AlignVCenter
+                unit: 0.9
+                modelKey: mouse.modelKey
+                highlight: root.hotButton
+            }
             }
             RowLayout {
                 Layout.fillWidth: true
