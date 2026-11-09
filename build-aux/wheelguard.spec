@@ -80,7 +80,7 @@ install -Dpm 0644 %{SOURCE1} %{buildroot}%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-
 desktop-file-validate %{buildroot}%{_datadir}/applications/%{app_id}.desktop
 desktop-file-validate %{buildroot}%{_sysconfdir}/xdg/autostart/%{app_id}.desktop
 appstreamcli validate --no-net --explain %{buildroot}%{_metainfodir}/%{app_id}.metainfo.xml
-PYTHONPATH=%{buildroot}%{_datadir}/%{name} /usr/bin/python3 -c "import wheelguard.core, wheelguard.config, wheelguard.frames, wheelguard.control, wheelguard.ipc, wheelguard.clicklock, wheelguard.hw.drivers"
+PYTHONPATH=%{buildroot}%{_datadir}/%{name} /usr/bin/python3 -c "import wheelguard.core, wheelguard.config, wheelguard.frames, wheelguard.control, wheelguard.ipc, wheelguard.clicklock, wheelguard.hotplug, wheelguard.hw.drivers"
 
 %post
 %systemd_user_post wheelguard.service
