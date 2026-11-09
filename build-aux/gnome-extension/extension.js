@@ -20,7 +20,6 @@ import * as Slider from 'resource:///org/gnome/shell/ui/slider.js';
 const BUS_NAME = 'io.github.djshiye.Wheelguard';
 const OBJECT_PATH = '/io/github/djshiye/Wheelguard';
 const APP_ICON = 'io.github.djshiye.Wheelguard';
-const MAX_SETUP_CHIPS = 4;               // the popup stays small: the app lists them all
 const START_COMMAND = ['wheelguard-settings', '--tray'];
 const START_TIMEOUT_S = 10;
 const FOCUS_DEBOUNCE_MS = 300;           // per-game profiles: a focus change must settle before the app is told
@@ -42,7 +41,6 @@ const IFACE_XML = `
     <method name="SetClickLock"><arg type="b" direction="in" name="on"/></method>
     <method name="SetClickLockMs"><arg type="i" direction="in" name="ms"/></method>
     <method name="SetClickLockMode"><arg type="s" direction="in" name="mode"/></method>
-    <method name="ApplySetup"><arg type="s" direction="in" name="name"/></method>
     <method name="FocusChanged"><arg type="s" direction="in" name="app_id"/></method>
     <method name="StopClickLock"/>
     <method name="ShowWindow"/>
@@ -58,7 +56,7 @@ const EMPTY_STATE = {
     ProtectionEnabled: true, DaemonState: 'connecting', Preset: '', Dropped: 0,
     StatusLabel: 'Connecting…', StatusTone: 'muted', ProtectionDetail: '', BatteryNote: 'Mouse not connected',
     ClickLockEnabled: false, ClickLockMs: 5000, ClickLockActive: false, ClickLockDetail: 'Off',
-    ClickLockMode: 'repeat', BatteryLow: false, OfflineNote: 'Mouse asleep or not connected', SetupNames: [], ActiveSetup: '',
+    ClickLockMode: 'repeat', BatteryLow: false, OfflineNote: 'Mouse asleep or not connected',
     ProfilesEnabled: false, ActiveProfile: '',
 };
 
@@ -212,7 +210,6 @@ class WheelguardIndicator extends PanelMenu.Button {
         this._buildProtection();
         this._buildClickLock();
         this._buildDpi();
-        this._buildSetups();
 
         this._offline = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, style_class: 'wg-card wg-offline'});
         this._offlineText = makeLabel("Wheelguard isn't running", 'wg-card-title');
@@ -382,55 +379,6 @@ class WheelguardIndicator extends PanelMenu.Button {
         this._body.add_child(card);
     }
 
-    // Saved mouse setups (Mouse page > Setups): one tap applies one, the same guarded path as the Apply button.
-    _buildSetups() {
-        const card = this._card();
-        const head = new St.BoxLayout({style_class: 'wg-row'});
-        head.add_child(new St.Label({text: 'Setups', style_class: 'wg-card-title', x_expand: true,
-            y_align: Clutter.ActorAlign.CENTER}));
-        card.add_child(head);
-        this._setupSeg = new St.BoxLayout({style_class: 'wg-seg', reactive: true, x_expand: true});
-        this._setupSeg.layout_manager.homogeneous = true;
-        card.add_child(this._setupSeg);
-        this._setupCard = card;
-        this._setupKey = null;
-        this._setupChips = [];
-        this._body.add_child(card);
-    }
-
-    _renderSetups() {
-        const s = this._state;
-        const names = (s.SetupNames || []).slice(0, MAX_SETUP_CHIPS);
-        const key = names.join('|');
-        if (key !== this._setupKey) {
-            this._setupKey = key;
-            this._setupSeg.destroy_all_children();
-            this._setupChips = names.map(name => {
-                const letters = Array.from(name);            // by character, not UTF-16 unit: no split emoji
-                const shown = letters.length > 14 ? `${letters.slice(0, 13).join('')}…` : name;
-                const chip = new St.Button({style_class: 'wg-chip', can_focus: true, x_expand: true, label: shown});
-                chip.connect('clicked', () => this._applySetup(name));
-                this._setupSeg.add_child(chip);
-                return chip;
-            });
-        }
-        this._setupCard.visible = s.Online && names.length > 0;
-        const enabled = s.StageReason === '';
-        this._setupSeg.opacity = enabled ? 255 : 128;
-        this._setupChips.forEach((chip, i) => {
-            chip.reactive = enabled;
-            if (names[i] === s.ActiveSetup)
-                chip.add_style_class_name('wg-chip-active');
-            else
-                chip.remove_style_class_name('wg-chip-active');
-        });
-    }
-
-    _applySetup(name) {
-        if (this._proxy)
-            this._proxy.ApplySetupRemote(name, () => this._pull());
-    }
-
     // ------------------------------------------------------------------ painting
     _paintBattery(area, dimmed = false) {
         const palette = PALETTE[this._light ? 'light' : 'dark'];
@@ -550,7 +498,6 @@ class WheelguardIndicator extends PanelMenu.Button {
 
         this._renderClickLock(canSwitch);
         this._renderChips();
-        this._renderSetups();
     }
 
     _setSwitch(button, on) {

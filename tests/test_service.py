@@ -142,16 +142,6 @@ class ServiceTests(unittest.TestCase):
         self.svc.set_clicklock_ms(7000)
         self.assertEqual(self.d.calls, [])
 
-    def test_apply_setup_only_for_names_the_mouse_lists(self):
-        self.m.setupNames, self.m.activeSetup = ["Gaming"], "Gaming"
-        self.m.applySetup = lambda name: self.m.calls.append(("setup", name))
-        self.svc.attach(self.d, self.m)
-        s = self.svc.current()
-        self.assertEqual((s["SetupNames"], s["ActiveSetup"]), (["Gaming"], "Gaming"))
-        self.svc.apply_setup("Gaming")
-        self.svc.apply_setup("../../etc/passwd")
-        self.assertEqual(self.m.calls, [("setup", "Gaming")])
-
     def test_toggle_clicklock_flips_and_reports(self):
         self.svc.attach(self.d, self.m)
         self.assertEqual(self.svc.toggle_clicklock(), "ok:Click-Lock on")

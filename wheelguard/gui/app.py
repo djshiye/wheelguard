@@ -42,8 +42,6 @@ def parse_args(argv):
                       help="show the first-run welcome at this step (0 to 2)")
     shot.add_argument("--stage-demo", action="store_true",
                       help="on the Mouse page, stage two edits once the mouse has been read")
-    shot.add_argument("--setups-demo", action="store_true",
-                      help="on the Mouse page, save two example setups once the mouse has been read")
     shot.add_argument("--profiles-demo", nargs="?", const="list", choices=("list", "pick", "edit"),
                       help="on the Profiles page, show the switch on with a few example profiles, one engaged "
                            "(optionally the app picker or the editor)")
@@ -245,16 +243,6 @@ def main(argv=None):
                 mouse.stateChanged.disconnect(stage_once)
                 mouse.stageDemoEdits()
         mouse.stateChanged.connect(stage_once)
-
-    if args.setups_demo:
-        def setups_once():
-            if mouse.state == "ready":
-                mouse.stateChanged.disconnect(setups_once)
-                mouse.saveSetup("Desktop")
-                mouse.setValues({"dpi_x2": 3200, "dpi_y2": 3200, "active_stage": 2})
-                mouse.saveSetup("Gaming")
-                mouse.discard()
-        mouse.stateChanged.connect(setups_once)
 
     pointer.refresh()
     appearance.watch()

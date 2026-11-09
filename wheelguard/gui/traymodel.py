@@ -27,8 +27,6 @@ class TrayState:
     clicklock_ms: int = 5000        # how long the left button must be held
     clicklock_active: bool = False  # the lock is engaged right now (clicking or holding on its own)
     clicklock_mode: str = "repeat"  # "repeat" | "hold"
-    setups: Tuple[str, ...] = ()    # names of the saved mouse setups for this model
-    active_setup: str = ""          # the saved setup that matches the mouse right now, if any
 
 
 @dataclass(frozen=True)
@@ -46,8 +44,7 @@ def snapshot(daemon, mouse) -> TrayState:
     return TrayState(daemon.state, daemon.enabled, mouse.online, mouse.battery, mouse.charging,
                      tuple(mouse.stageLabels), mouse.activeStage, mouse.stageReason,
                      daemon.presetName, daemon.dropped, daemon.clickLock, daemon.clickLockMs,
-                     daemon.clickLockActive, daemon.clickLockMode, tuple(getattr(mouse, "setupNames", ())),
-                     getattr(mouse, "activeSetup", ""))
+                     daemon.clickLockActive, daemon.clickLockMode)
 
 
 def stage_labels(flat: Dict[str, object]) -> List[str]:
@@ -211,7 +208,5 @@ def state_dict(s: TrayState) -> Dict[str, object]:
                                             s.clicklock_mode),
         "BatteryLow": is_low(s.online, s.battery, s.charging),
         "OfflineNote": offline_note(s.online, s.stage_reason),
-        "SetupNames": list(s.setups) if s.online else [],
-        "ActiveSetup": s.active_setup if s.online else "",
         "Tooltip": tooltip(s),
     }

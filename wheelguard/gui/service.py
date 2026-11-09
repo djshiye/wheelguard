@@ -14,7 +14,6 @@ panel extension talks to the running app through it.
         StopClickLock()                  end a running Click-Lock now (the shell extension calls this when the screen locks)
         ToggleClickLock() -> s           flip Click-Lock; "ok:Click-Lock on" or "error:<why>" (commands.py)
         NextDpiStage() -> s              switch to the next DPI stage, wrapping round; same reply format
-        ApplySetup(s)                    apply a saved mouse setup by name (the guarded MouseController path)
         FocusChanged(s)                  the shell's focused app id ("" = none); per-game profiles (profilectl.py)
         ShowWindow()                     bring the settings window forward
         Refresh()                        re-read the mouse quietly (rate-limited)
@@ -34,7 +33,7 @@ PROPS_IFACE = "org.freedesktop.DBus.Properties"
 
 PROPERTIES = ("Online", "Battery", "Charging", "StageLabels", "ActiveStage", "StageReason",
               "ProtectionEnabled", "DaemonState", "Preset", "Dropped",
-              "ClickLockEnabled", "ClickLockMs", "ClickLockActive", "ClickLockMode", "BatteryLow", "SetupNames", "ActiveSetup",
+              "ClickLockEnabled", "ClickLockMs", "ClickLockActive", "ClickLockMode", "BatteryLow",
               "ProfilesEnabled", "ActiveProfile")
 IDLE_STATE = {**traymodel.state_dict(traymodel.TrayState()), "ProfilesEnabled": False, "ActiveProfile": ""}
 
@@ -151,10 +150,6 @@ class Service(QObject):
         if d is not None and d.state in ("running", "waiting"):
             d.stopClickLock()
 
-    def apply_setup(self, name: str):
-        if self._mouse is not None and name in list(getattr(self._mouse, "setupNames", ())):
-            self._mouse.applySetup(str(name))
-
     def focus_changed(self, app_id: str):
         """The shell reports the focused app's id (nothing else). Anything that isn't a plausible id is "none"."""
         self.focusChanged.emit(profiles.clean_app_id(app_id))
@@ -237,10 +232,6 @@ class Adaptor(QDBusAbstractAdaptor):
         return self.parent().next_dpi_stage()
 
     @Slot(str)
-    def ApplySetup(self, name):
-        self.parent().apply_setup(name)
-
-    @Slot(str)
     def FocusChanged(self, app_id):
         self.parent().focus_changed(app_id)
 
@@ -276,7 +267,5 @@ class Adaptor(QDBusAbstractAdaptor):
     ClickLockActive = _prop("ClickLockActive", bool)
     ClickLockMode = _prop("ClickLockMode", str)
     BatteryLow = _prop("BatteryLow", bool)
-    SetupNames = _prop("SetupNames", "QStringList")
-    ActiveSetup = _prop("ActiveSetup", str)
     ProfilesEnabled = _prop("ProfilesEnabled", bool)
     ActiveProfile = _prop("ActiveProfile", str)

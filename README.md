@@ -36,7 +36,7 @@ installs its own `/etc/yum.repos.d/wheelguard.repo`, so the repository stays con
   if it starts bouncing more
 - **Double-click fix** for any mouse: ignores the extra click a worn button sends
 - **Per-game profiles**: switch scroll protection, Click-Lock and the DPI stage while a chosen app is in front
-- **Saved mouse setups**, low-battery alerts and keyboard shortcuts for Click-Lock and the DPI stage
+- **Low-battery alerts** and keyboard shortcuts for Click-Lock and the DPI stage
 - **Click-Lock**: hold the left button for a few seconds (5 s by default, adjustable) and Wheelguard keeps
   clicking for you, or keeps the button pressed for long drags, until your next click (any other mouse
   button ends it too). It lets go by itself after 10 minutes (adjustable) and when the screen locks or the

@@ -48,7 +48,6 @@ if HAVE_QT:
             self.online, self.battery, self.charging = True, 80, False
             self.stageLabels, self.activeStage, self.stageReason = ["400", "800", "1600"], 2, ""
             self.stagesEnabled = True
-            self.setupNames, self.activeSetup = [], ""
             self.calls = []
 
         def setActiveStage(self, i):

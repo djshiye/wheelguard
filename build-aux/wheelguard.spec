@@ -133,7 +133,6 @@ fi
 - Click-Lock lets go by itself after 10 minutes (adjustable), and when the computer sleeps or the screen locks
 - Click-Lock in Repeat mode no longer starts while you are dragging
 - Low-battery alerts at 20% and 5%, with an amber dot on the panel icon
-- Saved mouse setups: store your mouse settings under a name and switch in one click, from the app or the panel
 - Keyboard shortcuts for Click-Lock and the next DPI stage, added from the About page
 - A drawing of your mouse on the Mouse page that lights up the button you are editing
 - A short welcome for new users that checks the mouse, permissions and protection strength
