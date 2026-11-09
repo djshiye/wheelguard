@@ -130,6 +130,19 @@ class AppSettingsTests(unittest.TestCase):
             s.setBatteryAlerts(False)
             self.assertFalse(s.batteryAlerts)
 
+    def test_an_upgrade_does_not_get_the_welcome(self):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "config.json").write_text("{}")                    # the daemon's settings are already there
+            p = Path(d) / "app.json"
+            self.assertTrue(appsettings.AppSettings(p).welcomeSeen)
+            self.assertTrue(p.exists())                                   # remembered, not re-decided every start
+            appsettings.AppSettings(p).resetWelcome()                     # "Show welcome again" still works
+            self.assertFalse(appsettings.AppSettings(p).welcomeSeen)
+
+    def test_a_new_user_gets_the_welcome(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertFalse(appsettings.AppSettings(Path(d) / "app.json").welcomeSeen)
+
     def test_welcome_can_be_disabled_for_screenshots(self):
         with tempfile.TemporaryDirectory() as d:
             self.assertTrue(appsettings.AppSettings(Path(d) / "a.json", welcome_enabled=False).welcomeSeen)

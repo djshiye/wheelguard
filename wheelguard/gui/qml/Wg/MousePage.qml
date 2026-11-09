@@ -24,7 +24,7 @@ Item {
         return out
     }
     readonly property string countWord: ["zero", "one", "two", "three", "four", "five", "six"][mouse.maxStages] || ("" + mouse.maxStages)
-    readonly property color valueTint: Theme.dark ? "#B79DFF" : Theme.accentA
+    readonly property color valueTint: Theme.accentValue
 
     // The editor's stage selection is view state only; the unlink toggles are too.
     property int editStage: 0

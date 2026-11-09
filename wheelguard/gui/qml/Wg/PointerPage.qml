@@ -64,7 +64,7 @@ WgScrollPage {
                 text: Math.round((pointer.speed + 1) * 50) + "%"
                 font.pixelSize: Theme.fsH2
                 font.weight: Font.DemiBold
-                color: Theme.dark ? "#B79DFF" : Theme.accentA
+                color: Theme.accentValue
             }
         }
         WgSlider {
@@ -181,7 +181,7 @@ WgScrollPage {
         width: parent.width
         spacing: 14
         readonly property bool reachable: daemon.state === "running" || daemon.state === "waiting"
-        readonly property color valueColor: Theme.dark ? "#B79DFF" : Theme.accentA
+        readonly property color valueColor: Theme.accentValue
         function seconds(ms) { return (ms / 1000).toLocaleString(Qt.locale(), "f", ms % 1000 ? 1 : 0) + " s" }
 
         RowLayout {
@@ -401,7 +401,7 @@ WgScrollPage {
         width: parent.width
         spacing: 14
         readonly property bool reachable: daemon.state === "running" || daemon.state === "waiting"
-        readonly property color valueColor: Theme.dark ? "#B79DFF" : Theme.accentA
+        readonly property color valueColor: Theme.accentValue
 
         RowLayout {
             Layout.fillWidth: true
@@ -542,7 +542,7 @@ WgScrollPage {
                 text: pointer.doubleClick + " ms"
                 font.pixelSize: Theme.fsH2
                 font.weight: Font.DemiBold
-                color: Theme.dark ? "#B79DFF" : Theme.accentA
+                color: Theme.accentValue
             }
         }
         Text {
@@ -639,7 +639,7 @@ WgScrollPage {
                 text: pointer.dragThreshold + " px"
                 font.pixelSize: Theme.fsH2
                 font.weight: Font.DemiBold
-                color: Theme.dark ? "#B79DFF" : Theme.accentA
+                color: Theme.accentValue
             }
         }
         Text {

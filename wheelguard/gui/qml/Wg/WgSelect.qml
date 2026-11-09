@@ -9,6 +9,9 @@ Item {
     property string placeholder: "Custom"
     property bool edited: false
     property string accessibleName: ""
+    // false: Up/Down on the closed control open the list instead of changing the value, so only Return,
+    // Space or a click commits (for choices with side effects, like which mouse to protect)
+    property bool commitOnArrow: true
     signal activated(int index)
     function open() { popup.highlighted = Math.max(0, currentIndex); popup.open() }
 
@@ -20,6 +23,8 @@ Item {
     function move(d) {
         if (popup.opened) {
             popup.highlighted = Math.max(0, Math.min(model.length - 1, popup.highlighted + d))
+        } else if (!commitOnArrow) {
+            open()
         } else if (model.length > 0) {
             const i = currentIndex < 0 ? 0 : Math.max(0, Math.min(model.length - 1, currentIndex + d))
             if (i !== currentIndex)

@@ -162,6 +162,7 @@ def status_mice(status: dict) -> List[dict]:
         name = m.get("name") if isinstance(m.get("name"), str) and m.get("name").strip() else "Mouse"
         conn = m.get("connection")
         out.append({"id": ident, "name": name.strip(), "supported": m.get("supported") is True,
+                    "accessible": m.get("accessible") is not False,      # an older daemon doesn't say: assume yes
                     "connection": conn if isinstance(conn, str) and conn else ""})
     return out
 
@@ -172,10 +173,25 @@ def mouse_options(mice: List[dict], selected: str) -> List[dict]:
     opts = [{"id": mouse_ids.AUTO, "label": "Automatic (supported mice)"}]
     for m in status_mice({"mice": mice}):
         label = m["name"] + (f" \u00b7 {m['connection']}" if m["connection"] else "")
-        opts.append({"id": m["id"], "label": label if m["supported"] else f"{label} (not tested)"})
+        if not m["accessible"]:
+            label += " (no access)"
+        elif not m["supported"]:
+            label += " (not tested)"
+        opts.append({"id": m["id"], "label": label})
     if selected != mouse_ids.AUTO and all(o["id"] != selected for o in opts):
         opts.append({"id": selected, "label": f"Saved mouse {selected} (not connected)"})
     return opts
+
+
+def mouse_no_access(mice: List[dict], selected: str) -> bool:
+    """True when the chosen mouse is connected but Wheelguard isn't allowed to open it."""
+    return any(m["id"] == selected and not m["accessible"] for m in status_mice({"mice": mice}))
+
+
+def mouse_choice_supported(selected: str) -> bool:
+    """False for a chosen mouse that isn't one of the supported models (those get device access automatically)."""
+    ids = mouse_ids.parse_choice(selected)
+    return ids is None or mouse_ids.identify(*ids)[0] is not None
 
 
 def mouse_index(options: List[dict], selected: str) -> int:

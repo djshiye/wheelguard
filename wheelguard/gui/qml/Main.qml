@@ -282,6 +282,8 @@ Window {
                 detail: daemon.detail
                 busy: daemon.serviceBusy
                 serviceError: daemon.serviceError
+                chosenDenied: daemon.mouseChoice !== "auto" && !daemon.mouseChoiceSupported
+                onAutomaticRequested: daemon.setMouse("auto")
                 onStartRequested: daemon.startService()
                 onRetryRequested: daemon.refreshStatus()
             }

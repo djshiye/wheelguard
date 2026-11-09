@@ -432,6 +432,9 @@ class DaemonClient(QObject):
                         notify=miceChanged)
     mouseIndex = Property(int, lambda s: protocol.mouse_index(protocol.mouse_options(s._mice, s._cfg["mouse"]),
                                                               s._cfg["mouse"]), notify=miceChanged)
+    mouseNoAccess = Property(bool, lambda s: protocol.mouse_no_access(s._mice, s._cfg["mouse"]), notify=miceChanged)
+    mouseChoiceSupported = Property(bool, lambda s: protocol.mouse_choice_supported(s._cfg["mouse"]),
+                                    notify=configChanged)
     clickLockIgnoreDrag = Property(bool, lambda s: s._cfg["clicklock_ignore_drag"], notify=configChanged)
     clickLockMaxS = Property(int, lambda s: s._cfg["clicklock_max_s"], notify=configChanged)
     clickLockActive = Property(bool, lambda s: s._clicklock_active, notify=clickLockActiveChanged)

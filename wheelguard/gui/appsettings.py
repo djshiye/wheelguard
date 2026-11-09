@@ -1,5 +1,6 @@
 """Wheelguard's own app settings (not the daemon's config and not GNOME's): a small JSON file in
-~/.config/wheelguard. Holds the low-battery alert switch and the first-run welcome flag."""
+~/.config/wheelguard. Holds the low-battery alert switch and the first-run welcome flag (not set again for
+someone upgrading, who already has a config.json there)."""
 import json
 import os
 import tempfile
@@ -56,6 +57,10 @@ class AppSettings(QObject):
         super().__init__(parent)
         self._path = Path(path) if path else config_dir() / FILE
         self._v = load(self._path)
+        if not self._path.exists() and (self._path.parent / "config.json").exists():
+            # first run of this file, but the daemon's settings are already here: an upgrade, not a new user
+            self._v["welcome_seen"] = True
+            save(self._path, self._v)
         self._welcome_enabled = welcome_enabled        # the screenshot harness switches the overlay off
 
     def _set(self, key: str, value: bool):

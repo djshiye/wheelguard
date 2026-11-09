@@ -99,7 +99,7 @@ WgScrollPage {
             visible: shortcuts.available
             title: "Keyboard shortcuts"
             description: shortcuts.message !== "" ? shortcuts.message
-                         : (shortcuts.installed ? "Super+Alt+C toggles Click-Lock and Super+Alt+D switches to the next DPI stage. Change the keys in GNOME Settings > Keyboard > Custom Shortcuts."
+                         : (shortcuts.installed ? shortcuts.keys[0] + " toggles Click-Lock and " + shortcuts.keys[1] + " switches to the next DPI stage. Change the keys in GNOME Settings > Keyboard > Custom Shortcuts."
                             : "Adds two GNOME shortcuts: Super+Alt+C toggles Click-Lock and Super+Alt+D switches to the next DPI stage. Your own shortcuts are left alone.")
             WgButton {
                 text: shortcuts.installed ? "Added" : "Add keyboard shortcuts"

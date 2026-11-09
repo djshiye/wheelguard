@@ -325,6 +325,21 @@ class GuiOptions(unittest.TestCase):
             {"name": "Acme Optical Mouse", "vendor": "1111", "product": "2222", "supported": False,
              "connection": None, "device": "Acme Optical Mouse"}]
 
+    def test_inaccessible_mice_are_marked_and_detected(self):
+        mice = [dict(self.MICE[0], accessible=True), dict(self.MICE[1], accessible=False)]
+        opts = protocol.mouse_options(mice, "auto")
+        self.assertEqual(opts[1]["label"], "Endgame Gear XM2w 4k v2 \u00b7 dongle")
+        self.assertEqual(opts[2]["label"], "Acme Optical Mouse (no access)")
+        self.assertTrue(protocol.mouse_no_access(mice, "1111:2222"))
+        self.assertFalse(protocol.mouse_no_access(mice, "3367:1970"))
+        self.assertFalse(protocol.mouse_no_access(mice, "auto"))
+        self.assertFalse(protocol.mouse_no_access(self.MICE, "1111:2222"))      # an older daemon doesn't say
+
+    def test_choice_support(self):
+        self.assertTrue(protocol.mouse_choice_supported("auto"))
+        self.assertTrue(protocol.mouse_choice_supported("3367:1970"))
+        self.assertFalse(protocol.mouse_choice_supported("1111:2222"))
+
     def test_options(self):
         opts = protocol.mouse_options(self.MICE, "auto")
         self.assertEqual([o["id"] for o in opts], ["auto", "3367:1970", "1111:2222"])
