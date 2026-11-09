@@ -181,7 +181,7 @@ class QObjectTests(unittest.TestCase):
         from wheelguard.gui import app
         qml = Path(app.QML_DIR) / "Wg"
         self.assertIn("AutoTuneCard 1.0 AutoTuneCard.qml", (qml / "qmldir").read_text())
-        self.assertNotIn("AutoTuneCard", (qml / "ScrollProtectionPage.qml").read_text())   # wired by the other stream
+        self.assertIn("AutoTuneCard", (qml / "ScrollProtectionPage.qml").read_text())
 
 
 if __name__ == "__main__":

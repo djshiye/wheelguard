@@ -1,5 +1,4 @@
 """Low-battery alerts: the once-per-discharge logic, the app settings file and the panel dot."""
-import json
 import tempfile
 import unittest
 from pathlib import Path

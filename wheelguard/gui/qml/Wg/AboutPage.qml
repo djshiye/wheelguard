@@ -10,6 +10,7 @@ WgScrollPage {
 
     // A title and a sentence on the left, one button on the right.
     component ActionRow: RowLayout {
+        id: actionRow
         property string title
         property string description
         default property alias button: buttonSlot.data
@@ -18,10 +19,10 @@ WgScrollPage {
         ColumnLayout {
             Layout.fillWidth: true
             spacing: 2
-            Text { text: parent.parent.title; font.pixelSize: Theme.fsBody; font.weight: Font.DemiBold; color: Theme.text }
+            Text { text: actionRow.title; font.pixelSize: Theme.fsBody; font.weight: Font.DemiBold; color: Theme.text }
             Text {
                 Layout.fillWidth: true
-                text: parent.parent.description
+                text: actionRow.description
                 font.pixelSize: Theme.fsSmall
                 color: Theme.textMuted
                 wrapMode: Text.WordWrap
