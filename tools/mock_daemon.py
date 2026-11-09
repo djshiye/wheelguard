@@ -27,7 +27,7 @@ DEVICE = "Endgame Gear Endgame Gear HS Dongle"
 DEFAULT_CONFIG = {"enabled": True, "lock_ms": 300, "pre_ms": 60, "hold_ms": 25,
                   "vendor": "3367", "product": "1970", "retry_s": 2,
                   "clicklock": False, "clicklock_ms": 5000, "clicklock_mode": "repeat", "clicklock_rate": 10,
-                  "clicklock_max_s": 600}
+                  "clicklock_max_s": 600, "clicklock_ignore_drag": True}
 BOUNCE_RATE = 0.09
 
 
@@ -44,7 +44,7 @@ def validate(cfg, patch):
     for k, v in patch.items():
         if k not in DEFAULT_CONFIG:
             return None, f"unknown key: {k}"
-        if k in ("enabled", "clicklock"):
+        if k in ("enabled", "clicklock", "clicklock_ignore_drag"):
             if not isinstance(v, bool):
                 return None, f"{k} must be true or false"
         elif k == "clicklock_mode":

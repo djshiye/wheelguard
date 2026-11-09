@@ -64,7 +64,7 @@ class Controller:
     def _clicklock_args(self):
         c = self.cfg
         return (c["clicklock"], c["clicklock_ms"], c["clicklock_mode"], c["clicklock_rate"],
-                c["clicklock_max_s"])
+                c["clicklock_max_s"], c["clicklock_ignore_drag"])
 
     def reset_filter(self):
         self.wf = self._new_filter()

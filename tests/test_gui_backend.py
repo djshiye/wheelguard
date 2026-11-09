@@ -213,7 +213,7 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(protocol.status_config(st),
                          {"enabled": False, "pre_ms": 90, "hold_ms": 35, "lock_ms": 400, "clicklock": False,
                           "clicklock_ms": 5000, "clicklock_mode": "repeat", "clicklock_rate": 10,
-                          "clicklock_max_s": 600})
+                          "clicklock_max_s": 600, "clicklock_ignore_drag": True})
         st["config"].update(clicklock=True, clicklock_ms=7500, clicklock_mode=3)
         cfg = protocol.status_config(st)
         self.assertEqual((cfg["clicklock"], cfg["clicklock_ms"], cfg["clicklock_mode"]), (True, 7500, "repeat"))
@@ -418,6 +418,10 @@ class DaemonClientTests(unittest.TestCase):
                          [{"clicklock_max_s": 0}, {"clicklock_max_s": 3600}])
         self.client.stopClickLock()
         self.assertTrue(self.pump(lambda: {"cmd": "clicklock_stop"} in self.received))
+        self.assertTrue(self.client.clickLockIgnoreDrag)
+        self.client.setClickLockIgnoreDrag(False)
+        self.assertFalse(self.client.clickLockIgnoreDrag)
+        self.assertTrue(self.pump(lambda: {"cmd": "set", "config": {"clicklock_ignore_drag": False}} in self.received))
 
     def test_status_does_not_clobber_pending_edit(self):
         status = self.STATUS

@@ -3,7 +3,9 @@
 Pure like core.py: evdev events (type, code, value) and timestamps in, frames to write out. No I/O and
 no clock of its own.
 
-    press and hold the left button   the press goes through as usual
+    press and hold the left button   the press goes through as usual (in "repeat" mode with `ignore_drag`,
+                                     moving the pointer more than DRAG_COUNTS while held means you are
+                                     dragging, and this press can no longer engage the lock)
     still held after `hold_s`        the lock engages: in "repeat" mode the button is released and then
                                      clicked over and over at `rate` clicks per second; in "hold" mode it
                                      simply stays down, like Windows' ClickLock
@@ -17,6 +19,7 @@ no clock of its own.
 
 A short click never engages anything: the timer only runs while the button is physically down.
 """
+import math
 from typing import List, Tuple
 
 from evdev import ecodes as e
@@ -27,6 +30,7 @@ MODES = (REPEAT, HOLD)
 
 DEFAULT_HOLD_MS = 5000
 DEFAULT_RATE = 10
+DRAG_COUNTS = 100           # REL_X/REL_Y counts the pointer may wander while held before it counts as a drag
 DEFAULT_MAX_S = 600         # safety timer: a lock that is still running after 10 minutes stops by itself
 
 Event = Tuple[int, int, int]
@@ -39,7 +43,7 @@ def _key(value) -> Frame:
 
 class ClickLock:
     def __init__(self, enabled=False, hold_ms=DEFAULT_HOLD_MS, mode=REPEAT, rate=DEFAULT_RATE,
-                 max_s=0):
+                 max_s=0, ignore_drag=True):
         self.phys_down = False      # the user's finger is on the button
         self.virtual_down = False   # what the rest of the system has been told
         self.locked = False
@@ -48,14 +52,16 @@ class ClickLock:
         self.next_t = None          # repeat mode: when the button flips next
         self.locked_at = None       # when the running lock engaged (for the safety timer)
         self.timed_out = False      # the last lock ended because the safety timer ran out
-        self.configure(enabled, hold_ms, mode, rate, max_s)
+        self.moved_x = self.moved_y = 0     # pointer motion since the current press (counts)
+        self.configure(enabled, hold_ms, mode, rate, max_s, ignore_drag)
 
-    def configure(self, enabled, hold_ms, mode, rate, max_s=0):
+    def configure(self, enabled, hold_ms, mode, rate, max_s=0, ignore_drag=True):
         """Change the settings in place. Turning it off does not end a running lock: call stop()."""
         self.enabled = bool(enabled)
         self.hold = hold_ms / 1000.0
         self.mode = mode if mode in MODES else REPEAT
         self.half = 0.5 / max(1, rate)          # a click is down for half a period, up for the other half
+        self.ignore_drag = bool(ignore_drag)
         self.max_s = max(0, max_s or 0)         # 0 = no safety timer
         if not self.enabled:
             self.pressed_at = None
@@ -84,6 +90,8 @@ class ClickLock:
         frame itself with the left-button event kept, rewritten or removed, and whether `active` changed.
         """
         frames, changed = self.flush(t)
+        if self.pressed_at is not None and self.phys_down and self.ignore_drag and self.mode == REPEAT:
+            self._track_motion(events)
         if self.locked and any(ev[0] == e.EV_KEY and ev[1] != e.BTN_LEFT and ev[2] == 1
                                and e.BTN_MOUSE <= ev[1] < e.BTN_JOYSTICK for ev in events):
             # Any other mouse button (right, middle, side) is an emergency exit: the lock ends at
@@ -106,6 +114,7 @@ class ClickLock:
             else:
                 out, self.virtual_down = 1, True
                 self.pressed_at = t if self.enabled else None
+                self.moved_x = self.moved_y = 0
         elif value == 0:
             self.phys_down = False
             self.pressed_at = None
@@ -124,6 +133,16 @@ class ClickLock:
         else:
             rest[idx] = (e.EV_KEY, e.BTN_LEFT, out)
         return frames, rest, changed
+
+    def _track_motion(self, events):
+        """Accumulate pointer motion while the button is held; a drag cancels this press's hold timer."""
+        for etype, code, value in events:
+            if etype == e.EV_REL and code == e.REL_X:
+                self.moved_x += value
+            elif etype == e.EV_REL and code == e.REL_Y:
+                self.moved_y += value
+        if math.hypot(self.moved_x, self.moved_y) > DRAG_COUNTS:
+            self.pressed_at = None
 
     def flush(self, now) -> Tuple[List[Frame], bool]:
         """Engage the lock when the hold time is up, and drive the repeat clicks."""

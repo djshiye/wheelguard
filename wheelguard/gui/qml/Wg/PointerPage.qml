@@ -300,6 +300,15 @@ WgScrollPage {
                 Text { text: "15 s"; font.pixelSize: Theme.fsSmall; color: Theme.textFaint }
             }
 
+            WgToggleRow {
+                visible: daemon.clickLockMode !== "hold"
+                Layout.topMargin: 10
+                Layout.bottomMargin: 6
+                title: "Ignore drags"
+                description: "Only start clicking when the pointer stays still while you hold. Dragging a window or selecting text won't start Click-Lock by accident."
+                checked: daemon.clickLockIgnoreDrag
+                onToggled: (v) => daemon.setClickLockIgnoreDrag(v)
+            }
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 10

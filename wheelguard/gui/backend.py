@@ -250,6 +250,10 @@ class DaemonClient(QObject):
     def setClickLockRate(self, value: int):
         self._stage({"clicklock_rate": max(1, min(30, int(value)))})
 
+    @Slot(bool)
+    def setClickLockIgnoreDrag(self, on: bool):
+        self._stage({"clicklock_ignore_drag": bool(on)}, immediate=True)
+
     @Slot(int)
     def setClickLockMaxS(self, seconds: int):
         self._stage({"clicklock_max_s": 0 if int(seconds) <= 0 else max(10, min(3600, int(seconds)))},
@@ -343,6 +347,7 @@ class DaemonClient(QObject):
     clickLockMs = Property(int, lambda s: s._cfg["clicklock_ms"], notify=configChanged)
     clickLockMode = Property(str, lambda s: s._cfg["clicklock_mode"], notify=configChanged)
     clickLockRate = Property(int, lambda s: s._cfg["clicklock_rate"], notify=configChanged)
+    clickLockIgnoreDrag = Property(bool, lambda s: s._cfg["clicklock_ignore_drag"], notify=configChanged)
     clickLockMaxS = Property(int, lambda s: s._cfg["clicklock_max_s"], notify=configChanged)
     clickLockActive = Property(bool, lambda s: s._clicklock_active, notify=clickLockActiveChanged)
     ticks = Property(int, lambda s: s._ticks, notify=statsChanged)

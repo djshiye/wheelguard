@@ -18,7 +18,8 @@ Messages are UTF-8 JSON objects, one per line (`\n`-terminated), both directions
   "clicklock_ms": 5000,
   "clicklock_mode": "repeat",
   "clicklock_rate": 10,
-  "clicklock_max_s": 600
+  "clicklock_max_s": 600,
+  "clicklock_ignore_drag": true
 }
 ```
 
@@ -32,6 +33,11 @@ mode `hold` keeps it pressed. Letting go is ignored while locked; the next click
 swallowed (in `hold` mode its release lets go of the button). Pressing any other mouse button also ends
 the lock (that press goes through). Switching Click-Lock off or changing the
 mode ends a running lock at once.
+
+Ignore drags: with `clicklock_ignore_drag: true` (the default) and mode `repeat`, a hold only engages
+the lock if the pointer stayed roughly still: once the pointer has moved more than 100 counts
+(REL_X/REL_Y, measured from where the button went down) the press can no longer engage the lock. Mode
+`hold` ignores this setting and works as before.
 
 Safety timer: `clicklock_max_s` (0 = never, otherwise 10 to 3600; default 600) ends a running lock by
 itself that long after it engaged; the button is handed back like for any other end of the lock. A
