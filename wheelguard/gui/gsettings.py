@@ -133,6 +133,23 @@ def write(key: str, value: Any) -> bool:
     return _run(["set", SCHEMA, key, format_gvariant(value)]) is not None
 
 
+def text_scale(text: Optional[str] = None) -> float:
+    """org.gnome.desktop.interface text-scaling-factor (1.25 = Large Text), clamped to 0.5-3."""
+    if text is None:
+        text = _run(["get", INTERFACE_SCHEMA, "text-scaling-factor"]) or ""
+    m = re.search(r"(\d+(?:\.\d+)?)\s*$", text.strip())
+    if not m:
+        return 1.0
+    return max(0.5, min(3.0, float(m.group(1))))
+
+
+def animations(text: Optional[str] = None) -> bool:
+    """org.gnome.desktop.interface enable-animations (off = Settings > Accessibility > Reduce Animation)."""
+    if text is None:
+        text = _run(["get", INTERFACE_SCHEMA, "enable-animations"]) or ""
+    return "false" not in text
+
+
 def prefers_dark(text: Optional[str] = None) -> bool:
     """True if org.gnome.desktop.interface color-scheme is prefer-dark. `text` is for tests."""
     if text is None:

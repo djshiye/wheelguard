@@ -21,12 +21,13 @@ C.SpinBox {
     background: Rectangle {
         radius: Theme.radiusSm - 2
         color: Theme.inset
-        border.width: 1
-        border.color: control.activeFocus ? Theme.accentB : (control.hovered ? Theme.borderHi : Theme.border)
+        border.width: control.activeFocus ? 2 : 1
+        border.color: control.activeFocus ? Theme.focusRing : (control.hovered ? Theme.borderHi : Theme.border)
         Behavior on border.color { ColorAnimation { duration: Theme.fast } }
     }
 
     contentItem: TextInput {
+        Accessible.name: control.Accessible.name
         text: control.displayText
         font.pixelSize: Theme.fsBody
         font.weight: Font.Medium

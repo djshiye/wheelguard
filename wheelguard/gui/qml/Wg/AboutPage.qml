@@ -25,7 +25,7 @@ WgScrollPage {
                 spacing: 6
                 Text {
                     text: "Wheelguard"
-                    font.pixelSize: 32
+                    font.pixelSize: Theme.px(32)
                     font.weight: Font.DemiBold
                     color: Theme.text
                 }

@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Window
 import QtQuick.Controls.Basic as C
 
 // Scrolling page with a slim custom scrollbar. Children go into `content` (a Column of max width).
@@ -13,6 +14,28 @@ Flickable {
     boundsBehavior: Flickable.StopAtBounds
     clip: true
     flickableDirection: Flickable.VerticalFlick
+
+    // Keyboard navigation: scroll the control that just got focus into view.
+    Connections {
+        target: root.Window.window
+        function onActiveFocusItemChanged() {
+            const it = root.Window.window ? root.Window.window.activeFocusItem : null
+            if (!it || !root.visible)
+                return
+            let p = it.parent
+            while (p && p !== col)
+                p = p.parent
+            if (!p)
+                return                                  // not on this page
+            const r = it.mapToItem(col, 0, 0)
+            const top = col.y + r.y - 16
+            const bottom = col.y + r.y + it.height + 16
+            if (top < root.contentY)
+                root.contentY = Math.max(0, top)
+            else if (bottom > root.contentY + root.height)
+                root.contentY = Math.min(root.contentHeight - root.height, bottom - root.height)
+        }
+    }
 
     C.ScrollBar.vertical: C.ScrollBar {
         id: bar

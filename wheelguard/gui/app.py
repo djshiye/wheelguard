@@ -33,6 +33,7 @@ def parse_args(argv):
     shot.add_argument("--page", choices=("scroll", "mouse", "pointer", "about"), default="scroll")
     shot.add_argument("--advanced", action="store_true", help="open the Advanced expander")
     shot.add_argument("--theme", choices=("dark", "light"), help="force a theme instead of following GNOME")
+    shot.add_argument("--text-scale", type=float, help="force a text size factor (GNOME Large Text is 1.25)")
     shot.add_argument("--size", default="1008x708", help="window size WxH including shadow margin")
     shot.add_argument("--stage-demo", action="store_true",
                       help="on the Mouse page, stage two edits once the mouse has been read")
@@ -142,7 +143,7 @@ def main(argv=None):
     engine = QQmlApplicationEngine()
     # Backends are children of the engine so they outlive the QML objects bound to them at exit.
     override = None if args.theme is None else args.theme == "dark"
-    appearance = Appearance(override, engine)
+    appearance = Appearance(override, engine, text_scale=args.text_scale, motion=False if shot else None)
     glass = LiquidGlass(parent=engine)
     daemon = DaemonClient(args.socket, engine)
     pointer = PointerSettings(engine)

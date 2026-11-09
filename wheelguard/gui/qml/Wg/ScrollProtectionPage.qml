@@ -98,6 +98,7 @@ WgScrollPage {
                 WgSwitch {
                     Layout.alignment: Qt.AlignHCenter
                     trackHeight: 36
+                    Accessible.name: "Scroll protection"
                     enabled: page.reachable
                     checked: daemon.enabled
                     onToggled: daemon.setEnabled(checked)
@@ -152,6 +153,7 @@ WgScrollPage {
         }
 
         WgSegmented {
+            accessibleName: "Protection strength"
             Layout.fillWidth: true
             model: page.presetModel
             currentIndex: daemon.presetIndex
@@ -250,6 +252,7 @@ WgScrollPage {
                             }
                         }
                         WgSpinBox {
+                            Accessible.name: adRow.modelData.title
                             Layout.alignment: Qt.AlignTop
                             from: adRow.modelData.from
                             to: adRow.modelData.to
@@ -258,6 +261,7 @@ WgScrollPage {
                         }
                     }
                     WgSlider {
+                        Accessible.name: adRow.modelData.title
                         Layout.fillWidth: true
                         from: adRow.modelData.from
                         to: adRow.modelData.to
@@ -339,7 +343,7 @@ WgScrollPage {
                         text: stat.modelData.kind === "ticks" ? daemon.ticks
                               : (stat.modelData.kind === "blocked" ? daemon.dropped
                                  : daemon.blockRate.toFixed(1) + "%")
-                        font.pixelSize: 22
+                        font.pixelSize: Theme.px(22)
                         font.weight: Font.DemiBold
                         color: stat.modelData.kind === "ticks" ? Theme.text
                                : (daemon.dropped > 0 ? Theme.coral : Theme.text)

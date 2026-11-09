@@ -21,6 +21,8 @@ Window {
     title: "Wheelguard"
 
     Binding { target: Theme; property: "dark"; value: appearance.dark }
+    Binding { target: Theme; property: "textScale"; value: appearance.textScale }
+    Binding { target: Theme; property: "motion"; value: appearance.motion }
     Binding { target: Theme; property: "glass"; value: liquidGlass }
 
     onActiveChanged: if (active) pointer.refresh()
@@ -120,6 +122,14 @@ Window {
                             id: wb
                             required property var modelData
                             width: 34; height: 34; radius: 10
+                            activeFocusOnTab: true
+                            Accessible.role: Accessible.Button
+                            Accessible.name: wb.modelData.close ? "Close" : "Minimize"
+                            function press() { wb.modelData.close ? win.close() : win.showMinimized() }
+                            Accessible.onPressAction: press()
+                            Keys.onSpacePressed: press()
+                            Keys.onReturnPressed: press()
+                            WgFocusRing {}
                             color: ma.pressed ? (modelData.close ? Theme.alpha(Theme.coral, 0.35) : Theme.border)
                                    : (ma.containsMouse ? (modelData.close ? Theme.alpha(Theme.coral, 0.2) : Theme.hover) : "transparent")
                             Behavior on color { ColorAnimation { duration: Theme.fast } }
@@ -186,6 +196,17 @@ Window {
                     y: 4 + index * 52
                     width: sidebar.width
                     height: 44
+                    property real radius: Theme.radiusSm      // read by the focus ring
+                    activeFocusOnTab: true
+                    Accessible.role: Accessible.PageTab
+                    Accessible.name: nav.modelData.label
+                    Accessible.selected: nav.current
+                    Accessible.onPressAction: win.pageIndex = nav.index
+                    Keys.onSpacePressed: win.pageIndex = nav.index
+                    Keys.onReturnPressed: win.pageIndex = nav.index
+                    Keys.onUpPressed: if (nav.index > 0) { win.pageIndex = nav.index - 1; nav.nextItemInFocusChain(false).forceActiveFocus() }
+                    Keys.onDownPressed: if (nav.index < 3) { win.pageIndex = nav.index + 1; nav.nextItemInFocusChain(true).forceActiveFocus() }
+                    WgFocusRing {}
 
                     Rectangle {
                         anchors.fill: parent

@@ -442,36 +442,58 @@ class Autostart(QObject):
 
 
 class Appearance(QObject):
-    """Follows org.gnome.desktop.interface color-scheme (live, via `gsettings monitor`)."""
+    """Follows GNOME's look and accessibility settings live (via `gsettings monitor`): the light/dark
+    color-scheme, the text size (Large Text) and Reduce Animation."""
 
     changed = Signal()
 
-    def __init__(self, override: Optional[bool] = None, parent=None):
+    def __init__(self, override: Optional[bool] = None, parent=None, text_scale: Optional[float] = None,
+                 motion: Optional[bool] = None):
         super().__init__(parent)
         self._override = override
-        self._dark = override if override is not None else (
-            gsettings.prefers_dark() if gsettings.available() else True)
+        self._scale_override = text_scale
+        self._motion_override = motion
+        have = gsettings.available()
+        self._dark = override if override is not None else (gsettings.prefers_dark() if have else True)
+        self._scale = text_scale if text_scale is not None else (gsettings.text_scale() if have else 1.0)
+        self._motion = motion if motion is not None else (gsettings.animations() if have else True)
         self._proc: Optional[QProcess] = None
 
     @Slot()
     def watch(self):
-        if self._override is not None or not gsettings.available() or self._proc:
+        if not gsettings.available() or self._proc:
+            return
+        if None not in (self._override, self._scale_override, self._motion_override):
             return
         p = QProcess(self)
         p.readyReadStandardOutput.connect(self._on_output)
-        p.start("gsettings", ["monitor", gsettings.INTERFACE_SCHEMA, "color-scheme"])
+        p.start("gsettings", ["monitor", gsettings.INTERFACE_SCHEMA])     # every key of the schema
         self._proc = p
 
     def _on_output(self):
         text = bytes(self._proc.readAllStandardOutput()).decode(errors="replace")
         for line in text.splitlines():
-            if "color-scheme" in line:
-                self._set(gsettings.prefers_dark(line))
+            self.apply_line(line)
+
+    def apply_line(self, line: str):
+        """One `gsettings monitor` line, e.g. "text-scaling-factor: 1.25"."""
+        key = line.split(":", 1)[0].strip()
+        if key == "color-scheme" and self._override is None:
+            self._update(dark=gsettings.prefers_dark(line))
+        elif key == "text-scaling-factor" and self._scale_override is None:
+            self._update(scale=gsettings.text_scale(line))
+        elif key == "enable-animations" and self._motion_override is None:
+            self._update(motion=gsettings.animations(line))
+
+    def _update(self, dark=None, scale=None, motion=None):
+        new = (self._dark if dark is None else dark, self._scale if scale is None else scale,
+               self._motion if motion is None else motion)
+        if new != (self._dark, self._scale, self._motion):
+            self._dark, self._scale, self._motion = new
+            self.changed.emit()
 
     def _set(self, dark: bool):
-        if dark != self._dark:
-            self._dark = dark
-            self.changed.emit()
+        self._update(dark=dark)
 
     def shutdown(self):
         if self._proc:
@@ -479,6 +501,8 @@ class Appearance(QObject):
             self._proc.waitForFinished(500)
 
     dark = Property(bool, lambda s: s._dark, notify=changed)
+    textScale = Property(float, lambda s: s._scale, notify=changed)
+    motion = Property(bool, lambda s: s._motion, notify=changed)
 
 
 class LiquidGlass(QObject):

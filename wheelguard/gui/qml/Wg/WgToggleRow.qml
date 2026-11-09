@@ -46,6 +46,8 @@ RowLayout {
     WgSwitch {
         visible: root.switchVisible
         checked: root.checked
+        Accessible.name: root.title
+        Accessible.description: root.description
         onToggled: root.toggled(checked)
     }
 }

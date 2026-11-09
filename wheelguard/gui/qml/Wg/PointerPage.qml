@@ -68,6 +68,7 @@ WgScrollPage {
             }
         }
         WgSlider {
+            Accessible.name: "Pointer speed"
             Layout.fillWidth: true
             from: -1
             to: 1
@@ -99,6 +100,7 @@ WgScrollPage {
             color: Theme.text
         }
         WgSegmented {
+            accessibleName: "Acceleration"
             Layout.fillWidth: true
             model: ["System default", "Off", "On"]
             subLabels: ["GNOME's choice", "raw, best for games", "speeds up with motion"]
@@ -144,6 +146,8 @@ WgScrollPage {
                 }
             }
             WgSwitch {
+                Accessible.name: tr.title
+                Accessible.description: tr.description
                 checked: tr.checked
                 onToggled: tr.toggled(checked)
             }
@@ -210,11 +214,13 @@ WgScrollPage {
                             anchors.centerIn: parent
                             spacing: 6
                             Rectangle {
+                                id: liveDot
                                 anchors.verticalCenter: parent.verticalCenter
                                 width: 7; height: 7; radius: 3.5
                                 color: Theme.good
                                 SequentialAnimation on opacity {
-                                    running: daemon.clickLockActive
+                                    running: daemon.clickLockActive && Theme.motion
+                                    onRunningChanged: if (!running) liveDot.opacity = 1
                                     loops: Animation.Infinite
                                     NumberAnimation { to: 0.3; duration: 500 }
                                     NumberAnimation { to: 1; duration: 500 }
@@ -242,6 +248,7 @@ WgScrollPage {
             }
             WgSwitch {
                 Layout.alignment: Qt.AlignTop
+                Accessible.name: "Click-Lock"
                 enabled: clCard.reachable
                 opacity: enabled ? 1 : 0.5
                 checked: daemon.clickLock
@@ -257,6 +264,8 @@ WgScrollPage {
             Behavior on opacity { NumberAnimation { duration: Theme.normal } }
 
             WgSegmented {
+                accessibleName: "Click-Lock mode"
+                muted: !daemon.clickLock
                 Layout.fillWidth: true
                 model: ["Repeat clicks", "Hold down"]
                 subLabels: ["keeps clicking for you", "keeps the button pressed"]
@@ -282,6 +291,7 @@ WgScrollPage {
                 }
             }
             WgSlider {
+                Accessible.name: "Click-Lock hold time"
                 Layout.fillWidth: true
                 from: 1000
                 to: 15000
@@ -322,6 +332,7 @@ WgScrollPage {
                     }
                 }
                 WgSlider {
+                    Accessible.name: "Click-Lock click speed"
                     Layout.fillWidth: true
                     from: 1
                     to: 30
@@ -389,6 +400,7 @@ WgScrollPage {
             wrapMode: Text.WordWrap
         }
         WgSlider {
+            Accessible.name: "Double-click speed"
             Layout.fillWidth: true
             from: 100
             to: 1000
@@ -485,6 +497,7 @@ WgScrollPage {
             wrapMode: Text.WordWrap
         }
         WgSlider {
+            Accessible.name: "Drag threshold"
             Layout.fillWidth: true
             from: 1
             to: 64
