@@ -8,6 +8,7 @@ Rectangle {
     property string device: ""
     property bool protecting: true
     property bool compact: false        // shorter labels for the tray popup
+    property bool unrecognised: false   // waiting, and the mouse that is connected isn't a supported model
 
     readonly property color tone: {
         if (daemonState === "running") return protecting ? Theme.good : Theme.amber
@@ -17,7 +18,8 @@ Rectangle {
     }
     readonly property string label: {
         if (daemonState === "running") return protecting ? "Protecting" : (compact ? "Paused" : "Protection off")
-        if (daemonState === "waiting") return compact ? "No mouse" : "Waiting for mouse…"
+        if (daemonState === "waiting")
+            return unrecognised ? (compact ? "Unsupported" : "Mouse not supported") : (compact ? "No mouse" : "Waiting for mouse…")
         if (daemonState === "permission") return compact ? "No access" : "No device access"
         if (daemonState === "stopped") return compact ? "Stopped" : "Service not running"
         return "Connecting…"

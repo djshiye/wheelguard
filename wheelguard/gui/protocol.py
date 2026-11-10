@@ -183,6 +183,18 @@ def mouse_options(mice: List[dict], selected: str) -> List[dict]:
     return opts
 
 
+def unrecognised_mouse(mice: List[dict], selected: str) -> Optional[dict]:
+    """With Automatic and no supported mouse connected, the wheel mouse that is there instead (one that may be
+    opened first), so the app can say "this mouse isn't one Wheelguard knows" instead of "can't see the mouse".
+    None when a mouse was picked by hand, a supported mouse is connected, or no wheel mouse is connected."""
+    if selected != mouse_ids.AUTO:
+        return None
+    found = status_mice({"mice": mice})
+    if not found or any(m["supported"] for m in found):
+        return None
+    return sorted(found, key=lambda m: not m["accessible"])[0]
+
+
 def mouse_no_access(mice: List[dict], selected: str) -> bool:
     """True when the chosen mouse is connected but Wheelguard isn't allowed to open it."""
     return any(m["id"] == selected and not m["accessible"] for m in status_mice({"mice": mice}))

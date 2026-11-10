@@ -132,8 +132,11 @@ class DaemonClient(QObject):
     def _set_state(self, state, device, detail, label=None):
         label = device if label is None else label
         if (state, device, detail, label) != (self._state, self._device, self._detail, self._label):
+            was = self._state
             self._state, self._device, self._detail, self._label = state, device, detail, label
             self.stateChanged.emit()
+            if state == "waiting" and was != "waiting":
+                self.refreshMice()      # is another, unsupported mouse there? (the banner says so)
 
     def _send(self, msg: dict, track: Optional[str] = None):
         if self._sock.state() != QLocalSocket.LocalSocketState.ConnectedState:
@@ -443,6 +446,13 @@ class DaemonClient(QObject):
                         notify=miceChanged)
     mouseIndex = Property(int, lambda s: protocol.mouse_index(protocol.mouse_options(s._mice, s._cfg["mouse"]),
                                                               s._cfg["mouse"]), notify=miceChanged)
+    # With Automatic and no supported mouse: the other wheel mouse that is connected ("" when there is none)
+    otherMouse = Property(str, lambda s: (m := protocol.unrecognised_mouse(s._mice, s._cfg["mouse"])) and m["name"] or "",
+                          notify=miceChanged)
+    otherMouseId = Property(str, lambda s: (m := protocol.unrecognised_mouse(s._mice, s._cfg["mouse"])) and m["id"] or "",
+                            notify=miceChanged)
+    otherMouseAccessible = Property(bool, lambda s: bool((m := protocol.unrecognised_mouse(s._mice, s._cfg["mouse"]))
+                                                         and m["accessible"]), notify=miceChanged)
     mouseNoAccess = Property(bool, lambda s: protocol.mouse_no_access(s._mice, s._cfg["mouse"]), notify=miceChanged)
     mouseChoiceSupported = Property(bool, lambda s: protocol.mouse_choice_supported(s._cfg["mouse"]),
                                     notify=configChanged)

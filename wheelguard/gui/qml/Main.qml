@@ -112,6 +112,7 @@ Window {
                     daemonState: daemon.state
                     device: daemon.deviceLabel
                     protecting: daemon.enabled
+                    unrecognised: daemon.otherMouse !== ""
                 }
 
                 Row {
@@ -284,7 +285,10 @@ Window {
                 busy: daemon.serviceBusy
                 serviceError: daemon.serviceError
                 chosenDenied: daemon.mouseChoice !== "auto" && !daemon.mouseChoiceSupported
+                otherMouse: daemon.otherMouse
+                otherMouseAccessible: daemon.otherMouseAccessible
                 onAutomaticRequested: daemon.setMouse("auto")
+                onUseOtherMouseRequested: daemon.setMouse(daemon.otherMouseId)
                 onStartRequested: daemon.startService()
                 onRetryRequested: daemon.refreshStatus()
             }

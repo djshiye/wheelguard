@@ -4,5 +4,5 @@
   "description": "Panel icon and quick popup for the Wheelguard app: mouse battery, scroll protection, Click-Lock and DPI stage.",
   "shell-version": ["50", "51"],
   "url": "https://github.com/djshiye/wheelguard",
-  "version-name": "1.6.1"
+  "version-name": "1.6.2"
 }

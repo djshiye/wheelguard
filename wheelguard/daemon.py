@@ -85,7 +85,7 @@ def discover(vendor, product, mouse=None):
         ident = (dev.info.vendor, dev.info.product)
         caps = dev.capabilities()
         if (ident in ids and not any(n in name for n in _SKIP_NAMES) and not name.startswith(UI_PREFIX)
-                and e.REL_WHEEL in caps.get(e.EV_REL, []) and not scan.has_letter_keys(caps)):
+                and e.REL_WHEEL in caps.get(e.EV_REL, []) and not scan.keyboard_like(*ident, caps)):
             # prefer the configured mouse, then the node that also has the buttons
             rank = (ids.index(ident), 0 if e.BTN_LEFT in caps.get(e.EV_KEY, []) else 1)
             if best is None or rank < best[0]:

@@ -4,6 +4,8 @@
     tools/mock_daemon.py --scenario connected      # realistic scroll bursts, ~9% bounces, real WheelFilter
     tools/mock_daemon.py --scenario disconnected   # daemon up, mouse asleep / unplugged
     tools/mock_daemon.py --scenario permission     # daemon up, udev rule missing
+    tools/mock_daemon.py --scenario unsupported    # daemon up, only a mouse that isn't a supported model
+    tools/mock_daemon.py --scenario unsupported-noaccess   # the same, and the service may not open it
     tools/mock_daemon.py --scenario none           # no socket at all (just sleeps)
 
 Uses a private socket by default so it never collides with the real service:
@@ -38,6 +40,8 @@ MICE = [   # what the mock reports as connected (mice with a scroll wheel), supp
     {"name": "Razer Viper Mini", "device": "Razer Viper Mini", "vendor": "1532", "product": "008a",
      "supported": False, "connection": None},
 ]
+OTHER_MOUSE = {"name": "Logitech PRO X 2", "device": "Logitech PRO X 2", "vendor": "046d", "product": "409f",
+               "supported": False, "connection": None}
 MODEL, CONNECTION = "Endgame Gear XM2w 4k v2", "dongle"
 BOUNCE_RATE = 0.09
 
@@ -193,8 +197,13 @@ class Mock:
                 "device": DEVICE if connected else None,
                 "model": MODEL if connected else None, "connection": CONNECTION if connected else None,
                 "error": error,
-                "config": dict(self.cfg), "mice": MICE, "stats": dict(self.stats),
+                "config": dict(self.cfg), "mice": self.mice(), "stats": dict(self.stats),
                 "clicklock_active": self.clicklock_active and self.cfg["clicklock"]}
+
+    def mice(self):
+        if self.scenario.startswith("unsupported"):
+            return [dict(OTHER_MOUSE, accessible=self.scenario == "unsupported")]
+        return MICE
 
     def send(self, c, msg):
         c.out += json.dumps(msg).encode() + b"\n"
@@ -244,7 +253,7 @@ class Mock:
         elif cmd == "history":
             self.send(c, {"type": "history", "days": self.history})
         elif cmd == "mice":
-            self.send(c, {"type": "mice", "mice": MICE})
+            self.send(c, {"type": "mice", "mice": self.mice()})
         elif cmd == "clicklock_stop":
             was, self.clicklock_active = self.clicklock_active, False
             self.send(c, {"type": "ok"})
@@ -353,7 +362,8 @@ class Mock:
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--scenario", choices=("connected", "disconnected", "permission", "none"),
+    ap.add_argument("--scenario", choices=("connected", "disconnected", "permission", "unsupported",
+                                                "unsupported-noaccess", "none"),
                     default="connected")
     ap.add_argument("--socket", default=default_socket())
     ap.add_argument("--seed", type=int, default=None)
