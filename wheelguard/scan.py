@@ -26,10 +26,20 @@ def selected():
 
 
 def has_letter_keys(caps):
-    """True for a node with keyboard letter keys (a keyboard, or a combo device that is one as well).
-
-    Such a node is never grabbed: the keyboard would stop working for the rest of the desktop."""
+    """True for a node with keyboard letter keys (a keyboard, or a combo device that is one as well)."""
     return not LETTER_KEYS.isdisjoint(caps.get(e.EV_KEY, []))
+
+
+def keyboard_like(vendor, product, caps):
+    """True for a node that must never be grabbed because it may be a keyboard: one with letter keys
+    that isn't a supported mouse (a keyboard with a trackpoint, a combo receiver...). The keyboard would
+    stop working for the rest of the desktop.
+
+    A supported mouse is exempt: some put their keyboard keys (for buttons bound to keys) on the same node
+    as the wheel. The Logitech G Pro X Superlight behind its receiver has a single input node, "Logitech
+    PRO X", with letter keys on it; skipping it left that mouse unprotected ("mouse not found"). Its keys
+    still reach the desktop through the virtual mouse, like the buttons."""
+    return has_letter_keys(caps) and mice.identify(vendor, product)[0] is None
 
 
 def _sysfs_info(path):
@@ -78,7 +88,8 @@ def list_mice():
             name = dev.name or ""
             caps = dev.capabilities()
             if (not any(n in name for n in SKIP_NAMES) and not name.startswith(UI_PREFIX)
-                    and e.REL_WHEEL in caps.get(e.EV_REL, []) and not has_letter_keys(caps)):
+                    and e.REL_WHEEL in caps.get(e.EV_REL, [])
+                    and not keyboard_like(dev.info.vendor, dev.info.product, caps)):
                 found[(dev.info.vendor, dev.info.product)] = [name, True]
         finally:
             dev.close()

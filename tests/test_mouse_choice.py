@@ -74,6 +74,9 @@ class World:
 SUPERLIGHT = ("Logitech USB Receiver Mouse", 0x046D, 0x4093)
 ENDGAME = ("Endgame Gear Endgame Gear HS Dongle", 0x3367, 0x1970)
 ACME = ("Acme Optical Mouse", 0x1111, 0x2222)
+# The Superlight behind its LIGHTSPEED receiver, as hid-logitech-dj presents it: ONE input node, named after
+# the mouse, carrying the wheel, the buttons and the keyboard keys a button can be bound to.
+SUPERLIGHT_DJ = ("Logitech PRO X", 0x046D, 0x4093)
 
 
 class Config(unittest.TestCase):
@@ -152,6 +155,20 @@ class Discover(unittest.TestCase):
         with w:
             self.assertEqual(daemon.discover(0x3367, 0x1970, "1111:2222")[0].name, "Acme Optical Mouse")
 
+    def test_a_supported_mouse_with_keyboard_keys_on_its_node_is_found(self):
+        # Reported 2026-11-10: "Waiting for mouse..." forever with a working Superlight on 1.6.1.
+        w = World({"/dev/input/event5": FakeInput(*SUPERLIGHT_DJ, letters=True)})
+        with w:
+            for choice in ("auto", "046d:4093"):
+                dev, err = daemon.discover(0x3367, 0x1970, choice)
+                self.assertIsNone(err)
+                self.assertEqual(dev.name, "Logitech PRO X")
+
+    def test_a_supported_mouse_keyboard_node_is_still_skipped_by_name(self):
+        w = World({"/dev/input/event1": FakeInput("Logitech USB Receiver Keyboard", 0x046D, 0x4093, letters=True)})
+        with w:
+            self.assertEqual(daemon.discover(0x3367, 0x1970, "auto"), (None, "mouse not found"))
+
     def test_permission_error_for_a_picked_mouse_is_clear(self):
         w = World({"/dev/input/event7": "denied", "/dev/input/event8": FakeInput(*ENDGAME)},
                   sysfs={"/dev/input/event7": (0x1111, 0x2222)})
@@ -212,6 +229,13 @@ class Listing(unittest.TestCase):
         w = World({"/dev/input/event1": FakeInput("Acme Combo", 0x1111, 0x2222, letters=True)})
         with w:
             self.assertEqual(scan.list_mice(), [])
+
+    def test_supported_mouse_with_keyboard_keys_is_listed(self):
+        w = World({"/dev/input/event5": FakeInput(*SUPERLIGHT_DJ, letters=True)})
+        with w:
+            found = scan.list_mice()
+        self.assertEqual([(m["name"], m["supported"], m["accessible"]) for m in found],
+                         [("Logitech G Pro X Superlight", True, True)])
 
     def test_nothing_connected(self):
         with World({}):
@@ -334,6 +358,16 @@ class GuiOptions(unittest.TestCase):
         self.assertFalse(protocol.mouse_no_access(mice, "3367:1970"))
         self.assertFalse(protocol.mouse_no_access(mice, "auto"))
         self.assertFalse(protocol.mouse_no_access(self.MICE, "1111:2222"))      # an older daemon doesn't say
+
+    def test_unrecognised_mouse_with_automatic(self):
+        acme = dict(self.MICE[1], accessible=False)
+        acme_ok = dict(self.MICE[1], accessible=True)
+        self.assertEqual(protocol.unrecognised_mouse([acme_ok], "auto")["id"], "1111:2222")
+        self.assertEqual(protocol.unrecognised_mouse([acme, dict(acme_ok, product="3333")], "auto")["id"],
+                         "1111:3333")                           # one it may open comes first
+        self.assertIsNone(protocol.unrecognised_mouse(self.MICE, "auto"))      # a supported mouse is there
+        self.assertIsNone(protocol.unrecognised_mouse([acme_ok], "1111:2222"))  # picked by hand
+        self.assertIsNone(protocol.unrecognised_mouse([], "auto"))
 
     def test_choice_support(self):
         self.assertTrue(protocol.mouse_choice_supported("auto"))
