@@ -38,6 +38,14 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.6.2" date="2026-11-10">
+      <description>
+        <ul>
+          <li>Fixed: scroll protection didn't find the Logitech G Pro X Superlight behind its receiver and kept saying "Waiting for mouse"</li>
+          <li>When only a mouse Wheelguard doesn't support is connected, the app now says so instead of "can't see the mouse"</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.6.1" date="2026-11-09">
       <description>
         <ul>

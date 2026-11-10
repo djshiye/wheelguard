@@ -7,7 +7,7 @@
 %global __brp_python_bytecompile %{nil}
 
 Name:           wheelguard
-Version:        1.6.1
+Version:        1.6.2
 # CI appends .<commit count> so every build from main is a newer release.
 Release:        1%{?release_suffix}%{?dist}
 Summary:        Scroll bounce filter and advanced mouse settings (Endgame Gear, Logitech, Razer)
@@ -125,6 +125,10 @@ fi
 %{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-djshiye-%{name}
 
 %changelog
+* Tue Nov 10 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.6.2-1
+- Fix: scroll protection didn't find the Logitech G Pro X Superlight behind its receiver and kept saying "Waiting for mouse"
+- When only a mouse Wheelguard doesn't support is connected, the app now says so instead of "can't see the mouse"
+
 * Mon Nov 09 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.6.1-1
 - Fix: when the computer was busy, a click could get lost, or the left button could stay pressed and swallow the next click
 
