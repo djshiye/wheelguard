@@ -3,8 +3,10 @@
 The mouse keeps its settings in onboard profiles (HID++ feature 0x8100): flash sectors with a fixed
 layout and a CRC. The mouse's own DPI button cycles through the profile's five DPI slots, and the
 profile also holds the report rate. Wheelguard edits the profile the mouse is using, the same thing
-G HUB, libratbag (Piper) and Solaar write, and leaves every byte it doesn't understand (buttons,
-lighting, name, power settings, ...) exactly as read.
+G HUB, libratbag (Piper) and Solaar write, and leaves every byte it doesn't understand (G-shift
+buttons, macros, lighting, name, power settings, ...) exactly as read. The five main buttons can be
+set to a mouse click or "next DPI stage"; a button set to anything else (a key, a macro) is shown as
+custom and is never rewritten unless the user picks a new action for it.
 
 The blob is that profile sector followed by one byte: the DPI slot in use right now (the mouse's
 "current DPI index", which the DPI button changes and which isn't stored in the sector). Changing
@@ -33,6 +35,8 @@ P_DEFAULT_DPI = 1       # DPI slot the profile starts in
 P_SHIFT_DPI = 2         # DPI-shift ("sniper") slot, left alone
 P_DPI = 3               # five little-endian u16; 0 = slot unused
 N_SLOTS = 5
+P_BUTTONS = 0x20        # 16 button bindings, 4 bytes each (then 16 G-shift bindings at 0x60, left alone)
+N_BUTTONS = 5           # left, right, middle, back, forward: the Superlight's five buttons
 ROM_BASE = 0x0100       # ROM profiles live at sectors 0x0101...
 MIN_SECTOR = 64
 MAX_SECTOR = 4096
@@ -42,8 +46,19 @@ DPI_MIN, DPI_MAX = MODEL.dpi_min, MODEL.dpi_max
 POLLING_CODES = MODEL.polling_codes
 NEW_SLOT_DPI = 800
 
+# Button actions. The codes are the ones the Endgame Gear codec uses for the same clicks, so the page
+# treats every mouse alike; NEXT_DPI is new. 0 = "something this app doesn't set" (shown as custom).
+LEFT, RIGHT, MIDDLE, BACK, FORWARD, NEXT_DPI = 0x0001, 0x0002, 0x0004, 0x0008, 0x0010, 0x0300
+ACTION_LIST = ((LEFT, "Left click"), (RIGHT, "Right click"), (MIDDLE, "Middle click"), (BACK, "Back"),
+           (FORWARD, "Forward"), (NEXT_DPI, "Next DPI stage"))
+ACTION_CODES = tuple(c for c, _n in ACTION_LIST)
+BUTTON_NAMES = ("Left button", "Right button", "Middle click", "Back (side)", "Forward (side)")
+# The 4-byte bindings (libratbag hidpp20.h, Solaar's Button): 0x80 = send, subtype 1 = mouse buttons
+# (big-endian bit mask); 0x90 = function, 5 = cycle the DPI stages.
+_BIND_MOUSE, _BIND_FUNCTION, _FN_CYCLE_DPI = 0x80, 0x90, 0x05
+
 KEYS = tuple([f"dpi_x{k}" for k in range(N_SLOTS)] + [f"dpi_y{k}" for k in range(N_SLOTS)]
-             + ["stage_count", "active_stage", "polling"])
+             + ["stage_count", "active_stage", "polling"] + [f"button{k}" for k in range(N_BUTTONS)])
 
 
 def sector_crc_ok(sector: bytes) -> bool:
@@ -67,6 +82,22 @@ def _count(b: bytes) -> int:
     return n
 
 
+def _button(b: bytes, k: int) -> int:
+    o = P_BUTTONS + 4 * k
+    t, sub, hi, lo = b[o], b[o + 1], b[o + 2], b[o + 3]
+    if t == _BIND_MOUSE and sub == 0x01 and ((hi << 8) | lo) in (LEFT, RIGHT, MIDDLE, BACK, FORWARD):
+        return (hi << 8) | lo
+    if t == _BIND_FUNCTION and sub == _FN_CYCLE_DPI:
+        return NEXT_DPI
+    return 0
+
+
+def _binding(code: int) -> bytes:
+    if code == NEXT_DPI:
+        return bytes((_BIND_FUNCTION, _FN_CYCLE_DPI, 0x00, 0x00))     # what libratbag writes
+    return bytes((_BIND_MOUSE, 0x01, code >> 8, code & 0xFF))
+
+
 def decode(blob: bytes) -> Dict[str, object]:
     if not MIN_SECTOR + 1 <= len(blob) <= MAX_SECTOR + 1:
         raise ValueError(f"profile blob has an impossible length ({len(blob)})")
@@ -81,6 +112,8 @@ def decode(blob: bytes) -> Dict[str, object]:
     else:
         d["active_stage"] = b[P_DEFAULT_DPI] if b[P_DEFAULT_DPI] < n else 0
     d["polling"] = b[P_REPORT_RATE]
+    for k in range(N_BUTTONS):
+        d[f"button{k}"] = _button(b, k)
     return d
 
 
@@ -112,6 +145,9 @@ def check_key_value(key: str, v) -> None:
     elif key == "polling":
         if v not in POLLING_CODES:
             raise ValueError("unknown polling rate")
+    elif key.startswith("button"):
+        if v not in ACTION_CODES:
+            raise ValueError("unsupported button action")
 
 
 def _put_dpi(ba: bytearray, k: int, v: int) -> None:
@@ -147,6 +183,12 @@ def encode(blob: bytes, edits: Dict[str, object]) -> bytes:
             ba[sector_len] = v
         elif key == "polling":
             ba[P_REPORT_RATE] = v
+        elif key.startswith("button"):
+            o = P_BUTTONS + 4 * int(key[6:])
+            ba[o:o + 4] = _binding(v)
+    if any(k.startswith("button") and current.get(k) != v for k, v in edits.items()) \
+            and LEFT not in [_button(ba[:sector_len], k) for k in range(N_BUTTONS)]:
+        raise ValueError("At least one button must stay Left click.")
     if "active_stage" in edits and current["active_stage"] != edits["active_stage"] \
             and ba[sector_len] >= _count(ba[:sector_len]):
         # decode() hides a live index past the last stage, so the checks after encode can't see it
@@ -222,6 +264,8 @@ def describe_changes(old: Dict[str, object], new: Dict[str, object]) -> List[str
     for k in changed_keys(old, new):
         if k.startswith("dpi_"):
             label = f"DPI stage {int(k[5:]) + 1}"
+        elif k.startswith("button"):
+            label = BUTTON_NAMES[int(k[6:])] + " action"
         else:
             label = {"stage_count": "Stage count", "active_stage": "Active stage", "polling": "Polling rate"}[k]
         if label not in out:
@@ -254,6 +298,8 @@ def directory_entries(sector: bytes) -> List[tuple]:
 
 class Codec:
     KEYS = KEYS
+    ACTION_LIST = ACTION_LIST
+    BUTTON_NAMES = BUTTON_NAMES
     decode = staticmethod(decode)
     flat = staticmethod(flat)
     empty = staticmethod(empty)
@@ -320,6 +366,20 @@ class LogitechDriver(Driver):
 
     def link_check(self) -> None:
         self.hp.ping()
+
+    def watch_stage(self, should_stop, seconds: float) -> Optional[int]:
+        """The current DPI index, then whatever the mouse announces while we listen: onboard profiles
+        event 1 ("DPI index changed", data byte 0), as Solaar handles it. Only read requests are sent."""
+        if should_stop():
+            return None
+        if not self.hp.feature(hidpp.ONBOARD_PROFILES):
+            return None
+        live = self.hp.dpi_index()
+        seen = self.hp.wait_event(hidpp.ONBOARD_PROFILES, 1, should_stop, seconds)
+        if seen is None and should_stop():
+            return None             # cut short: the index read before listening may be stale
+        index = seen[0] if seen is not None else live
+        return index if index < N_SLOTS else None
 
     def battery(self) -> Battery:
         b = self.hp.battery()

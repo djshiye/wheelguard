@@ -795,15 +795,19 @@ Item {
 
             Heading { title: "Buttons" }
             Text {
+                visible: root.has("click_filter")
                 text: "Multiclick filter"
                 font.pixelSize: Theme.fsBody
                 font.weight: Font.DemiBold
                 color: Theme.text
             }
-            Hint { text: "Ignores extra clicks that arrive too soon after a press. It isn't a latency debounce: low values add no click delay. Default 8. The left and right buttons can use GX Speed or GX Safe instead." }
+            Hint {
+                visible: root.has("click_filter")
+                text: "Ignores extra clicks that arrive too soon after a press. It isn't a latency debounce: low values add no click delay. Default 8. The left and right buttons can use GX Speed or GX Safe instead."
+            }
 
             Repeater {
-                model: 5
+                model: root.has("click_filter") ? 5 : 0
                 delegate: ColumnLayout {
                     id: fr
                     required property int index
@@ -868,15 +872,23 @@ Item {
                 }
             }
 
-            Divider {}
+            Divider { visible: root.has("click_filter") }
             Text {
+                visible: root.has("click_filter")
                 text: "Button actions"
                 font.pixelSize: Theme.fsBody
                 font.weight: Font.DemiBold
                 color: Theme.text
             }
-            Hint { text: "Pick what each button does. Only mouse buttons and wheel actions are supported; keyboard keys and macros can't be set here." }
+            Hint {
+                text: !mouse.buttonsKnown
+                      ? "This mouse didn't report its button actions, so they can't be changed here. Everything else on this page works as usual."
+                      : (root.has("click_filter")
+                         ? "Pick what each button does. Only mouse buttons and wheel actions are supported; keyboard keys and macros can't be set here."
+                         : "Pick what each button does. Keys and macros can't be set here: a button that has one from " + (mouse.brand === "Razer" ? "Synapse" : "G HUB") + " shows as Custom and is left as it is.")
+            }
             RowLayout {     // the rows on the left, the mouse on the right: the row you touch lights its button
+                visible: mouse.buttonsKnown
                 Layout.fillWidth: true
                 spacing: 28
             GridLayout {
@@ -907,7 +919,7 @@ Item {
                             onActiveFocusChanged: root.setHot(br.index, activeFocus)
                             currentIndex: br.idx
                             placeholder: "Custom (unchanged)"
-                            enabled: br.idx >= 0
+                            enabled: br.idx >= 0 || !root.has("click_filter")     // Logitech, Razer: a custom button can get a new action
                             edited: root.isEdited("button" + br.index)
                             onActivated: (i) => mouse.setValue("button" + br.index, mouse.actionCodes[i])
                         }
@@ -1095,7 +1107,7 @@ Item {
             text: mouse.modelKey === "logitech-pro-x-superlight"
                   ? "Wheelguard edits the mouse's onboard profile the way libratbag and Solaar do. It hasn't been tested on every firmware, and it isn't affiliated with or endorsed by Logitech."
                   : mouse.modelKey === "razer-deathadder-v4-pro"
-                    ? "Wheelguard talks to the mouse with the protocol documented by the OpenRazer project. It hasn't been tested on every firmware, and it isn't affiliated with or endorsed by Razer."
+                    ? "Wheelguard talks to the mouse with the protocols documented by the OpenRazer and razerctl projects. It hasn't been tested on every firmware, and it isn't affiliated with or endorsed by Razer."
                     : "Wheelguard talks to the mouse with a protocol reverse-engineered from the vendor's Windows tool. It hasn't been tested on every firmware, and it isn't affiliated with or endorsed by Endgame Gear."
             font.pixelSize: Theme.fsSmall
             color: Theme.textFaint

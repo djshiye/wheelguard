@@ -1,19 +1,25 @@
 # Give the logged-in user (uaccess = the active seat only) access to the supported mice, so wheelguard
-# can grab their wheel and the Mouse page can configure them. Nothing else is opened: wheelguard
-# never reads a "Keyboard" or other non-wheel node even where these rules allow it.
+# can grab their wheel and the Mouse page can configure them. Only the nodes Wheelguard uses are
+# granted:
+#  * input event nodes the kernel classifies as a mouse (ID_INPUT_MOUSE, set by 60-input-id.rules).
+#    A mouse's "Keyboard" node (macro keys, media keys) stays private.
+#  * the one hidraw node per mouse that carries its settings channel, matched by USB interface.
+#    udev can't match the device IDs and the interface number on the same parent, so the device's
+#    hidraw nodes are marked first and only the right interface is granted.
 KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", OPTIONS+="static_node=uinput"
 
 # --- Endgame Gear XM2w 4k v2: dongle (1970) and wired (1982)
-SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="3367", ATTRS{idProduct}=="1970", TAG+="uaccess"
-SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="3367", ATTRS{idProduct}=="1982", TAG+="uaccess"
-SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3367", ATTRS{idProduct}=="1970", TAG+="uaccess"
-SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3367", ATTRS{idProduct}=="1982", TAG+="uaccess"
+SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_MOUSE}=="1", ATTRS{idVendor}=="3367", ATTRS{idProduct}=="1970", TAG+="uaccess"
+SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_MOUSE}=="1", ATTRS{idVendor}=="3367", ATTRS{idProduct}=="1982", TAG+="uaccess"
+# Settings and the "DPI stage changed" report are on USB interface 1 (docs/endgame-protocol.md 1.1).
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3367", ATTRS{idProduct}=="1970", ENV{WHEELGUARD_ENDGAME}="1"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3367", ATTRS{idProduct}=="1982", ENV{WHEELGUARD_ENDGAME}="1"
+SUBSYSTEM=="hidraw", ENV{WHEELGUARD_ENDGAME}=="1", ATTRS{bInterfaceNumber}=="01", TAG+="uaccess"
 
 # --- Razer DeathAdder V4 Pro: wired (00be) and HyperSpeed dongle (00bf)
-SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00be", TAG+="uaccess"
-SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00bf", TAG+="uaccess"
-# Settings travel on USB interface 0 only. udev can't match the device IDs and the interface number on
-# the same parent, so mark the device's hidraw nodes first and grant only the interface-0 one.
+SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_MOUSE}=="1", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00be", TAG+="uaccess"
+SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_MOUSE}=="1", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00bf", TAG+="uaccess"
+# Settings travel on USB interface 0 only.
 SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00be", ENV{WHEELGUARD_RAZER}="1"
 SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00bf", ENV{WHEELGUARD_RAZER}="1"
 SUBSYSTEM=="hidraw", ENV{WHEELGUARD_RAZER}=="1", ATTRS{bInterfaceNumber}=="00", TAG+="uaccess"
@@ -21,8 +27,9 @@ SUBSYSTEM=="hidraw", ENV{WHEELGUARD_RAZER}=="1", ATTRS{bInterfaceNumber}=="00", 
 # --- Logitech G Pro X Superlight (first generation)
 # Through the LIGHTSPEED receiver, hid-logitech-dj gives the mouse its own HID device (046D:4093):
 # grant only that device's nodes, not the receiver's other interfaces.
-SUBSYSTEM=="input", KERNEL=="event*", KERNELS=="0003:046D:4093.*", TAG+="uaccess"
+SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_MOUSE}=="1", KERNELS=="0003:046D:4093.*", TAG+="uaccess"
 SUBSYSTEM=="hidraw", KERNELS=="0003:046D:4093.*", TAG+="uaccess"
-# Wired (c094)
-SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="046d", ATTRS{idProduct}=="c094", TAG+="uaccess"
-SUBSYSTEM=="hidraw", ATTRS{idVendor}=="046d", ATTRS{idProduct}=="c094", TAG+="uaccess"
+# Wired (c094): HID++ is on USB interface 1, next to the plain mouse on interface 0.
+SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_MOUSE}=="1", ATTRS{idVendor}=="046d", ATTRS{idProduct}=="c094", TAG+="uaccess"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="046d", ATTRS{idProduct}=="c094", ENV{WHEELGUARD_LOGITECH}="1"
+SUBSYSTEM=="hidraw", ENV{WHEELGUARD_LOGITECH}=="1", ATTRS{bInterfaceNumber}=="01", TAG+="uaccess"

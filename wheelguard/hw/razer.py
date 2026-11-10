@@ -6,6 +6,11 @@ RazerDevice._exchange(), which enforces an allow-list of (command class, command
 every write's arguments. Nothing else can be sent: no device-mode switch, no firmware commands, no
 lighting, no unknown command.
 
+Button actions use the onboard button-assignment commands (02:8C read, 02:0C write) as documented by
+razerctl (Synapse captures, verified on a Viper Mini SE) and the OpenMouse project (Naga V2
+HyperSpeed). OpenRazer doesn't send them. A write may only set one of the five main buttons to a
+mouse click or "next DPI stage", in the mouse's default profile, on the normal (not HyperShift) layer.
+
 Wheelguard keeps what it read in a small fixed record (the "blob", BLOB_LEN bytes, layout below) so
 the session's generic diff / backup / verify flow works the same way as for the other mice. The
 record never goes to the mouse: plan_writes() turns a changed record into the matching commands.
@@ -46,11 +51,26 @@ SET_DPI = (0x04, 0x05)
 SET_STAGES = (0x04, 0x06)
 SET_IDLE = (0x07, 0x03)
 SET_LOW_BATTERY = (0x07, 0x01)
+GET_BUTTON = (0x02, 0x8C)
+SET_BUTTON = (0x02, 0x0C)
 
 READS = {GET_FIRMWARE: 0x02, GET_POLLING: 0x01, GET_STAGES: 0x26, GET_BATTERY: 0x02, GET_CHARGING: 0x02,
-         GET_IDLE: 0x02, GET_LOW_BATTERY: 0x01}
-WRITES = {SET_POLLING: 0x02, SET_DPI: 0x07, SET_STAGES: 0x26, SET_IDLE: 0x02, SET_LOW_BATTERY: 0x01}
+         GET_IDLE: 0x02, GET_LOW_BATTERY: 0x01, GET_BUTTON: 0x0A}
+WRITES = {SET_POLLING: 0x02, SET_DPI: 0x07, SET_STAGES: 0x26, SET_IDLE: 0x02, SET_LOW_BATTERY: 0x01, SET_BUTTON: 0x0A}
 ALLOWED = {**READS, **WRITES}
+# The button commands carry 10 argument bytes. Captures disagree on the size byte (10 for the Naga V2,
+# 0x50 for the Viper Mini SE), so both are allowed; the driver uses whichever the mouse answered.
+BUTTON_SIZES = (0x0A, 0x50)
+SIZES = {GET_BUTTON: BUTTON_SIZES, SET_BUTTON: BUTTON_SIZES}
+
+# Buttons and actions (razerctl's onboard-button-protocol.md). Profile 1 is the mouse's default
+# profile; layer 0 is the normal layer (1 = HyperShift, never touched).
+BUTTON_PROFILE, BUTTON_LAYER = 0x01, 0x00
+BUTTON_IDS = (0x01, 0x02, 0x03, 0x04, 0x05)            # left, right, middle, back, forward
+FN_MOUSE, FN_DPI = 0x01, 0x06
+DPI_CYCLE_UP = 0x06
+# (function, size, first data byte) for every action Wheelguard may write.
+WRITABLE_ACTIONS = frozenset([(FN_MOUSE, 1, c) for c in BUTTON_IDS] + [(FN_DPI, 1, DPI_CYCLE_UP)])
 
 DPI_MIN, DPI_MAX = MODEL.dpi_min, MODEL.dpi_max
 MAX_STAGES = MODEL.max_stages
@@ -66,11 +86,11 @@ def crc(report: bytes) -> int:
     return c
 
 
-def build(cmd: Tuple[int, int], args: bytes = b"") -> bytes:
+def build(cmd: Tuple[int, int], args: bytes = b"", size: Optional[int] = None) -> bytes:
     """A request report. Does not validate: _exchange() does that for everything that is sent."""
     r = bytearray(REPORT_LEN)
     r[1] = TRANSACTION_ID
-    r[5] = ALLOWED.get(cmd, len(args))
+    r[5] = size if size is not None else ALLOWED.get(cmd, len(args))
     r[6], r[7] = cmd
     r[8:8 + len(args)] = args
     r[88] = crc(r)
@@ -90,14 +110,22 @@ def check_request(r: bytes) -> Tuple[int, int]:
         raise Rejected(f"command {cmd[0]:02x}:{cmd[1]:02x} is not on the allow-list")
     if r[0] or r[1] != TRANSACTION_ID or r[2] or r[3] or r[4] or r[89]:
         raise Rejected("malformed report header")
-    if r[5] != ALLOWED[cmd]:
+    if r[5] not in SIZES.get(cmd, (ALLOWED[cmd],)):
         raise Rejected(f"command {cmd[0]:02x}:{cmd[1]:02x}: wrong data size {r[5]}")
     if r[88] != crc(r):
         raise Rejected("bad checksum")
     a = r[8:88]
-    if any(a[r[5]:]):
+    if any(a[min(r[5], ALLOWED[cmd]):]):
         raise Rejected("data beyond the argument length")
-    if cmd in READS:
+    if cmd == GET_BUTTON:
+        if a[0] != BUTTON_PROFILE or a[1] not in BUTTON_IDS or a[2] != BUTTON_LAYER or any(a[3:]):
+            raise Rejected("button reads are for the five main buttons of the default profile only")
+    elif cmd == SET_BUTTON:
+        if a[0] != BUTTON_PROFILE or a[1] not in BUTTON_IDS or a[2] != BUTTON_LAYER:
+            raise Rejected("button writes are for the five main buttons of the default profile only")
+        if (a[3], a[4], a[5]) not in WRITABLE_ACTIONS or any(a[6:]):
+            raise Rejected("only mouse clicks and next DPI stage can be assigned")
+    elif cmd in READS:
         if any(a[1:]) or a[0] not in ((VARSTORE,) if cmd == GET_STAGES else (0,)):
             raise Rejected("read commands carry no arguments")
     elif cmd == SET_POLLING:
@@ -161,8 +189,8 @@ class RazerDevice:
                 return reply[8:88]
         raise StatusError((cmd[0] << 8) | cmd[1], status)
 
-    def request(self, cmd: Tuple[int, int], args: bytes = b"") -> bytes:
-        return self._exchange(build(cmd, args))
+    def request(self, cmd: Tuple[int, int], args: bytes = b"", size: Optional[int] = None) -> bytes:
+        return self._exchange(build(cmd, args, size))
 
     # ---- reads
     def firmware(self) -> str:
@@ -189,6 +217,13 @@ class RazerDevice:
 
     def low_battery(self) -> int:
         return self.request(GET_LOW_BATTERY)[0]
+
+    def button(self, bid: int, size: int) -> bytes:
+        """The 7-byte assignment of one button: function, size, five data bytes."""
+        a = self.request(GET_BUTTON, bytes((BUTTON_PROFILE, bid, BUTTON_LAYER)), size)
+        if a[1] != bid:
+            raise StatusError((GET_BUTTON[0] << 8) | GET_BUTTON[1], 0)
+        return bytes(a[3:10])
 
     def battery(self) -> Battery:
         level = self.request(GET_BATTERY)[1]
@@ -219,6 +254,9 @@ class RazerDevice:
     def set_low_battery(self, raw: int) -> None:
         self.request(SET_LOW_BATTERY, bytes((raw,)))
 
+    def set_button(self, bid: int, assignment: bytes, size: int) -> None:
+        self.request(SET_BUTTON, bytes((BUTTON_PROFILE, bid, BUTTON_LAYER)) + bytes(assignment[:7]), size)
+
 
 # ---------------------------------------------------------------- codec
 
@@ -229,9 +267,27 @@ class RazerDevice:
 #   24    polling code (see MODEL.polling)
 #   25-26 sleep timer, seconds (u16 big-endian)
 #   27    low-battery threshold, raw (0x0C-0x3F of 255)
-#   28-31 zero
-BLOB_LEN = 32
-MAGIC, VERSION = 0x52, 1
+#   28    1 = the button assignments below were read, 0 = the mouse didn't answer them
+#   29-31 zero
+#   32-66 five button assignments (left, right, middle, back, forward), 7 bytes each:
+#         function, size, five data bytes, as 02:8C returns them
+#   67-71 zero
+# Version 1 records (Wheelguard 1.6, older backups) are the first 32 bytes, without buttons.
+BLOB_LEN = 72
+BLOB_LEN_V1 = 32
+MAGIC, VERSION = 0x52, 2
+BTN_FLAG, BTN_BASE, BTN_STRIDE = 28, 32, 7
+N_BUTTONS = len(BUTTON_IDS)
+
+# Button actions; the codes match the other mice's codecs. 0 = something else (shown as custom).
+LEFT, RIGHT, MIDDLE, BACK, FORWARD, NEXT_DPI = 0x0001, 0x0002, 0x0004, 0x0008, 0x0010, 0x0300
+ACTION_LIST = ((LEFT, "Left click"), (RIGHT, "Right click"), (MIDDLE, "Middle click"), (BACK, "Back"),
+               (FORWARD, "Forward"), (NEXT_DPI, "Next DPI stage"))
+ACTION_CODES = tuple(c for c, _n in ACTION_LIST)
+BUTTON_NAMES = ("Left button", "Right button", "Middle click", "Back (side)", "Forward (side)")
+_CLICK_CODES = {1: LEFT, 2: RIGHT, 3: MIDDLE, 4: BACK, 5: FORWARD}
+_ASSIGNMENT = {code: bytes((FN_MOUSE, 1, bid, 0, 0, 0, 0)) for bid, code in _CLICK_CODES.items()}
+_ASSIGNMENT[NEXT_DPI] = bytes((FN_DPI, 1, DPI_CYCLE_UP, 0, 0, 0, 0))
 
 # Low-battery warning: the mouse stores a fraction of 255; the page offers these.
 LOW_BATTERY = ((0x0D, "5%"), (0x1A, "10%"), (0x26, "15%"), (0x33, "20%"), (0x3F, "25%"))
@@ -239,12 +295,18 @@ LOW_BATTERY_CODES = tuple(c for c, _l in LOW_BATTERY)
 IDLE_MIN, IDLE_MAX = IDLE_MIN_S // 60, IDLE_MAX_S // 60
 
 KEYS = tuple([f"dpi_x{k}" for k in range(MAX_STAGES)] + [f"dpi_y{k}" for k in range(MAX_STAGES)]
-             + ["stage_count", "active_stage", "polling", "idle_min", "low_battery"])
+             + ["stage_count", "active_stage", "polling", "idle_min", "low_battery"]
+             + [f"button{k}" for k in range(N_BUTTONS)])
 
 
-def pack(active: int, stages: List[Tuple[int, int]], polling: int, idle_s: int, low: int) -> bytes:
+def pack(active: int, stages: List[Tuple[int, int]], polling: int, idle_s: int, low: int,
+         buttons: Optional[List[bytes]] = None) -> bytes:
     b = bytearray(BLOB_LEN)
     b[0], b[1], b[2], b[3] = MAGIC, VERSION, active, len(stages)
+    if buttons is not None:
+        b[BTN_FLAG] = 1
+        for k, rec in enumerate(buttons[:N_BUTTONS]):
+            b[BTN_BASE + BTN_STRIDE * k:BTN_BASE + BTN_STRIDE * (k + 1)] = bytes(rec[:BTN_STRIDE]).ljust(BTN_STRIDE, b"\0")
     for k, (x, y) in enumerate(stages[:MAX_STAGES]):
         b[4 + 4 * k:8 + 4 * k] = bytes((x >> 8, x & 0xFF, y >> 8, y & 0xFF))
     b[24] = polling
@@ -257,8 +319,23 @@ def _stages(b: bytes) -> List[Tuple[int, int]]:
     return [(_u16(b[4 + 4 * k], b[5 + 4 * k]), _u16(b[6 + 4 * k], b[7 + 4 * k])) for k in range(min(b[3], MAX_STAGES))]
 
 
+def _button(b: bytes, k: int) -> int:
+    if len(b) < BLOB_LEN or b[BTN_FLAG] != 1:
+        return 0
+    o = BTN_BASE + BTN_STRIDE * k
+    rec = bytes(b[o:o + BTN_STRIDE])
+    for code, want in _ASSIGNMENT.items():
+        if rec[:3] == want[:3]:
+            return code
+    return 0
+
+
+def buttons_known(blob: bytes) -> bool:
+    return len(blob) == BLOB_LEN and blob[BTN_FLAG] == 1
+
+
 def decode(blob: bytes) -> Dict[str, object]:
-    if len(blob) != BLOB_LEN:
+    if len(blob) not in (BLOB_LEN, BLOB_LEN_V1):
         raise ValueError(f"Razer record must be {BLOB_LEN} bytes, got {len(blob)}")
     b = blob
     d: Dict[str, object] = {}
@@ -271,6 +348,9 @@ def decode(blob: bytes) -> Dict[str, object]:
     d["polling"] = b[24]
     d["idle_min"] = max(IDLE_MIN, min(IDLE_MAX, round(_u16(b[25], b[26]) / 60)))
     d["low_battery"] = b[27]
+    for k in range(N_BUTTONS):
+        d[f"button{k}"] = _button(b, k)
+    d["buttons_known"] = buttons_known(b)       # not a setting: tells the page whether to offer actions
     return d
 
 
@@ -308,12 +388,16 @@ def check_key_value(key: str, v) -> None:
     elif key == "low_battery":
         if not LOW_MIN <= v <= LOW_MAX:
             raise ValueError("low-battery threshold out of range")
+    elif key.startswith("button"):
+        if v not in ACTION_CODES:
+            raise ValueError("unsupported button action")
 
 
 def encode(blob: bytes, edits: Dict[str, object]) -> bytes:
     """Copy of the record with only the edited fields changed."""
     current = decode(blob)
     ba = bytearray(blob)
+    button_edit = False
     for key, v in edits.items():
         if current.get(key) == v:
             continue
@@ -337,6 +421,14 @@ def encode(blob: bytes, edits: Dict[str, object]) -> bytes:
             ba[25], ba[26] = (v * 60) >> 8, (v * 60) & 0xFF
         elif key == "low_battery":
             ba[27] = v
+        elif key.startswith("button"):
+            if not buttons_known(blob):
+                raise ValueError("The mouse didn't report its button actions, so they can't be changed.")
+            o = BTN_BASE + BTN_STRIDE * int(key[6:])
+            ba[o:o + BTN_STRIDE] = _ASSIGNMENT[v]
+            button_edit = True
+    if button_edit and LEFT not in [_button(ba, k) for k in range(N_BUTTONS)]:
+        raise ValueError("At least one button must stay Left click.")
     return bytes(ba)
 
 
@@ -354,10 +446,10 @@ def validate_settings(s: Dict[str, object]) -> None:
 
 
 def blob_problems(blob: bytes) -> List[str]:
-    if len(blob) != BLOB_LEN:
+    if len(blob) not in (BLOB_LEN, BLOB_LEN_V1):
         return [f"expected {BLOB_LEN} bytes, got {len(blob)}"]
     probs = []
-    if blob[0] != MAGIC or blob[1] != VERSION:
+    if blob[0] != MAGIC or blob[1] != (VERSION if len(blob) == BLOB_LEN else 1):
         probs.append("not a Wheelguard Razer record")
     if not 1 <= blob[3] <= MAX_STAGES:
         probs.append(f"DPI stage count {blob[3]} is out of range")
@@ -378,9 +470,10 @@ def blob_problems(blob: bytes) -> List[str]:
 
 @dataclass(frozen=True)
 class Op:
-    kind: str            # "stages" | "polling" | "idle" | "low_battery"
+    kind: str            # "stages" | "polling" | "idle" | "low_battery" | "button"
     label: str
     record: bytes        # the new record; write() takes the values for this op from it
+    index: int = 0       # "button": which one (0-4)
 
 
 def plan_writes(old: bytes, new: bytes) -> List[Op]:
@@ -393,12 +486,43 @@ def plan_writes(old: bytes, new: bytes) -> List[Op]:
         plan.append(Op("idle", "sleep", new))
     if old[27] != new[27]:
         plan.append(Op("low_battery", "low-battery warning", new))
+    if buttons_known(old) and buttons_known(new):
+        for k in range(N_BUTTONS):
+            o = BTN_BASE + BTN_STRIDE * k
+            if old[o:o + BTN_STRIDE] != new[o:o + BTN_STRIDE]:
+                plan.append(Op("button", BUTTON_NAMES[k].lower() + " action", new, k))
     return plan
 
 
 def merge_backup(fresh: bytes, backup: bytes) -> bytes:
-    """Everything this app can write comes from the backup."""
-    return bytes(backup)
+    """Everything this app can write comes from the backup. A backup without buttons (version 1, or
+    taken while the mouse didn't report them) keeps the buttons as they are now, and a button whose
+    saved assignment this app can't write (a key, a macro) is left as it is."""
+    if len(fresh) != BLOB_LEN:
+        raise ValueError("the current settings record has an unexpected size")
+    out = bytearray(fresh)
+    out[2:28] = backup[2:28]
+    if buttons_known(backup) and buttons_known(fresh):
+        for k in range(N_BUTTONS):
+            o = BTN_BASE + BTN_STRIDE * k
+            code = _button(backup, k)
+            if code and code != _button(fresh, k):
+                out[o:o + BTN_STRIDE] = _ASSIGNMENT[code]      # exactly what a write may carry
+    return bytes(out)
+
+
+def restore_record(saved: List[bytes]) -> bytes:
+    """The original backup; when it has no buttons (taken by Wheelguard 1.6, or while the mouse didn't
+    report them), the buttons of the oldest backup that has them."""
+    first = saved[0]
+    if buttons_known(first):
+        return first
+    with_buttons = next((b for b in saved if buttons_known(b)), None)
+    if with_buttons is None:
+        return first
+    out = bytearray(with_buttons)
+    out[2:28] = first[2:28]
+    return bytes(out)
 
 
 def describe_changes(old: Dict[str, object], new: Dict[str, object]) -> List[str]:
@@ -406,6 +530,8 @@ def describe_changes(old: Dict[str, object], new: Dict[str, object]) -> List[str
     for k in changed_keys(old, new):
         if k.startswith("dpi_"):
             label = f"DPI stage {int(k[5:]) + 1}"
+        elif k.startswith("button"):
+            label = BUTTON_NAMES[int(k[6:])] + " action"
         else:
             label = {"stage_count": "Stage count", "active_stage": "Active stage", "polling": "Polling rate",
                      "idle_min": "Sleep", "low_battery": "Low-battery warning"}[k]
@@ -420,6 +546,8 @@ class Codec:
     """The module-level functions above, as the object the session and the GUI expect."""
     BLOB_LEN = BLOB_LEN
     KEYS = KEYS
+    ACTION_LIST = ACTION_LIST
+    BUTTON_NAMES = BUTTON_NAMES
     decode = staticmethod(decode)
     flat = staticmethod(flat)
     empty = staticmethod(empty)
@@ -442,6 +570,7 @@ class RazerDriver(Driver):
         super().__init__(dev, wired, sleep)
         self.pid = pid or (RAZER_DA_V4_PRO_WIRED if wired else RAZER_PIDS[1])
         self.rz = RazerDevice(dev, wired, sleep)
+        self.button_size = 0         # the size byte the mouse accepted for the button commands
 
     @property
     def write_enabled(self) -> bool:
@@ -459,6 +588,13 @@ class RazerDriver(Driver):
     def link_check(self) -> None:
         self.rz.firmware()
 
+    def watch_stage(self, should_stop, seconds: float) -> Optional[int]:
+        """No DPI event is documented for this mouse, so read the stored stages once (a read-only command)."""
+        if should_stop():
+            return None
+        active, stages = self.rz.stages()
+        return min(active, len(stages) - 1) if stages else None
+
     def battery(self) -> Battery:
         return self.rz.battery()
 
@@ -467,7 +603,36 @@ class RazerDriver(Driver):
         if not stages:
             raise StatusError(GET_STAGES[0] << 8 | GET_STAGES[1], 0)
         return pack(min(active, len(stages) - 1), stages, self.rz.polling(), self.rz.idle_seconds(),
-                    self.rz.low_battery())
+                    self.rz.low_battery(), self._read_buttons())
+
+    def _read_buttons(self) -> Optional[List[bytes]]:
+        """The five assignments, or None when the mouse doesn't answer the button commands (then the page
+        just doesn't offer button actions; everything else works as before)."""
+        sizes = (self.button_size,) if self.button_size else BUTTON_SIZES
+        for size in sizes:
+            try:
+                first = self.rz.button(BUTTON_IDS[0], size)
+            except StatusError as e:
+                if e.status not in (ST_FAILURE, ST_UNSUPPORTED, 0):
+                    raise           # timeout, asleep: a read error, not "this mouse has no button commands"
+                continue
+            try:
+                rest = [self.rz.button(bid, size) for bid in BUTTON_IDS[1:]]
+            except StatusError as e:
+                if e.status not in (ST_FAILURE, ST_UNSUPPORTED, 0):
+                    raise
+                break
+            self.button_size = size
+            return [first] + rest
+        self.button_size = 0
+        return None
+
+    def backup_needed(self, saved: List[bytes], fresh: bytes) -> bool:
+        # An original without buttons (Wheelguard 1.6) can't undo a button change: keep one that has them.
+        return not saved or (buttons_known(fresh) and not any(buttons_known(b) for b in saved))
+
+    def restore_blob(self, saved: List[bytes]) -> bytes:
+        return restore_record(saved)
 
     def write(self, op: Op) -> None:
         if not self.write_enabled:
@@ -485,6 +650,11 @@ class RazerDriver(Driver):
             self.rz.set_idle(_u16(b[25], b[26]))
         elif op.kind == "low_battery":
             self.rz.set_low_battery(b[27])
+        elif op.kind == "button":
+            if not self.button_size:
+                raise Rejected("the mouse's button actions were not read in this session")
+            o = BTN_BASE + BTN_STRIDE * op.index
+            self.rz.set_button(BUTTON_IDS[op.index], b[o:o + BTN_STRIDE], self.button_size)
 
     def unreachable(self, snap, e) -> HwError:
         err = super().unreachable(snap, e)

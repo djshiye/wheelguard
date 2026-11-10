@@ -39,10 +39,25 @@ the memory model is 1 and the profile format is one libratbag parses (1-5).
   read-only factory (ROM) profiles.
 * Every sector ends with a CRC-16/CCITT (poly 0x1021, init 0xFFFF) of the rest, big-endian.
 * Profile layout (the part Wheelguard edits): byte 0 report interval in ms (1, 2, 4, 8), byte 1 default
-  DPI slot, byte 2 DPI-shift slot, bytes 3-12 five DPI values (little-endian, 0 = unused). Everything
-  else (buttons, name, lighting, power settings) is copied unchanged.
+  DPI slot, byte 2 DPI-shift slot, bytes 3-12 five DPI values (little-endian, 0 = unused), and the
+  first five of the sixteen 4-byte button bindings at 0x20 (left, right, middle, back, forward).
+  Everything else (the other bindings, the G-shift bindings at 0x60, name, lighting, power settings)
+  is copied unchanged.
+* Button bindings (libratbag `hidpp20.h`, Solaar's `Button`): `80 01 hi lo` sends mouse buttons (a
+  big-endian bit mask: 1 left, 2 right, 4 middle, 8 back, 0x10 forward); `90 05 00 00` is the
+  "cycle DPI" function. Wheelguard writes only these six; a button bound to anything else (a key, a
+  macro, another function) is shown as custom and left as it is unless the user picks a new action. A
+  change that would leave no button on left click is refused.
 * Reads are 16 bytes at a time; the last read is aligned to the end of the sector (the firmware
   refuses reads past it). A write is: address (sector, 0, size) -> 16-byte chunks -> end.
+
+## DPI popup
+
+While the DPI popup is on, Wheelguard keeps the node open in short stretches (10 s, given up at once
+when the page needs the mouse), reads the current DPI index once (function 0xB) and listens for the
+onboard-profiles notification with function 1 and software id 0 (`11 xx <index> 10 <dpi index> ...`),
+which the mouse sends when its own DPI button changes the stage. This is what Solaar handles in
+`notifications.py`. Nothing is written.
 
 ## What Wheelguard does
 
@@ -63,5 +78,5 @@ Backups are the profile sector plus the DPI-index byte, in
 (`p0001` for profile 1; a factory mouse's ROM profile is filed under `p0001` too, the sector its first write
 fills).
 
-Not used: host-mode settings (0x2201 DPI, 0x8060 report rate), button remapping, macros, lighting,
-pairing and everything else.
+Not used: host-mode settings (0x2201 DPI, 0x8060 report rate), keys and macros on buttons, the G-shift
+layer, lighting, pairing and everything else.

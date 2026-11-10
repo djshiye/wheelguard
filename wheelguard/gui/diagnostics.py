@@ -101,6 +101,8 @@ def build_report(d: Dict[str, object]) -> str:
             f"Dongle firmware: {g('dongle_fw', 'none or not reported')}",
             f"Battery: {g('battery')}",
         ]
+        if d.get("buttons"):
+            lines.append(f"Button actions: {g('buttons')}")
     else:
         lines.append("Mouse: none detected")
     lines += [
@@ -110,6 +112,7 @@ def build_report(d: Dict[str, object]) -> str:
         f"Scroll protection: {on('protection')}, preset {g('preset')}",
         f"Click-Lock: {on('clicklock')}",
         f"Low-battery alerts: {on('battery_alerts')}",
+        f"DPI popup: {on('dpi_popup')}",
     ]
     return scrub("\n".join(lines) + "\n", d.get("_home", ""), d.get("_user", ""), d.get("_host", ""))
 
@@ -153,6 +156,9 @@ def collect(daemon, mouse, ext_info: Dict[str, object], settings, version: str) 
         "preset": daemon.presetName,
         "clicklock": daemon.clickLock,
         "battery_alerts": settings.batteryAlerts,
+        "dpi_popup": getattr(settings, "dpiPopup", False),
+        "buttons": ("" if "buttons" not in list(getattr(mouse, "features", []) or [])
+                    else "available" if getattr(mouse, "buttonsKnown", True) else "not reported by the mouse"),
     }
     d.update(_identity())
     return d

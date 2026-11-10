@@ -53,6 +53,7 @@ ACTIONS = (
     ((0x01, 0xFF), "Wheel down"),
 )
 ACTION_NAMES = {(t << 8) | c: name for (t, c), name in ACTIONS}
+ACTION_LIST = tuple(((t << 8) | c, name) for (t, c), name in ACTIONS)     # (code, name), the form every codec offers
 LEFT_CLICK = 0x0001
 BUTTON_NAMES = ("Left button", "Right button", "Middle click", "Back (side)", "Forward (side)")
 N_BUTTONS = 5

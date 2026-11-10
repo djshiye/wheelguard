@@ -6,6 +6,8 @@ panel extension talks to the running app through it.
     interface  io.github.djshiye.Wheelguard1
         GetState() -> a{sv}              everything the popup shows (see traymodel.state_dict)
         StateChanged(a{sv})              the same dict, emitted when something in it changed
+        StageAnnounced(s, i, i)          DPI popup: the new stage's label ("1600"), its index and the stage
+                                         count; sent when the mouse's own DPI button or a shortcut changed it
         SetActiveStage(i)                switch the DPI stage (the guarded MouseController path)
         SetProtection(b)                 scroll protection on/off
         SetClickLock(b)                  Click-Lock on/off
@@ -63,6 +65,7 @@ class Service(QObject):
     """State publisher and command router. The D-Bus adaptor below is a thin shell around the methods here."""
 
     stateChanged = Signal("QVariantMap")
+    stageAnnounced = Signal(str, int, int)
     showRequested = Signal()
     focusChanged = Signal(str)          # a validated app id, or "" for no app
 
@@ -92,7 +95,14 @@ class Service(QObject):
         for sig in (daemon.stateChanged, daemon.configChanged, daemon.statsChanged,
                     daemon.clickLockActiveChanged, mouse.trayChanged):
             sig.connect(self._timer.start)
+        if hasattr(mouse, "stageAnnounced"):
+            mouse.stageAnnounced.connect(self._announce)
         self.publish()
+
+    @Slot(str, int, int)
+    def _announce(self, label: str, stage: int, count: int):
+        self.publish()          # the panel's stage chips first, then the popup
+        self.stageAnnounced.emit(label, stage, count)
 
     def attach_profiles(self, ctrl):
         """Per-game profiles: the popup shows when they are on and which one is engaged."""
@@ -172,7 +182,7 @@ class Service(QObject):
         if not getattr(m, "stagesEnabled", True):
             return commands.encode_result(False, "The mouse is busy. Try again in a moment.")
         nxt = (m.activeStage + 1) % len(labels)
-        m.setActiveStage(nxt)
+        m.setActiveStage(nxt, True)
         return commands.encode_result(True, f"DPI {labels[nxt]}")
 
     def show_window(self):
@@ -193,11 +203,13 @@ def _prop(key, typ):
 @ClassInfo({"D-Bus Interface": INTERFACE})
 class Adaptor(QDBusAbstractAdaptor):
     StateChanged = Signal("QVariantMap")
+    StageAnnounced = Signal(str, int, int)
 
     def __init__(self, service: Service):
         super().__init__(service)
         self.setAutoRelaySignals(False)
         service.stateChanged.connect(self.StateChanged)
+        service.stageAnnounced.connect(self.StageAnnounced)
 
     @Slot(result="QVariantMap")
     def GetState(self):
