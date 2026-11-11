@@ -112,15 +112,19 @@ def _run(args, timeout=TIMEOUT_S) -> Optional[str]:
     return r.stdout if r.returncode == 0 else None
 
 
-def read_all() -> Optional[Dict[str, Any]]:
-    """All mouse settings we care about (coerced), or None if gsettings/schema is unavailable."""
-    if not available():
-        return None
-    text = _run(["list-recursively", SCHEMA])
+def values_from(text: Optional[str]) -> Optional[Dict[str, Any]]:
+    """`gsettings list-recursively SCHEMA` output as our settings (coerced); None for no output."""
     if text is None:
         return None
     raw = parse_list_recursively(text)
     return {k: coerce(k, raw[k]) if k in raw else KEYS[k][3] for k in KEYS}
+
+
+def read_all() -> Optional[Dict[str, Any]]:
+    """All mouse settings we care about (coerced), or None if gsettings/schema is unavailable."""
+    if not available():
+        return None
+    return values_from(_run(["list-recursively", SCHEMA]))
 
 
 def write(key: str, value: Any) -> bool:

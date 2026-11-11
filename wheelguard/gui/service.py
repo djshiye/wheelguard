@@ -7,11 +7,11 @@ panel extension talks to the running app through it.
         GetState() -> a{sv}              everything the popup shows (see traymodel.state_dict)
         StateChanged(a{sv})              the same dict, emitted when something in it changed
         SetActiveStage(i)                switch the DPI stage (the guarded MouseController path)
-        SetProtection(b)                 scroll protection on/off
+        SetProtection(b)                 scroll protection on/off (true while paused resumes the service)
         SetClickLock(b)                  Click-Lock on/off
         SetClickLockMs(i)                Click-Lock hold time in ms (clamped to the slider range)
         SetClickLockMode(s)              "repeat" (keep clicking) or "hold" (keep the button pressed)
-        StopClickLock()                  end a running Click-Lock now (a screen lock is handled by the app's own screensaver watcher, screenlock.py)
+        StopClickLock()                  end a running Click-Lock now (the service ends it by itself when the screen locks)
         ToggleClickLock() -> s           flip Click-Lock; "ok:Click-Lock on" or "error:<why>" (commands.py)
         NextDpiStage() -> s              switch to the next DPI stage, wrapping round; same reply format
         FocusChanged(s)                  the shell's focused app id ("" = none); per-game profiles (profilectl.py)
@@ -127,27 +127,30 @@ class Service(QObject):
 
     def set_protection(self, on: bool):
         d = self._daemon
-        if d is not None and d.state in ("running", "waiting"):
+        if d is not None and d.state == "paused":
+            if on:
+                d.setPaused(False)              # paused shows as off: switching on resumes
+        elif d is not None and d.state in protocol.CONFIG_STATES:
             d.setEnabled(bool(on))
 
     def set_clicklock(self, on: bool):
         d = self._daemon
-        if d is not None and d.state in ("running", "waiting"):
+        if d is not None and d.state in protocol.CONFIG_STATES:
             d.setClickLock(bool(on))
 
     def set_clicklock_ms(self, ms: int):
         d = self._daemon
-        if d is not None and d.state in ("running", "waiting"):
+        if d is not None and d.state in protocol.CONFIG_STATES:
             d.setClickLockMs(int(ms))
 
     def set_clicklock_mode(self, mode: str):
         d = self._daemon
-        if d is not None and d.state in ("running", "waiting") and mode in protocol.CLICKLOCK_MODES:
+        if d is not None and d.state in protocol.CONFIG_STATES and mode in protocol.CLICKLOCK_MODES:
             d.setClickLockMode(mode)
 
     def stop_clicklock(self):
         d = self._daemon
-        if d is not None and d.state in ("running", "waiting"):
+        if d is not None and d.state in protocol.CONFIG_STATES:
             d.stopClickLock()
 
     def focus_changed(self, app_id: str):
@@ -156,7 +159,7 @@ class Service(QObject):
 
     def toggle_clicklock(self) -> str:
         d = self._daemon
-        if d is None or d.state not in ("running", "waiting"):
+        if d is None or d.state not in protocol.CONFIG_STATES:
             return commands.encode_result(False, commands.NO_SERVICE)
         on = not d.clickLock
         d.setClickLock(on)

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Tuple
 
 ONLINE_STATES = ("ready", "applying", "reading")       # mouse states in which a mouse has been seen
+CONFIG_STATES = ("running", "waiting", "paused")       # daemon states in which its settings can be changed
 REASON_OFFLINE = "Mouse not connected"
 REASON_EDITS = "Unsaved changes on the Mouse page"
 REASON_READONLY = "This mouse's settings are read-only"
@@ -41,7 +42,7 @@ class Row:
 
 def snapshot(daemon, mouse) -> TrayState:
     """Read the state from the DaemonClient and MouseController (or anything with the same properties)."""
-    return TrayState(daemon.state, daemon.enabled, mouse.online, mouse.battery, mouse.charging,
+    return TrayState(daemon.state, daemon.enabled and daemon.state != "paused", mouse.online, mouse.battery, mouse.charging,
                      tuple(mouse.stageLabels), mouse.activeStage, mouse.stageReason,
                      daemon.presetName, daemon.dropped, daemon.clickLock, daemon.clickLockMs,
                      daemon.clickLockActive, daemon.clickLockMode)
@@ -82,6 +83,8 @@ def battery_text(online: bool, battery: int, charging: bool) -> str:
 def protection_word(daemon_state: str, protecting: bool) -> str:
     if daemon_state == "running":
         return "protection on" if protecting else "protection off"
+    if daemon_state == "paused":
+        return "paused"
     if daemon_state == "waiting":
         return "waiting for mouse"
     if daemon_state in ("stopped", "permission"):
@@ -100,9 +103,9 @@ def menu_rows(s: TrayState) -> List[Row]:
     """The right-click menu. Stage rows are radio rows; a blocked or absent mouse leaves them disabled."""
     rows = [Row("info", battery_text(s.online, s.battery, s.charging), enabled=False),
             Row("toggle", "Scroll protection", key="protect", checked=s.protecting,
-                enabled=s.daemon_state in ("running", "waiting")),
+                enabled=s.daemon_state in CONFIG_STATES),
             Row("toggle", clicklock_menu_text(s), key="clicklock", checked=s.clicklock,
-                enabled=s.daemon_state in ("running", "waiting")),
+                enabled=s.daemon_state in CONFIG_STATES),
             Row("separator")]
     if s.stages:
         for i, label in enumerate(s.stages):
@@ -121,7 +124,9 @@ def menu_rows(s: TrayState) -> List[Row]:
 def status_pill(daemon_state: str, protecting: bool) -> Tuple[str, str]:
     """(label, tone) of the status pill; tone is one of good, amber, coral, muted. Mirrors StatusPill.qml."""
     if daemon_state == "running":
-        return ("Protecting", "good") if protecting else ("Paused", "amber")
+        return ("Protecting", "good") if protecting else ("Off", "amber")
+    if daemon_state == "paused":
+        return "Paused", "amber"
     if daemon_state == "waiting":
         return "No mouse", "amber"
     if daemon_state == "permission":
@@ -132,10 +137,12 @@ def status_pill(daemon_state: str, protecting: bool) -> Tuple[str, str]:
 
 
 def protection_detail(daemon_state: str, protecting: bool, preset: str, dropped: int) -> str:
-    """The line under "Scroll protection": preset, paused flag and drop count."""
+    """The line under "Scroll protection": preset, off or paused, and drop count."""
     if daemon_state in ("stopped", "permission"):
         return "Service not running"
-    text = preset if protecting else f"Paused · {preset}"
+    if daemon_state == "paused":
+        return "Paused · switch on to resume"
+    text = preset if protecting else f"Off · {preset}"
     return f"{text} · {dropped} dropped" if dropped > 0 else text
 
 
@@ -155,6 +162,8 @@ def clicklock_detail(daemon_state: str, on: bool, ms: int, active: bool, mode: s
     """The line under "Click-Lock" in the panel popup."""
     if daemon_state in ("stopped", "permission"):
         return "Service not running"
+    if daemon_state == "paused":
+        return "Paused"
     if active:
         return "Holding the button · click to let go" if mode == "hold" else "Clicking for you · click to stop"
     if on:

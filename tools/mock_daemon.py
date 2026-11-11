@@ -24,14 +24,16 @@ import sys
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
+from wheelguard import __version__ as VERSION  # noqa: E402
 from wheelguard.core import DROP, HOLD, WheelFilter  # noqa: E402
 
-VERSION = "1.0.0-mock"
 DEVICE = "Endgame Gear Endgame Gear HS Dongle"
 DEFAULT_CONFIG = {"enabled": True, "lock_ms": 300, "pre_ms": 60, "hold_ms": 25,
                   "vendor": "3367", "product": "1970", "retry_s": 2,
                   "clicklock": False, "clicklock_ms": 5000, "clicklock_mode": "repeat", "clicklock_rate": 10,
-                  "clicklock_max_s": 600, "clicklock_ignore_drag": True, "debounce_ms": 0, "mouse": "auto"}
+                  "clicklock_max_s": 600, "clicklock_ignore_drag": True, "clicklock_drag_counts": 400,
+                  "debounce_ms": 0, "mouse": "auto"}
+OVERRIDE_KEYS = ("enabled", "pre_ms", "hold_ms", "lock_ms", "clicklock")
 MICE = [   # what the mock reports as connected (mice with a scroll wheel), supported ones first
     {"name": "Endgame Gear XM2w 4k v2", "device": "Endgame Gear HS Dongle", "vendor": "3367", "product": "1970",
      "supported": True, "connection": "dongle"},
@@ -84,6 +86,9 @@ def validate(cfg, patch):
                 return None, 'clicklock_mode must be "repeat" or "hold"'
             merged[k] = v
             continue
+        elif k == "clicklock_drag_counts":
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not 50 <= v <= 20000:
+                return None, "clicklock_drag_counts must be between 50 and 20000"
         elif k in ("vendor", "product"):
             merged[k] = str(v)
             continue
@@ -169,6 +174,8 @@ class Client:
 
 
 class Mock:
+    paused = False
+
     def __init__(self, args):
         self.scenario = args.scenario
         self.cfg = dict(DEFAULT_CONFIG)
@@ -178,7 +185,15 @@ class Mock:
         self.clicklock_active = args.clicklock_active
         if args.clicklock_active:
             self.cfg["clicklock"] = True
-        self.stats = {"ticks": 0, "passed": 0, "dropped": 0, "debounced": args.debounced, "since": time.time()}
+        left = args.debounced - args.debounced // 8
+        self.stats = {"ticks": 0, "passed": 0, "dropped": 0, "debounced": args.debounced,
+                      "debounced_by": {"left": left, "right": args.debounced - left, "middle": 0},
+                      "since": time.time()}
+        self.version = args.version or VERSION
+        self.paused = args.paused
+        self.file_cfg = dict(self.cfg)
+        self.override = {}
+        self.override_owner = None
         self.sel = selectors.DefaultSelector()
         self.clients = {}
         self.rng = random.Random(args.seed)
@@ -191,12 +206,14 @@ class Mock:
 
     # --- protocol
     def status(self):
-        connected = self.scenario == "connected"
+        connected = self.scenario == "connected" and not self.paused
         error = "permission denied: /dev/input/event2" if self.scenario == "permission" else None
-        return {"type": "status", "version": VERSION, "connected": connected,
-                "device": DEVICE if connected else None,
+        if self.paused:
+            error = "paused"
+        return {"type": "status", "version": self.version, "connected": connected,
+                "device": DEVICE if connected else None, "ident": "3367:1970" if connected else None,
                 "model": MODEL if connected else None, "connection": CONNECTION if connected else None,
-                "error": error,
+                "error": error, "override": dict(self.override), "paused": self.paused,
                 "config": dict(self.cfg), "mice": self.mice(), "stats": dict(self.stats),
                 "clicklock_active": self.clicklock_active and self.cfg["clicklock"]}
 
@@ -231,6 +248,10 @@ class Mock:
         if c.conn.fileno() in self.clients:
             self.sel.unregister(c.conn)
             del self.clients[c.conn.fileno()]
+        if self.override and self.override_owner is c:      # like the real daemon: they end with their client
+            self.override, self.override_owner = {}, None
+            self.apply_cfg()
+            self.broadcast(self.status())
         try:
             c.conn.close()
         except OSError:
@@ -244,12 +265,34 @@ class Mock:
             c.subscribed = True
             self.send(c, self.status())
         elif cmd == "set":
-            merged, err = validate(self.cfg, msg.get("config"))
+            merged, err = validate(self.file_cfg, msg.get("config"))
             if err:
                 self.send(c, {"type": "error", "message": err})
                 return
-            self.cfg = merged
-            self.filter = WheelFilter(merged["lock_ms"], merged["pre_ms"], merged["hold_ms"])
+            self.file_cfg = merged
+            for k in msg.get("config"):
+                self.override.pop(k, None)
+            self.apply_cfg()
+            self.send(c, {"type": "ok"})
+            self.broadcast(self.status())
+        elif cmd == "override":
+            patch = msg.get("config")
+            if not isinstance(patch, dict) or any(k not in OVERRIDE_KEYS for k in patch):
+                self.send(c, {"type": "error", "message": "that cannot be set temporarily"})
+                return
+            _merged, err = validate(self.file_cfg, patch)
+            if err:
+                self.send(c, {"type": "error", "message": err})
+                return
+            self.override, self.override_owner = dict(patch), (c if patch else None)
+            self.apply_cfg()
+            self.send(c, {"type": "ok"})
+            self.broadcast(self.status())
+        elif cmd == "pause":
+            if not isinstance(msg.get("on"), bool):
+                self.send(c, {"type": "error", "message": "on must be true or false"})
+                return
+            self.paused = msg["on"]
             self.send(c, {"type": "ok"})
             self.broadcast(self.status())
         elif cmd == "history":
@@ -264,11 +307,16 @@ class Mock:
         elif cmd == "reload":
             self.send(c, {"type": "ok"})
         elif cmd == "reset_stats":
-            self.stats.update(ticks=0, passed=0, dropped=0, debounced=0, since=time.time())
+            self.stats.update(ticks=0, passed=0, dropped=0, debounced=0, since=time.time(),
+                              debounced_by={"left": 0, "right": 0, "middle": 0})
             self.send(c, {"type": "ok"})
             self.broadcast(self.status())
         else:
             self.send(c, {"type": "error", "message": f"unknown command: {cmd!r}"})
+
+    def apply_cfg(self):
+        self.cfg = dict(self.file_cfg, **self.override)
+        self.filter = WheelFilter(self.cfg["lock_ms"], self.cfg["pre_ms"], self.cfg["hold_ms"])
 
     # --- ticks
     def emit_tick(self, kind, t, sign, held, gap):
@@ -290,7 +338,7 @@ class Mock:
             self.emit_tick(d.kind, d.t, d.sign, d.held, d.gap_ms)
 
     def tick_loop_step(self, now):
-        if self.scenario != "connected":
+        if self.scenario != "connected" or self.paused:
             return
         if self.cfg["enabled"]:
             for d in self.filter.flush(now):
@@ -375,6 +423,8 @@ def main():
     ap.add_argument("--set", action="append", default=[], metavar="KEY=JSON",
                     help="start with a config value, e.g. --set debounce_ms=40 (repeatable)")
     ap.add_argument("--debounced", type=int, default=0, help="start with this many double-click-fix clicks counted")
+    ap.add_argument("--version", help="report this service version (to show the app's update prompt)")
+    ap.add_argument("--paused", action="store_true", help="start paused (the service has let go of the mouse)")
     ap.add_argument("--clicklock-active", action="store_true",
                     help="pretend Click-Lock is on and clicking right now (for the app and panel UI)")
     args = ap.parse_args()

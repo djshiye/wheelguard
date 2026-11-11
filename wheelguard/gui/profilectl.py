@@ -1,6 +1,7 @@
 """Per-game profiles, Qt side: listens to the focused app (reported by the panel extension through the
-service), runs the ProfileEngine and applies what it decides through the existing guarded paths: the
-daemon client for scroll protection and Click-Lock, MouseController.setActiveStage for the DPI stage.
+service), runs the ProfileEngine and applies what it decides: scroll protection and Click-Lock as temporary
+settings in the service (never written to config.json, and gone by themselves if this app goes away), the
+DPI stage through MouseController.setActiveStage (it lives on the mouse, so it keeps the crash journal).
 
 QML sees it as `profiles`. The pure logic and the file formats live in profiles.py and desktopapps.py.
 """
@@ -11,9 +12,12 @@ from PySide6.QtCore import Property, QObject, Signal, Slot
 from PySide6.QtGui import QIcon, QImage
 from PySide6.QtQuick import QQuickImageProvider
 
-from . import desktopapps, profiles
+from . import desktopapps, profiles, protocol
 from .appsettings import config_dir
 
+SERVICE_KEYS = ("protection", "clicklock")      # applied as temporary settings in the service
+RECENT_MAX = 6
+OWN_APP = "io.github.djshiye.Wheelguard"
 PROVIDER_ID = "appicon"
 ICON_MAX = 256
 
@@ -65,6 +69,9 @@ class ProfileController(QObject):
         self._reload()
         self._engine.seed(profiles.journal_load(self._journal))     # a previous run died with a profile engaged
         self._journal_last = self._engine.restore_values()
+        self._recent: list = []                 # app ids that had the focus lately, newest first (never titles)
+        if hasattr(daemon, "reconnected"):
+            daemon.reconnected.connect(lambda: self._engine.expect(SERVICE_KEYS))
         daemon.configChanged.connect(self._tick)
         daemon.stateChanged.connect(self._tick)
         mouse.trayChanged.connect(self._tick)
@@ -78,37 +85,51 @@ class ProfileController(QObject):
     def _current(self) -> Dict[str, object]:
         d, m = self._daemon, self._mouse
         cur: Dict[str, object] = {"protection": None, "clicklock": None, "stage": None}
-        if d.state in ("running", "waiting"):
+        if d.state in protocol.CONFIG_STATES:
             cur["protection"] = (int(d.preMs), int(d.holdMs), int(d.lockMs))
             cur["clicklock"] = bool(d.clickLock)
         if m.stagesEnabled and m.activeStage >= 0:
             cur["stage"] = int(m.activeStage)
         return cur
 
-    def _apply(self, plan: Dict[str, object]):
+    @staticmethod
+    def _config(values: Dict[str, object]) -> Dict[str, object]:
+        """Engine values ("protection", "clicklock") as service config keys."""
+        out: Dict[str, object] = {}
+        if "protection" in values:
+            out.update(zip(("pre_ms", "hold_ms", "lock_ms"), (int(v) for v in values["protection"]), strict=True))
+        if "clicklock" in values:
+            out["clicklock"] = bool(values["clicklock"])        # a running lock ends when this goes false
+        return out
+
+    def _apply(self, plan: Dict[str, object], saved: bool = False):
+        """Carry out what the engine decided. Scroll protection and Click-Lock are not taken from the plan:
+        the service is simply told which temporary settings are in force now (`_sync_overlay`), and leaving
+        a profile ends them. `saved=True` is only for values a run before 1.7.0 left written in config.json
+        (the crash journal): those are written back for good."""
         skipped = []
-        patch: Dict[str, object] = {}
         for key, value in plan.items():
-            if key in ("protection", "clicklock"):
-                if self._daemon.state not in ("running", "waiting"):
-                    skipped.append(key)
-                elif key == "protection":
-                    patch.update(zip(("pre_ms", "hold_ms", "lock_ms"), (int(v) for v in value), strict=True))
-                else:
-                    patch["clicklock"] = bool(value)            # a running lock ends when this goes false
-            elif key == "stage":
+            if key == "stage":
                 if not self._mouse.stagesEnabled:
                     skipped.append(key)         # busy, asleep or unsaved edits: try again later, never force it
                 elif 0 <= int(value) < len(self._mouse.stageLabels):
                     self._mouse.setActiveStage(int(value))
-        if patch:
-            self._daemon.setValues(patch)               # one command: one config write for the whole profile
+        if saved:
+            patch = self._config({k: v for k, v in plan.items() if k in SERVICE_KEYS})
+            if patch and self._daemon.state in protocol.CONFIG_STATES:
+                self._daemon.setValues(patch)
         if skipped:
             self._engine.skipped(skipped)
+        self._sync_overlay()
+
+    def _sync_overlay(self):
+        self._daemon.setOverride(self._config(self._engine.overlay(SERVICE_KEYS)))
 
     def _save_journal(self):
         """Keep the crash-recovery journal equal to what restore_values() says now."""
-        want = self._engine.restore_values()
+        # Only the DPI stage needs handing back after a crash: the service drops its temporary settings by itself.
+        want = {k: v for k, v in self._engine.restore_values().items()
+                if k not in SERVICE_KEYS or k in self._engine._seed}
         if want != self._journal_last:
             self._journal_last = want
             profiles.journal_save(self._journal, want)
@@ -117,11 +138,14 @@ class ProfileController(QObject):
     def _tick(self):
         cur = self._current()
         self._engine.observe(cur)
-        plan = self._engine.seed_plan(cur)
+        seeded = self._engine.seed_plan(cur)
+        if seeded:
+            self._apply(seeded, saved=True)
         if self._engine.has_retry():
-            plan.update(self._engine.retry_plan(cur))
-        if plan:
-            self._apply(plan)
+            plan = self._engine.retry_plan(cur)
+            if plan:
+                self._apply(plan)
+        self._sync_overlay()            # a setting changed by hand leaves the temporary set
         self._save_journal()
 
     def _on_switch(self):
@@ -149,6 +173,8 @@ class ProfileController(QObject):
     @Slot(str)
     def focusChanged(self, app_id: str):
         self._focus = profiles.clean_app_id(app_id)
+        if self._focus and not self._demo:
+            self._recent = ([self._focus] + [a for a in self._recent if a != self._focus])[:RECENT_MAX]
         if self.enabled:
             self._engage_focus()
 
@@ -182,6 +208,16 @@ class ProfileController(QObject):
     def installedApps(self, query: str):
         have = {p.app_id for p in self._items_raw}
         return [a for a in self._apps_list() if a["id"] not in have and desktopapps.matches(a, query)][:200]
+
+    @Slot(result="QVariantList")
+    def recentApps(self):
+        """Apps that had the focus lately and have no launcher entry: games started from Lutris, Heroic or
+        Wine. The panel icon reports them by their window's app class (never a title), which is what a
+        profile is matched by, so one of these can get a profile although the app list doesn't have it."""
+        known = {a["id"] for a in self._apps_list()}
+        have = {p.app_id for p in self._items_raw}
+        return [{"id": a, "name": desktopapps.display_name(a, ()), "icon": ""}
+                for a in self._recent if a not in known and a not in have and not a.startswith(OWN_APP)]
 
     def _build_items(self):
         apps = self._apps_list()
@@ -246,6 +282,7 @@ class ProfileController(QObject):
         self._demo = True
         self._apps = [{"id": k, "name": v, "icon": ""} for k, v in sorted(names.items(), key=lambda kv: kv[1])]
         self._focus = "steam_app_730.desktop"
+        self._recent = ["heroic-hades.exe", "steam_app_730.desktop"]
         self._engage_focus()
 
     # ---- properties

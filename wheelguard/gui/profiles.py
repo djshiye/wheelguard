@@ -398,6 +398,18 @@ class ProfileEngine:
         self._mark(plan)
         return plan
 
+    def overlay(self, keys=("protection", "clicklock")) -> Dict[str, object]:
+        """What the engaged profile sets among `keys` and the user hasn't changed by hand since: the settings
+        the service should use temporarily (see ProfileController). Empty when no profile is engaged."""
+        if self.active is None:
+            return {}
+        return {k: v for k, v in self._applied.items() if k in keys and k not in self._overridden}
+
+    def expect(self, keys):
+        """Values we are about to send again (the service restarted or the connection came back): until they
+        show up, a different live value is not the user's doing."""
+        self._mark({k: self._applied[k] for k in keys if k in self._applied and k not in self._overridden})
+
     def restore_values(self) -> Dict[str, object]:
         """What to hand back if the app dies now (written to the journal while a profile is engaged)."""
         out = dict(self._seed)

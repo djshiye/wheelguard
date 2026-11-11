@@ -52,6 +52,34 @@ def codec_for(model_key: str):
     return CODECS.get(model_key, EndgameDriver.codec)
 
 
+_preferred: Optional[tuple] = None      # (vendor, product) of the mouse the scroll filter is protecting
+
+
+def pick(cands, preferred: Optional[tuple]):
+    """Which supported mouse to talk to when several are connected: the one being protected (the same
+    USB device, else the same brand), otherwise the first found (Endgame Gear, Razer, Logitech)."""
+    if preferred:
+        for match in (lambda c: (c.vid, c.pid) == tuple(preferred), lambda c: c.vid == preferred[0]):
+            found = next((c for c in cands if match(c)), None)
+            if found is not None:
+                return found
+    return cands[0]
+
+
+def prefer(ident: Optional[tuple]) -> bool:
+    """Follow the mouse the service protects (None = no preference). True when that changes which mouse
+    the Mouse page should show, so the caller can read it again."""
+    global _preferred
+    old, _preferred = _preferred, (tuple(ident) if ident else None)
+    if old == _preferred or mock.mock_mode():
+        return False
+    try:
+        cands = hidraw.discover_all()
+    except OSError:
+        return False
+    return len(cands) > 1 and pick(cands, old) != pick(cands, _preferred)
+
+
 def default_opener():
     """What to talk to: (device, wired) for an Endgame Gear mouse, or (device, wired, kind, pid) for
     the others; the fake devices when WHEELGUARD_HW_MOCK is set. None when no supported mouse is
@@ -62,7 +90,7 @@ def default_opener():
     cands = hidraw.discover_all()
     if not cands:
         return None
-    c = cands[0]
+    c = pick(cands, _preferred)
     dev = hidraw.HidrawDevice(c.path)
     return (dev, c.wired) if c.kind == "endgame" else (dev, c.wired, c.kind, c.pid)
 

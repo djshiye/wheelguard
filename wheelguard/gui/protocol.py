@@ -5,6 +5,7 @@
 import datetime
 import json
 import math
+import re
 from collections import deque
 from typing import Deque, List, NamedTuple, Optional
 
@@ -16,7 +17,11 @@ TICK_KINDS = ("emit", "drop", "hold", "pass")
 CONFIG_DEFAULTS = {"enabled": True, "pre_ms": 60, "hold_ms": 25, "lock_ms": 300,
                    "clicklock": False, "clicklock_ms": 5000, "clicklock_mode": "repeat",
                    "clicklock_rate": 10, "clicklock_max_s": 600,
-                   "clicklock_ignore_drag": True, "debounce_ms": 0, "mouse": "auto"}
+                   "clicklock_ignore_drag": True, "clicklock_drag_counts": 400, "debounce_ms": 0, "mouse": "auto"}
+# "Ignore drags" lets the pointer wander this far while the button is held, whatever the mouse's DPI.
+DRAG_INCHES = 0.25
+DRAG_COUNTS_RANGE = (50, 20000)         # the daemon's config.CLICKLOCK_DRAG_COUNTS
+CONFIG_STATES = ("running", "waiting", "paused")    # states in which the service's settings are known and editable
 # Click-Lock slider range in the app and the panel (the daemon accepts 0.5 to 30 s).
 CLICKLOCK_MS_RANGE = (1000, 15000)
 CLICKLOCK_MS_STEP = 500
@@ -93,7 +98,7 @@ def as_tick(msg: dict) -> Optional[Tick]:
 
 
 class DeviceState(NamedTuple):
-    state: str            # "running" | "waiting" | "permission"
+    state: str            # "running" | "waiting" | "permission" | "paused"
     device: str
     error: str
     label: str = ""       # what to show for the mouse: "Endgame Gear XM2w 4k v2 · dongle", else the device name
@@ -124,6 +129,8 @@ def device_state(status: dict) -> DeviceState:
     device = pretty_device_name(status.get("device") or "")
     if not isinstance(error, str):
         error = str(error)
+    if status.get("paused") is True:
+        return DeviceState("paused", "", "", "")
     if "permission" in error.lower():
         return DeviceState("permission", device, error, device)
     label = device_label(status)
@@ -206,6 +213,45 @@ def mouse_choice_supported(selected: str) -> bool:
     return ids is None or mouse_ids.identify(*ids)[0] is not None
 
 
+def status_ident(status: dict) -> str:
+    """"vvvv:pppp" of the mouse being filtered right now, or ""."""
+    ident = status.get("ident")
+    ids = mouse_ids.parse_choice(ident) if isinstance(ident, str) else None
+    return mouse_ids.format_choice(*ids) if ids else ""
+
+
+def mouse_rows(mice: List[dict], selected: str, active: str, allowed=()) -> List[dict]:
+    """The mouse picker's rows: Automatic, each connected wheel mouse, and the saved choice when that mouse
+    isn't connected. `active` is the mouse being filtered right now, `allowed` the ids the user gave access to.
+    note: "" | "not tested" | "no access" | "not connected"."""
+    found = status_mice({"mice": mice})
+    auto_name = next((m["name"] for m in found if m["id"] == active), "") if selected == mouse_ids.AUTO else ""
+    rows = [{"id": mouse_ids.AUTO, "name": "Automatic",
+             "detail": auto_name or "Picks your supported mouse", "note": "",
+             "selected": selected == mouse_ids.AUTO, "active": False, "allowed": False, "accessible": True}]
+    for m in found:
+        note = "no access" if not m["accessible"] else ("" if m["supported"] else "not tested")
+        rows.append({"id": m["id"], "name": m["name"], "detail": m["connection"], "note": note,
+                     "selected": m["id"] == selected, "active": m["id"] == active,
+                     "allowed": m["id"] in allowed, "accessible": m["accessible"]})
+    if selected != mouse_ids.AUTO and all(r["id"] != selected for r in rows):
+        rows.append({"id": selected, "name": f"Saved mouse {selected}", "detail": "", "note": "not connected",
+                     "selected": True, "active": False, "allowed": selected in allowed, "accessible": True})
+    return rows
+
+
+def drag_counts_for_dpi(dpi) -> int:
+    """Sensor counts for DRAG_INCHES of hand movement at this DPI (0 for a DPI we can't use)."""
+    try:
+        dpi = float(dpi)
+    except (TypeError, ValueError):
+        return 0
+    if not 50 <= dpi <= 100000:
+        return 0
+    lo, hi = DRAG_COUNTS_RANGE
+    return max(lo, min(hi, int(round(dpi * DRAG_INCHES))))
+
+
 def mouse_index(options: List[dict], selected: str) -> int:
     return next((i for i, o in enumerate(options) if o["id"] == selected), 0)
 
@@ -218,7 +264,38 @@ def status_stats(status: dict) -> dict:
     s = status.get("stats") or {}
     ticks = int(s.get("ticks", 0) or 0)
     dropped = int(s.get("dropped", 0) or 0)
-    return {"ticks": ticks, "dropped": dropped, "debounced": max(0, int(s.get("debounced", 0) or 0))}
+    by = s.get("debounced_by")
+    per = []
+    for name in ("left", "right", "middle"):
+        v = by.get(name) if isinstance(by, dict) else 0
+        per.append(max(0, int(v)) if isinstance(v, (int, float)) and not isinstance(v, bool) else 0)
+    return {"ticks": ticks, "dropped": dropped, "debounced": max(0, int(s.get("debounced", 0) or 0)),
+            "debounced_by": tuple(per)}
+
+
+def debounced_text(per) -> str:
+    """"Left 34 · Right 3": which buttons the Double-click fix had to help ("" when the service didn't say)."""
+    names = ("Left", "Right", "Middle")
+    parts = [f"{n} {v:,}" for n, v in zip(names, per, strict=True) if v > 0]
+    return " · ".join(parts)
+
+
+def version_tuple(text: str):
+    """(1, 7, 0) for "1.7.0" (or "1.7.0-mock"); () when it isn't a version."""
+    m = re.match(r"(\d+)\.(\d+)\.(\d+)", text or "")
+    return tuple(int(x) for x in m.groups()) if m else ()
+
+
+def update_state(app: str, service: str, on_disk: str) -> str:
+    """After a package update the app in the panel and the service can be different versions.
+    "" = nothing to do; "service" = the service is older than this app: restart it; "app" = this app is the
+    old one (the installed files and the service are newer): restart the app."""
+    a, s, d = version_tuple(app), version_tuple(service), version_tuple(on_disk)
+    if not a:
+        return ""
+    if d and d != a:
+        return "app"
+    return "service" if s and s != a else ""
 
 
 def block_rate(ticks: int, dropped: int) -> float:
