@@ -6,6 +6,8 @@ ever created when WHEELGUARD_HW_MOCK is set (see session.default_opener) or by t
 
     WHEELGUARD_HW_MOCK=connected|connected-wired|asleep|unsupported|denied|missing
                        razer|razer-wired|razer-asleep
+                       razer-classic (a DeathAdder V3 Pro behind its dongle: the classic polling command)
+                       razer-viper (a Viper V3 Pro behind its HyperPolling dongle)
                        logitech|logitech-wired|logitech-factory|logitech-asleep
 
 FakeRazer and FakeLogitech do the same for the other two mice: they sit under razer.RazerDevice and
@@ -21,7 +23,7 @@ from .hidraw import (AccessDenied, LOGI_SUPERLIGHT_WIRED, LOGI_SUPERLIGHT_WIRELE
 
 MOCK_ENV = "WHEELGUARD_HW_MOCK"
 MODES = ("connected", "connected-wired", "asleep", "unsupported", "denied", "missing",
-         "razer", "razer-wired", "razer-asleep",
+         "razer", "razer-wired", "razer-asleep", "razer-classic", "razer-viper",
          "logitech", "logitech-wired", "logitech-factory", "logitech-asleep")
 
 
@@ -120,10 +122,13 @@ class FakeRazer:
     def __init__(self, mode: str = "razer"):
         self.mode = mode
         self.wired = mode == "razer-wired"
-        self.fw = (1, 3)
         self.stages = [(400, 400), (800, 800), (1600, 1600), (3200, 3200)]
         self.active = 2                 # 1-based, as the mouse reports it
-        self.polling = 0x08             # 1000 Hz
+        self.classic = mode == "razer-classic"      # DeathAdder V3 Pro: 00:85 / 00:05, codes 1 / 2 / 8
+        self.pid = 0x00B7 if self.classic else 0x00C1 if mode == "razer-viper" else (
+            RAZER_DA_V4_PRO_WIRED if self.wired else RAZER_DA_V4_PRO_WIRELESS)
+        self.fw = (2, 1) if self.classic else (1, 3)
+        self.polling = 0x01 if self.classic else 0x08      # 1000 Hz
         self.idle = 300                 # seconds
         self.low = 0x26
         self.level = 204                # of 255 -> 80%
@@ -148,8 +153,12 @@ class FakeRazer:
             a[0], a[1], a[2] = 0x01, self.active, len(self.stages)
             for i, (x, y) in enumerate(self.stages):
                 a[3 + 7 * i:10 + 7 * i] = bytes((i + 1, x >> 8, x & 0xFF, y >> 8, y & 0xFF, 0, 0))
-        elif (cls, cid) == (0x00, 0xC0):
+        elif (cls, cid) == (0x00, 0xC0) and not self.classic:
             a[1] = self.polling
+        elif (cls, cid) == (0x00, 0x85) and self.classic:
+            a[0] = self.polling
+        elif (cls, cid) == (0x00, 0x05) and self.classic:
+            self.polling = r[8]
         elif (cls, cid) == (0x07, 0x83):
             a[0], a[1] = self.idle >> 8, self.idle & 0xFF
         elif (cls, cid) == (0x07, 0x81):
@@ -165,7 +174,7 @@ class FakeRazer:
                            for i in range(n)]
         elif (cls, cid) == (0x04, 0x05):
             pass
-        elif (cls, cid) == (0x00, 0x40):
+        elif (cls, cid) == (0x00, 0x40) and not self.classic:
             self.polling = r[8 + 1]
         elif (cls, cid) == (0x07, 0x03):
             self.idle = (r[8] << 8) | r[9]
@@ -354,7 +363,7 @@ def open_mock(mode: str):
             dev = FakeHidraw(mode)
         _singletons[mode] = dev
     if isinstance(dev, FakeRazer):
-        return dev, dev.wired, "razer", RAZER_DA_V4_PRO_WIRED if dev.wired else RAZER_DA_V4_PRO_WIRELESS
+        return dev, dev.wired, "razer", dev.pid
     if isinstance(dev, FakeLogitech):
         return dev, dev.wired, "logitech", LOGI_SUPERLIGHT_WIRED if dev.wired else LOGI_SUPERLIGHT_WIRELESS
     return dev, dev.wired

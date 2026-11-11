@@ -1,7 +1,8 @@
-"""Razer DeathAdder V4 Pro: transport, codec and driver. See docs/razer-protocol.md.
+"""Razer mice: transport, codec and driver. See docs/razer-protocol.md.
 
-The protocol is Razer's 90-byte Feature report, as implemented by the OpenRazer kernel driver for this
-mouse (PIDs 0x00BE wired, 0x00BF wireless). Every byte that reaches the device goes through
+The protocol is Razer's 90-byte Feature report, as implemented by the OpenRazer kernel driver for the
+DeathAdder V4 Pro (PIDs 0x00BE wired, 0x00BF wireless) and, with the per-model differences listed in
+models.RAZER_LINKS (polling-rate command, reply wait, DPI range), for the rest of the Razer family. Every byte that reaches the device goes through
 RazerDevice._exchange(), which enforces an allow-list of (command class, command id, size) and checks
 every write's arguments. Nothing else can be sent: no device-mode switch, no firmware commands, no
 lighting, no unknown command.
@@ -14,6 +15,7 @@ Not verified on hardware.
 """
 import time
 from dataclasses import dataclass
+from functools import partial
 from typing import Callable, Dict, List, Optional, Tuple
 
 from .drivers import Driver
@@ -21,6 +23,7 @@ from .endgame import LinkError, Rejected, StatusError, WriteBlocked
 from .errors import Battery, HwError, Snapshot
 from .hidraw import RAZER_DA_V4_PRO_WIRED, RAZER_PIDS
 from .models import DEATHADDER_V4_PRO as MODEL
+from .models import MODELS, RAZER_LINKS, Model, RazerLink
 
 # ---------------------------------------------------------------- transport
 
@@ -35,25 +38,33 @@ ST_BUSY, ST_OK, ST_FAILURE, ST_TIMEOUT, ST_UNSUPPORTED = 1, 2, 3, 4, 5
 
 # (class, id) -> data_size of the request
 GET_FIRMWARE = (0x00, 0x81)
-GET_POLLING = (0x00, 0xC0)
+GET_POLLING = (0x00, 0xC0)          # "hyper" polling (HyperPolling mice)
+GET_POLLING_CLASSIC = (0x00, 0x85)  # "classic" polling: 1000 / 500 / 125 Hz
 GET_STAGES = (0x04, 0x86)
 GET_BATTERY = (0x07, 0x80)
 GET_CHARGING = (0x07, 0x84)
 GET_IDLE = (0x07, 0x83)
 GET_LOW_BATTERY = (0x07, 0x81)
 SET_POLLING = (0x00, 0x40)
+SET_POLLING_CLASSIC = (0x00, 0x05)
 SET_DPI = (0x04, 0x05)
 SET_STAGES = (0x04, 0x06)
 SET_IDLE = (0x07, 0x03)
 SET_LOW_BATTERY = (0x07, 0x01)
 
-READS = {GET_FIRMWARE: 0x02, GET_POLLING: 0x01, GET_STAGES: 0x26, GET_BATTERY: 0x02, GET_CHARGING: 0x02,
-         GET_IDLE: 0x02, GET_LOW_BATTERY: 0x01}
-WRITES = {SET_POLLING: 0x02, SET_DPI: 0x07, SET_STAGES: 0x26, SET_IDLE: 0x02, SET_LOW_BATTERY: 0x01}
+READS = {GET_FIRMWARE: 0x02, GET_POLLING: 0x01, GET_POLLING_CLASSIC: 0x01, GET_STAGES: 0x26, GET_BATTERY: 0x02,
+         GET_CHARGING: 0x02, GET_IDLE: 0x02, GET_LOW_BATTERY: 0x01}
+WRITES = {SET_POLLING: 0x02, SET_POLLING_CLASSIC: 0x01, SET_DPI: 0x07, SET_STAGES: 0x26, SET_IDLE: 0x02,
+          SET_LOW_BATTERY: 0x01}
+HYPER_ONLY, CLASSIC_ONLY = {GET_POLLING, SET_POLLING}, {GET_POLLING_CLASSIC, SET_POLLING_CLASSIC}
+# "classic" codes as the mouse sends them <-> the "hyper" codes Wheelguard keeps in its record (models.Polling)
+CLASSIC_TO_HYPER = {0x08: 0x40, 0x02: 0x10, 0x01: 0x08}
+HYPER_TO_CLASSIC = {v: k for k, v in CLASSIC_TO_HYPER.items()}
+RATE_OF = {0x40: 125, 0x20: 250, 0x10: 500, 0x08: 1000, 0x04: 2000, 0x02: 4000, 0x01: 8000}   # code -> Hz
 ALLOWED = {**READS, **WRITES}
 
-DPI_MIN, DPI_MAX = MODEL.dpi_min, MODEL.dpi_max
-MAX_STAGES = MODEL.max_stages
+DPI_MIN, DPI_MAX = MODEL.dpi_min, MODEL.dpi_max      # the DeathAdder V4 Pro's; other models pass theirs
+MAX_STAGES = MODEL.max_stages                       # 5 on every Razer model listed
 IDLE_MIN_S, IDLE_MAX_S = 60, 900
 LOW_MIN, LOW_MAX = 0x0C, 0x3F
 POLLING_CODES = MODEL.polling_codes
@@ -81,13 +92,23 @@ def _u16(hi: int, lo: int) -> int:
     return (hi << 8) | lo
 
 
-def check_request(r: bytes) -> Tuple[int, int]:
-    """Validate an outgoing report and return its (class, id). Raises Rejected."""
+def link_for(pid: int) -> RazerLink:
+    """How to talk to the mouse with this USB product id (the DeathAdder V4 Pro's when unknown)."""
+    return RAZER_LINKS.get(pid) or RAZER_LINKS[RAZER_DA_V4_PRO_WIRED]
+
+
+def check_request(r: bytes, m: Model = MODEL, link: Optional[RazerLink] = None) -> Tuple[int, int]:
+    """Validate an outgoing report and return its (class, id). Raises Rejected. `m` gives the DPI range and
+    polling codes, `link` which polling command this connection takes (both: the DeathAdder V4 Pro)."""
     if len(r) != REPORT_LEN:
         raise Rejected(f"Razer reports are {REPORT_LEN} bytes, got {len(r)}")
     cmd = (r[6], r[7])
     if cmd not in ALLOWED:
         raise Rejected(f"command {cmd[0]:02x}:{cmd[1]:02x} is not on the allow-list")
+    style = link.polling if link is not None else "hyper"
+    if cmd in (CLASSIC_ONLY if style == "hyper" else HYPER_ONLY):
+        raise Rejected(f"command {cmd[0]:02x}:{cmd[1]:02x} isn't this mouse's polling-rate command")
+    dpi_min, dpi_max, polling_codes = m.dpi_min, m.dpi_max, m.polling_codes
     if r[0] or r[1] != TRANSACTION_ID or r[2] or r[3] or r[4] or r[89]:
         raise Rejected("malformed report header")
     if r[5] != ALLOWED[cmd]:
@@ -101,11 +122,14 @@ def check_request(r: bytes) -> Tuple[int, int]:
         if any(a[1:]) or a[0] not in ((VARSTORE,) if cmd == GET_STAGES else (0,)):
             raise Rejected("read commands carry no arguments")
     elif cmd == SET_POLLING:
-        if a[0] not in (0, 1) or a[1] not in POLLING_CODES:
+        if a[0] not in (0, 1) or a[1] not in polling_codes:
+            raise Rejected("unknown polling rate")
+    elif cmd == SET_POLLING_CLASSIC:
+        if CLASSIC_TO_HYPER.get(a[0]) not in polling_codes:
             raise Rejected("unknown polling rate")
     elif cmd == SET_DPI:
         x, y = _u16(a[1], a[2]), _u16(a[3], a[4])
-        if a[0] != VARSTORE or not (DPI_MIN <= x <= DPI_MAX and DPI_MIN <= y <= DPI_MAX) or a[5] or a[6]:
+        if a[0] != VARSTORE or not (dpi_min <= x <= dpi_max and dpi_min <= y <= dpi_max) or a[5] or a[6]:
             raise Rejected("DPI out of range")
     elif cmd == SET_STAGES:
         active, count = a[1], a[2]
@@ -114,7 +138,7 @@ def check_request(r: bytes) -> Tuple[int, int]:
         for i in range(count):
             rec = a[3 + 7 * i:10 + 7 * i]
             x, y = _u16(rec[1], rec[2]), _u16(rec[3], rec[4])
-            if rec[0] != i or not (DPI_MIN <= x <= DPI_MAX and DPI_MIN <= y <= DPI_MAX) or rec[5] or rec[6]:
+            if rec[0] != i or not (dpi_min <= x <= dpi_max and dpi_min <= y <= dpi_max) or rec[5] or rec[6]:
                 raise Rejected(f"DPI stage {i + 1} out of range")
         if any(a[3 + 7 * count:]):
             raise Rejected("data after the last DPI stage")
@@ -130,15 +154,17 @@ def check_request(r: bytes) -> Tuple[int, int]:
 class RazerDevice:
     """One open interface-0 hidraw node. `dev` provides set_feature(bytes) and get_feature(id, len)."""
 
-    def __init__(self, dev, wired: bool, sleep: Callable[[float], None] = time.sleep):
+    def __init__(self, dev, wired: bool, sleep: Callable[[float], None] = time.sleep, pid: int = 0):
         self._dev = dev
         self.wired = wired
         self._sleep = sleep
+        self.link = link_for(pid or (RAZER_DA_V4_PRO_WIRED if wired else RAZER_PIDS[1]))
+        self.model = MODELS[self.link.model]
         self.identified = False      # the write gate: a firmware read answered on a supported PID
 
     def _exchange(self, r: bytes) -> bytes:
         """Send one request and return the 80 argument bytes of a matching, successful reply."""
-        cmd = check_request(r)
+        cmd = check_request(r, self.model, self.link)
         if cmd in WRITES and not self.identified:
             raise WriteBlocked("writes are disabled: the mouse has not answered yet")
         status = 0
@@ -147,7 +173,7 @@ class RazerDevice:
                 self._sleep(RETRY_S)
             try:
                 self._dev.set_feature(b"\x00" + r)
-                self._sleep(WAIT_S)
+                self._sleep(self.link.wait_s)
                 reply = bytes(self._dev.get_feature(0x00, REPORT_LEN + 1))[1:]
             except OSError as e:
                 if attempt < ATTEMPTS - 1:
@@ -181,6 +207,10 @@ class RazerDevice:
         return max(0, a[1] - 1), out
 
     def polling(self) -> int:
+        """The polling rate as a "hyper" code (models.Polling), whichever command this mouse takes; 0 when
+        the mouse answers a value this app doesn't know."""
+        if self.link.polling == "classic":
+            return CLASSIC_TO_HYPER.get(self.request(GET_POLLING_CLASSIC)[0], 0)
         return self.request(GET_POLLING)[1]
 
     def idle_seconds(self) -> int:
@@ -209,6 +239,11 @@ class RazerDevice:
         self.request(SET_DPI, bytes((VARSTORE, x >> 8, x & 0xFF, y >> 8, y & 0xFF, 0, 0)))
 
     def set_polling(self, code: int) -> None:
+        if self.link.polling == "classic":
+            if code not in HYPER_TO_CLASSIC:
+                raise Rejected("this mouse offers 125, 500 and 1000 Hz only")
+            self.request(SET_POLLING_CLASSIC, bytes((HYPER_TO_CLASSIC[code],)))
+            return
         # OpenRazer sends this one twice for the DeathAdder V4 Pro, with 0x00 and then 0x01 first.
         self.request(SET_POLLING, bytes((0x00, code)))
         self.request(SET_POLLING, bytes((0x01, code)))
@@ -282,17 +317,17 @@ def empty() -> Dict[str, object]:
     return decode(pack(0, [], 0, 0, 0))
 
 
-def snap_dpi(v: int) -> int:
-    v = max(DPI_MIN, min(DPI_MAX, int(v)))
-    return max(DPI_MIN, min(DPI_MAX, int(round(v / MODEL.dpi_step)) * MODEL.dpi_step))
+def snap_dpi(v: int, m: Model = MODEL) -> int:
+    v = max(m.dpi_min, min(m.dpi_max, int(v)))
+    return max(m.dpi_min, min(m.dpi_max, int(round(v / m.dpi_step)) * m.dpi_step))
 
 
-def check_key_value(key: str, v) -> None:
+def check_key_value(key: str, v, m: Model = MODEL) -> None:
     if key not in KEYS:
         raise ValueError(f"unknown setting: {key}")
     if key.startswith("dpi_"):
-        if not DPI_MIN <= v <= DPI_MAX:
-            raise ValueError(f"DPI must be {DPI_MIN}-{DPI_MAX}")
+        if not m.dpi_min <= v <= m.dpi_max:
+            raise ValueError(f"DPI must be {m.dpi_min}-{m.dpi_max}")
     elif key == "stage_count":
         if not 1 <= v <= MAX_STAGES:
             raise ValueError(f"stage count must be 1-{MAX_STAGES}")
@@ -300,7 +335,7 @@ def check_key_value(key: str, v) -> None:
         if not 0 <= v < MAX_STAGES:
             raise ValueError("active stage out of range")
     elif key == "polling":
-        if v not in POLLING_CODES:
+        if v not in m.polling_codes:
             raise ValueError("unknown polling rate")
     elif key == "idle_min":
         if not IDLE_MIN <= v <= IDLE_MAX:
@@ -310,7 +345,7 @@ def check_key_value(key: str, v) -> None:
             raise ValueError("low-battery threshold out of range")
 
 
-def encode(blob: bytes, edits: Dict[str, object]) -> bytes:
+def encode(blob: bytes, edits: Dict[str, object], m: Model = MODEL) -> bytes:
     """Copy of the record with only the edited fields changed."""
     current = decode(blob)
     ba = bytearray(blob)
@@ -318,7 +353,7 @@ def encode(blob: bytes, edits: Dict[str, object]) -> bytes:
         if current.get(key) == v:
             continue
         v = int(v)
-        check_key_value(key, v)
+        check_key_value(key, v, m)
         if key.startswith("dpi_"):
             k, axis = int(key[5:]), 0 if key[4] == "x" else 1
             o = 4 + 4 * k + 2 * axis
@@ -344,16 +379,16 @@ def changed_keys(old: Dict[str, object], new: Dict[str, object]) -> List[str]:
     return [k for k in KEYS if old.get(k) != new.get(k)]
 
 
-def validate_settings(s: Dict[str, object]) -> None:
+def validate_settings(s: Dict[str, object], m: Model = MODEL) -> None:
     n = int(s["stage_count"])
     if not 1 <= n <= MAX_STAGES or not 0 <= int(s["active_stage"]) < n:
         raise ValueError("The active DPI stage must be one of the enabled stages.")
     for k in range(n):
-        if not (DPI_MIN <= s[f"dpi_x{k}"] <= DPI_MAX and DPI_MIN <= s[f"dpi_y{k}"] <= DPI_MAX):
-            raise ValueError(f"DPI stage {k + 1} must be {DPI_MIN}-{DPI_MAX}.")
+        if not (m.dpi_min <= s[f"dpi_x{k}"] <= m.dpi_max and m.dpi_min <= s[f"dpi_y{k}"] <= m.dpi_max):
+            raise ValueError(f"DPI stage {k + 1} must be {m.dpi_min}-{m.dpi_max}.")
 
 
-def blob_problems(blob: bytes) -> List[str]:
+def blob_problems(blob: bytes, m: Model = MODEL) -> List[str]:
     if len(blob) != BLOB_LEN:
         return [f"expected {BLOB_LEN} bytes, got {len(blob)}"]
     probs = []
@@ -365,9 +400,9 @@ def blob_problems(blob: bytes) -> List[str]:
         probs.append(f"active DPI stage {blob[2] + 1} is out of range")
     else:
         for k, (x, y) in enumerate(_stages(blob)):
-            if not (DPI_MIN <= x <= DPI_MAX and DPI_MIN <= y <= DPI_MAX):
+            if not (m.dpi_min <= x <= m.dpi_max and m.dpi_min <= y <= m.dpi_max):
                 probs.append(f"DPI stage {k + 1} ({x} × {y}) is out of range")
-    if blob[24] not in POLLING_CODES:
+    if blob[24] not in m.polling_codes:
         probs.append(f"polling code {blob[24]:#04x} is not one this app knows")
     if not IDLE_MIN_S <= _u16(blob[25], blob[26]) <= IDLE_MAX_S:
         probs.append("sleep timer is out of range")
@@ -416,22 +451,29 @@ def describe_changes(old: Dict[str, object], new: Dict[str, object]) -> List[str
 
 # ---------------------------------------------------------------- driver
 
-class Codec:
-    """The module-level functions above, as the object the session and the GUI expect."""
+class RazerCodec:
+    """The module-level functions above for one model, as the object the session and the GUI expect."""
     BLOB_LEN = BLOB_LEN
     KEYS = KEYS
     decode = staticmethod(decode)
     flat = staticmethod(flat)
     empty = staticmethod(empty)
-    encode = staticmethod(encode)
-    snap_dpi = staticmethod(snap_dpi)
-    check_key_value = staticmethod(check_key_value)
-    validate_settings = staticmethod(validate_settings)
-    blob_problems = staticmethod(blob_problems)
     changed_keys = staticmethod(changed_keys)
     describe_changes = staticmethod(describe_changes)
     plan_writes = staticmethod(plan_writes)
     merge_backup = staticmethod(merge_backup)
+
+    def __init__(self, model: Model):
+        self.model = model
+        self.encode = partial(encode, m=model)
+        self.snap_dpi = partial(snap_dpi, m=model)
+        self.check_key_value = partial(check_key_value, m=model)
+        self.validate_settings = partial(validate_settings, m=model)
+        self.blob_problems = partial(blob_problems, m=model)
+
+
+Codec = RazerCodec(MODEL)                   # the DeathAdder V4 Pro's
+CODECS = {m.key: Codec if m is MODEL else RazerCodec(m) for m in MODELS.values() if m.brand == "Razer"}
 
 
 class RazerDriver(Driver):
@@ -441,20 +483,27 @@ class RazerDriver(Driver):
     def __init__(self, dev, wired: bool, sleep: Callable[[float], None], pid: int = 0):
         super().__init__(dev, wired, sleep)
         self.pid = pid or (RAZER_DA_V4_PRO_WIRED if wired else RAZER_PIDS[1])
-        self.rz = RazerDevice(dev, wired, sleep)
+        self.rz = RazerDevice(dev, wired, sleep, self.pid)
+        self.model = self.rz.model          # the connected model, not the class default
+        self.codec = CODECS[self.model.key]
 
     @property
     def write_enabled(self) -> bool:
-        return self.rz.identified and self.pid in RAZER_PIDS
+        return self.rz.identified and self.pid in RAZER_PIDS and self.model.confirmed
+
+    def state_problem(self) -> str:
+        if not self.model.confirmed:
+            return "it hasn't been tested on the " + self.model.name + " yet, so it only reads the settings for now"
+        return ""
 
     def identify(self, progress, f0, f1) -> Snapshot:
         progress(f0, "Contacting the mouse…" if self.wired else "Contacting the dongle…")
         try:
             fw = self.rz.firmware()
         except self.link_errors as e:
-            raise self.unreachable(Snapshot(self.wired, "", "", self.pid, model=MODEL.key), e) from e
+            raise self.unreachable(Snapshot(self.wired, "", "", self.pid, model=self.model.key), e) from e
         progress(f0 + (f1 - f0) * 0.6, "Identifying the mouse…")
-        return Snapshot(self.wired, "", fw, self.pid, model=MODEL.key)
+        return Snapshot(self.wired, "", fw, self.pid, model=self.model.key)
 
     def link_check(self) -> None:
         self.rz.firmware()
@@ -473,8 +522,11 @@ class RazerDriver(Driver):
         if not self.write_enabled:
             raise WriteBlocked("writes are disabled: the mouse has not been identified")
         b = op.record
-        if blob_problems(b):
-            raise Rejected("refusing to write an invalid settings record: " + "; ".join(blob_problems(b)))
+        problems = self.codec.blob_problems(b)
+        if problems:
+            raise Rejected("refusing to write an invalid settings record: " + "; ".join(problems))
+        if op.kind == "polling" and RATE_OF.get(b[24]) not in self.rz.link.rates:
+            raise Rejected("this connection doesn't offer that polling rate")
         if op.kind == "stages":
             stages = _stages(b)
             self.rz.set_stages(b[2], stages)

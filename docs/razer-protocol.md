@@ -54,6 +54,24 @@ mouse has answered a firmware read. Not used: device mode (00:04), lighting, the
 LED, button remapping, and the lift-off / asymmetric cut-off settings (OpenRazer doesn't document
 them for this mouse).
 
+## The rest of the Razer family
+
+`hw/models.py` (`RAZER_LINKS`) lists more Razer mice that the OpenRazer driver handles with the same
+transaction id (0x1F) and the same DPI stage, battery, sleep and low-battery commands. Per USB product
+id it records only what differs:
+
+- the polling-rate command: "hyper" (00:C0 / 00:40 above) or "classic", 00:85 to read (reply arg 0)
+  and 00:05 to set (one byte: `01` 1000, `02` 500, `08` 125 Hz). Wheelguard keeps the "hyper" code in
+  its record either way and translates for classic mice. Each link only accepts its own command;
+- how long to wait before reading the reply (31 ms, or 59.9 ms for the mice OpenRazer gives the Viper
+  receiver timing);
+- the DPI range and the polling rates the connection offers.
+
+These models start **read-only** (`Model.confirmed = False`): Wheelguard reads settings and battery
+but refuses every write, in the driver and in the session, until someone with that mouse confirms
+the readings match Razer Synapse. Their input nodes are granted only where udev marks them as a pure
+mouse (`ID_INPUT_MOUSE`, never `ID_INPUT_KEYBOARD`).
+
 ## What Wheelguard stores
 
 The session works on a 32-byte record built from the reads above (layout in `hw/razer.py`). It is the

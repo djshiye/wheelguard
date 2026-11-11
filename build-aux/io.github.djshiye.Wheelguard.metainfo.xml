@@ -38,6 +38,14 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.8.0" date="2026-11-11">
+      <description>
+        <ul>
+          <li>Ten more Razer mice are recognised: DeathAdder V3 Pro and V3 HyperSpeed, Viper V2 Pro, V3 Pro, V3 Pro SE, V3 HyperSpeed and Mini Signature Edition, Basilisk V3 Pro and V3 Pro 35K, Cobra Pro</li>
+          <li>They are protected automatically, and the Mouse page and panel show their battery, DPI stages, polling rate and sleep timer; changing settings stays off until each model has been tested</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.7.2" date="2026-11-11">
       <description>
         <ul>

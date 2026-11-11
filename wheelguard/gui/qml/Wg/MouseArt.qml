@@ -3,12 +3,14 @@ import QtQuick.Shapes
 
 // A stylised top-down drawing of a supported mouse (nose up), in the app's colours. Original artwork:
 // plain shapes only, no logos. Draws on a 120 x 200 grid, scaled by `unit`.
-//   modelKey   models.Model.key of the connected mouse ("" draws a neutral mouse)
+//   modelKey   models.Model.art_key of the connected mouse: which drawing ("" draws a neutral mouse)
+//   modelName  the model's name, for assistive technology
 //   highlight  button to light up: 0 left, 1 right, 2 middle, 3 back (side), 4 forward (side); -1 none
 //   dim        draw it faded (mouse asleep or not read yet)
 Item {
     id: root
     property string modelKey: ""
+    property string modelName: ""
     property int highlight: -1
     property bool dim: false
     property real unit: 1
@@ -19,10 +21,7 @@ Item {
     Behavior on opacity { NumberAnimation { duration: Theme.normal } }
 
     Accessible.role: Accessible.Graphic
-    Accessible.name: (root.modelKey === "logitech-pro-x-superlight" ? "Logitech G Pro X Superlight"
-                      : (root.modelKey === "razer-deathadder-v4-pro" ? "Razer DeathAdder V4 Pro"
-                         : (root.modelKey === "endgame-xm2w-4k-v2" ? "Endgame Gear XM2w 4k v2" : "Mouse")))
-                     + ", top view" + (root.highlight >= 0 ? ", highlighting the "
+    Accessible.name: (root.modelName !== "" ? root.modelName : "Mouse") + ", top view" + (root.highlight >= 0 ? ", highlighting the "
                          + ["left button", "right button", "middle click", "back button", "forward button"][root.highlight] : "")
 
     // Per model: the left and right main buttons (split by the seam) and the palm area behind them.
@@ -38,6 +37,13 @@ Item {
             right: "M60 7 C78 7 92 18 94.5 44 C96 60 96.5 72 96 80 L60 80 Z",
             palm: "M24 80 L96 80 C97 108 95 138 91 158 C86 182 74 193 60 193 C46 193 34 182 29 158 C25 138 23 108 24 80 Z",
             wheel: Qt.rect(55.5, 26, 9, 26), side: [Qt.rect(18, 90, 6.5, 24), Qt.rect(18, 56, 6.5, 22)]
+        },
+        // the symmetric Razer shape (Viper, Cobra): narrower, with even sides
+        "razer-viper": {
+            left: "M60 8 C44 8 32 18 29 44 C27.5 58 27 72 27.5 84 L60 84 Z",
+            right: "M60 8 C76 8 88 18 91 44 C92.5 58 93 72 92.5 84 L60 84 Z",
+            palm: "M27.5 84 L92.5 84 C93.5 110 92 138 88 160 C83 184 72 194 60 194 C48 194 37 184 32 160 C28 138 26.5 110 27.5 84 Z",
+            wheel: Qt.rect(55.5, 28, 9, 26), side: [Qt.rect(21.5, 94, 6.5, 24), Qt.rect(21.5, 60, 6.5, 22)]
         },
         "razer-deathadder-v4-pro": {
             left: "M58 6 C38 6 26 18 24 46 C23 60 22.5 72 23 82 L58 82 Z",

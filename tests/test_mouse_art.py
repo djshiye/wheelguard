@@ -14,10 +14,10 @@ PAGE = (QML / "MousePage.qml").read_text()
 class MouseArtTests(unittest.TestCase):
     def test_every_supported_model_has_a_drawing(self):
         drawn = set(re.findall(r'^\s+"([a-z0-9-]+)": \{$', ART, re.M))
-        self.assertEqual(drawn, set(models.MODELS))
+        self.assertEqual(drawn, {m.art_key for m in models.MODELS.values()})
 
     def test_each_drawing_has_all_parts(self):
-        for key in models.MODELS:
+        for key in {m.art_key for m in models.MODELS.values()}:
             block = ART[ART.index(f'"{key}"'):]
             block = block[:block.index("}")]
             for part in ("left:", "right:", "palm:", "wheel:", "side:"):

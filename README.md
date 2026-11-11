@@ -30,6 +30,9 @@ installs its own `/etc/yum.repos.d/wheelguard.repo`, so the repository stays con
     polling rate up to 1000 Hz, battery
   - Razer DeathAdder V4 Pro: DPI stages with separate X/Y, polling rate up to 8000 Hz, sleep timer,
     low-battery warning, battery
+  - More Razer mice, settings shown read-only until tested on each model: DeathAdder V3 Pro and
+    V3 HyperSpeed, Viper V2 Pro, V3 Pro, V3 Pro SE, V3 HyperSpeed and Mini Signature Edition,
+    Basilisk V3 Pro and V3 Pro 35K, Cobra Pro (battery, DPI stages, polling rate, sleep timer)
 - **Scroll filter for any mouse with a wheel**: supported mice are picked up automatically. For any other
   mouse, press **Allow this mouse** (in the mouse list under the status pill at the top of the window) and
   enter your administrator password once. That adds a device rule for that one mouse (`/etc/udev/rules.d/71-wheelguard-allowed-mice.rules`),
