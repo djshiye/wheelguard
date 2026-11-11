@@ -27,6 +27,7 @@ DEFAULTS = {
     "clicklock_rate": clicklock.DEFAULT_RATE,
     "clicklock_max_s": clicklock.DEFAULT_MAX_S,
     "clicklock_ignore_drag": True,
+    "clicklock_drag_counts": clicklock.DRAG_COUNTS,
     "debounce_ms": 0,
     "mouse": mice.AUTO,
 }
@@ -36,9 +37,13 @@ MAX_RETRY_S = 3600
 CLICKLOCK_MS = (500, 30000)     # how long the button must be held before Click-Lock engages
 CLICKLOCK_RATE = (1, 30)        # repeat clicks per second
 CLICKLOCK_MAX_S = (10, 3600)    # safety timer: a running lock stops by itself after this long (0 = never)
+CLICKLOCK_DRAG_COUNTS = (50, 20000)     # "ignore drags": how far the pointer may wander (the app sets ~0.25 inch for the mouse's DPI)
 DEBOUNCE_MS = (10, 150)         # "Double-click fix": ignore a second press this soon after a release (0 = off)
 CLICKLOCK_KEYS = ("clicklock", "clicklock_ms", "clicklock_mode", "clicklock_rate", "clicklock_max_s",
-                  "clicklock_ignore_drag")
+                  "clicklock_ignore_drag", "clicklock_drag_counts")
+# What a client may change for as long as it stays connected, without touching config.json (the `override`
+# command; the app uses it for per-game profiles).
+OVERRIDE_KEYS = ("enabled", "pre_ms", "hold_ms", "lock_ms", "clicklock")
 
 
 def _number(key, v):
@@ -115,6 +120,9 @@ def normalize(partial, base=None):
     lo, hi = CLICKLOCK_MAX_S
     if cfg["clicklock_max_s"] != 0 and not lo <= cfg["clicklock_max_s"] <= hi:
         raise ValueError(f"clicklock_max_s must be 0 (never) or between {lo} and {hi}")
+    lo, hi = CLICKLOCK_DRAG_COUNTS
+    if not lo <= cfg["clicklock_drag_counts"] <= hi:
+        raise ValueError(f"clicklock_drag_counts must be between {lo} and {hi}")
     lo, hi = DEBOUNCE_MS
     if cfg["debounce_ms"] != 0 and not lo <= cfg["debounce_ms"] <= hi:
         raise ValueError(f"debounce_ms must be 0 (off) or between {lo} and {hi}")
@@ -143,8 +151,11 @@ def to_wire(cfg):
     return out
 
 
-def save(cfg, path=None):
-    """Write the config atomically (temp file in the same directory, then rename)."""
+def save(cfg, path=None, fsync=True):
+    """Write the config atomically (temp file in the same directory, then rename).
+
+    `fsync=False` skips the wait for the disk. The daemon saves that way, because it saves on the thread
+    that also moves the mouse; the rename still means a reader sees the old file or the new one."""
     path = Path(path or CONFIG_PATH)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
@@ -153,7 +164,8 @@ def save(cfg, path=None):
             json.dump(to_wire(cfg), f, indent=2)
             f.write("\n")
             f.flush()
-            os.fsync(f.fileno())
+            if fsync:
+                os.fsync(f.fileno())
         os.chmod(tmp, 0o644)
         os.replace(tmp, path)
     except BaseException:

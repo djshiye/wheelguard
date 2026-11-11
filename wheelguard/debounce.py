@@ -31,6 +31,7 @@ class ClickDebounce:
         self.window = 0.0
         self.down = set()           # buttons the desktop has been told are pressed
         self.held = {}              # button -> time of its release that is being held back
+        self.merged_codes = []      # the buttons whose bounce the last process() merged (for per-button counts)
         self.configure(window_ms)
 
     def configure(self, window_ms):
@@ -67,6 +68,7 @@ class ClickDebounce:
         Releases that were already due come out first, ahead of this frame's own events.
         """
         out = [ev for _, evs in self.flush(t) for ev in evs]
+        self.merged_codes = []
         if not any(ev[0] == e.EV_KEY and ev[1] in BUTTONS for ev in events):
             return out + list(events), 0
         merged, swallowed = 0, False
@@ -79,6 +81,7 @@ class ClickDebounce:
                 if code in self.held:                   # pressed again inside the window: a bounce
                     del self.held[code]
                     merged += 1
+                    self.merged_codes.append(code)
                     swallowed = True
                     continue
                 self.down.add(code)

@@ -1,11 +1,14 @@
 """wheelguard daemon: grabs the mouse, drops bouncing wheel ticks, re-emits the rest."""
 import argparse
+import atexit
 import errno
+import fcntl
 import glob
 import logging
 import os
 import select
 import signal
+import struct
 import sys
 import time
 
@@ -18,11 +21,15 @@ from .control import POLL_S, Controller
 from .core import DROP, EMIT, HOLD
 from .hotplug import DeviceWatcher
 from .ipc import AlreadyRunning, Server
+from .screenwatch import ScreenWatch
 
 log = logging.getLogger("wheelguard")
 UI_NAME = "wheelguard Endgame Gear"     # unchanged for every mouse, so existing setups see the same virtual device
 UI_PREFIX = "wheelguard"
 SETTLE_S = 0.25     # after a /dev/input change, let udev finish (permissions, sibling nodes) before searching
+EVIOCSCLOCKID = 0x400445A0      # _IOW('E', 0xa0, int): which clock the kernel stamps this device's events with
+_EVENT = struct.Struct("llHHi")     # struct input_event: a timeval (ignored by uinput), type, code, value
+_SYN_REPORT = _EVENT.pack(0, 0, e.EV_SYN, e.SYN_REPORT, 0)
 
 
 # Mice Wheelguard knows, as (vendor, product) of their wheel-bearing input device (see mice.py for their
@@ -215,11 +222,65 @@ class FrameReader:
         return [fix]
 
 
+def use_monotonic_clock(dev):
+    """Ask the kernel to stamp this device's events with CLOCK_MONOTONIC instead of the wall clock.
+
+    Every timing decision (bounce windows, the Click-Lock hold, the Double-click fix) compares event times
+    with each other and with our own clock. On the wall clock, a time correction would count as time
+    passing: set back, it made real scrolling look like bounce for as long as the step; set forward, it
+    engaged Click-Lock after a short press. Returns False if the kernel refuses; the caller then stamps
+    the events itself with time.monotonic().
+    """
+    try:
+        fcntl.ioctl(dev.fd, EVIOCSCLOCKID, struct.pack("i", time.CLOCK_MONOTONIC))
+    except (OSError, TypeError, ValueError):
+        return False
+    return True
+
+
+def pack_frames(frames):
+    """The frames as the bytes /dev/uinput takes: each event and a SYN_REPORT after every frame."""
+    parts = []
+    for frame in frames:
+        for etype, code, value in frame:
+            parts.append(_EVENT.pack(0, 0, etype, code, value))
+        parts.append(_SYN_REPORT)
+    return b"".join(parts)
+
+
 def write_frames(ui, frames):
     for frame in frames:
         for etype, code, value in frame:
             ui.write(etype, code, value)
         ui.syn()
+
+
+class FrameWriter:
+    """Writes frames to the virtual mouse with one system call for all of them, instead of one per event
+    (a motion frame is three events: X, Y and the SYN_REPORT). uinput takes any number of events in one
+    write. If the kernel ever refuses that, it goes back to one write per event for good."""
+
+    def __init__(self, ui):
+        self.ui = ui
+        self.batched = isinstance(ui, UInput) and isinstance(getattr(ui, "fd", None), int)
+
+    def __call__(self, frames):
+        if self.batched:
+            data = pack_frames(frames)
+            try:
+                done = os.write(self.ui.fd, data)
+                while done < len(data):                 # uinput takes whole events; carry on after the last one
+                    if done % _EVENT.size:
+                        raise OSError(errno.EIO, "short write to uinput")
+                    done += os.write(self.ui.fd, data[done:])
+                return
+            except OSError as ex:
+                if ex.errno not in (errno.EINVAL, errno.EIO):
+                    raise
+                log.warning("writing whole frames to the virtual mouse failed (%s); writing event by event", ex)
+                self.batched = False
+                return                                  # a refused write may have been taken in part: don't repeat it
+        write_frames(self.ui, frames)
 
 
 def service(ctl, server, timeout, extra=()):
@@ -236,6 +297,7 @@ def idle(ctl, server, seconds, watcher=None):
 
     With a `watcher` (hotplug.DeviceWatcher) the wait ends early, SETTLE_S after an input device
     appears or becomes accessible, so a mouse that wakes up or is plugged in is picked up at once.
+    It also ends at once when a client pauses or resumes (ctl.wake).
     """
     end = time.monotonic() + seconds
     extra = () if watcher is None else (watcher.fileno(),)
@@ -243,6 +305,8 @@ def idle(ctl, server, seconds, watcher=None):
         if service(ctl, server, left, extra) and watcher.drain():
             ctl.invalidate_mice()
             end = min(end, time.monotonic() + SETTLE_S)
+        if ctl.wake is True:
+            return
 
 
 def buttons_down(dev):
@@ -306,22 +370,25 @@ def grab_when_buttons_up(dev, ctl, server):
         dev.ungrab()
 
 
-def run_session(dev, ctl, server, tick_log, watcher=None):
+def run_session(dev, ctl, server, tick_log, watcher=None, lockwatch=None):
     """Grab dev and filter until it disappears (OSError) or we are stopped.
 
-    Returns True when it ended because the mouse choice changed (the caller searches again at once).
-    With a `watcher` (hotplug.DeviceWatcher) a change in /dev/input marks the mouse list stale."""
+    Returns True when it ended because the mouse choice changed or the daemon was paused (the caller
+    looks again at once). With a `watcher` (hotplug.DeviceWatcher) a change in /dev/input marks the mouse
+    list stale; with a `lockwatch` (ScreenWatch) the screen locking ends a running Click-Lock."""
     try:
         ui = UInput.from_device(dev, name=UI_NAME)  # virtual device first, only then grab
     except (OSError, UInputError):
         dev.close()
         raise
     grabbed = False
+    kernel_stamps = use_monotonic_clock(dev)    # before anything is read: the stamps then match time.monotonic()
 
     out = KeyState()                    # what the virtual mouse has been told is pressed
+    emit = FrameWriter(ui)
 
     def write(frames):
-        write_frames(ui, frames)
+        emit(frames)
         for frame in frames:
             out.update(frame)
 
@@ -344,29 +411,39 @@ def run_session(dev, ctl, server, tick_log, watcher=None):
         # because asking (EVIOCGKEY) would throw away a click queued since then (see FrameReader).
         reader = FrameReader(dev.active_keys)
         while True:
+            if ctl.paused is True:
+                return True
             if ctl.restart_requested is True:
                 ctl.restart_requested = False
                 log.info("mouse choice changed, switching")
                 ctl.set_device(False, None, "switching mouse")
                 return True
             timeout = None
-            now = time.time()
+            now = time.monotonic()
             if (deadline := ctl.deadline) is not None:
                 timeout = min(max(deadline - now, 0.0), ctl.cfg["hold_ms"] / 1000.0)
             if (deadline := ctl.clicklock_deadline) is not None:
                 timeout = min(timeout if timeout is not None else POLL_S, max(deadline - now, 0.0))
             if (deadline := ctl.debounce_deadline) is not None:
                 timeout = min(timeout if timeout is not None else POLL_S, max(deadline - now, 0.0))
-            extra = (dev.fd,) if watcher is None else (dev.fd, watcher.fileno())
+            extra = [dev.fd]
+            if watcher is not None:
+                extra.append(watcher.fileno())
+            lock_fd = None if lockwatch is None else lockwatch.fileno()
+            if lock_fd is not None:
+                extra.append(lock_fd)
             readable = service(ctl, server, timeout, extra)
             if watcher is not None and watcher.fileno() in readable and watcher.drain():
                 ctl.invalidate_mice()
+            if lock_fd is not None and lock_fd in readable and lockwatch.drain():
+                ctl.stop_clicklock("the screen locked")
             if dev.fd in readable:
                 reader.next_batch()
+                read_at = time.monotonic()
                 for ev in dev.read():
                     for frame in reader.feed(ev.type, ev.code, ev.value):
-                        tick_log(ctl.handle_frame(frame, ev.timestamp(), write))
-            tick_log(ctl.handle_flush(time.time(), write))
+                        tick_log(ctl.handle_frame(frame, ev.timestamp() if kernel_stamps else read_at, write))
+            tick_log(ctl.handle_flush(time.monotonic(), write))
     finally:
         # Never leave a button pressed behind us (the kernel should release it when the virtual mouse
         # goes away, but say so explicitly as well).
@@ -420,9 +497,18 @@ def main(argv=None):
 
     tick_log = TickLogger(args.log)
     watcher = DeviceWatcher.open()
+    lockwatch = ScreenWatch()
+    atexit.register(lockwatch.close)
     last_err = None
     try:
         while True:
+            ctl.wake = False
+            if ctl.paused is True:
+                ctl.set_device(False, None, "paused")
+                last_err = None
+                idle(ctl, server, POLL_S, watcher)
+                continue
+            lockwatch.start()               # no-op while it runs; restarts one that ended, at most every 30 s
             cfg = ctl.cfg
             dev, err = discover(cfg["vendor"], cfg["product"])
             if dev is None:
@@ -433,8 +519,8 @@ def main(argv=None):
             else:
                 last_err = None
                 try:
-                    if run_session(dev, ctl, server, tick_log, watcher):
-                        continue                    # the mouse choice changed: search again at once
+                    if run_session(dev, ctl, server, tick_log, watcher, lockwatch):
+                        continue                    # the mouse choice changed or paused: look again at once
                 except (OSError, UInputError) as ex:
                     msg = describe(ex)
                     log.warning("session ended: %s; retrying", msg)
@@ -446,4 +532,5 @@ def main(argv=None):
     finally:
         if watcher is not None:
             watcher.close()
+        lockwatch.close()
         server.close()

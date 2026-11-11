@@ -8,6 +8,8 @@ import logging
 import os
 import time
 
+from evdev import ecodes as e
+
 from . import __version__
 from . import config as C
 from . import mice, scan
@@ -20,27 +22,43 @@ from .power import SuspendWatch
 
 log = logging.getLogger("wheelguard")
 POLL_S = 2.0  # config.json mtime poll interval
+BUTTON_NAMES = {e.BTN_LEFT: "left", e.BTN_RIGHT: "right", e.BTN_MIDDLE: "middle"}
+_NO_DECISIONS = ()
+
+
+def _new_stats(since):
+    return {"ticks": 0, "passed": 0, "dropped": 0, "debounced": 0,
+            "debounced_by": dict.fromkeys(BUTTON_NAMES.values(), 0), "since": since}
 MICE_MIN_GAP_S = 3.0    # the input devices are never scanned more often than this
 
 
 class Controller:
-    def __init__(self, overrides=None, config_path=None, publish=None, clock=time.time, power=None,
-                 mouse_lister=None, history=None):
+    def __init__(self, overrides=None, config_path=None, publish=None, clock=None, power=None,
+                 mouse_lister=None, history=None, wall=None):
+        """`clock` times everything the filter does and must never jump: the monotonic clock, the same one
+        the mouse's events are stamped with (see daemon.use_monotonic_clock). `wall` is the calendar clock,
+        used only for the "since" shown with the counters. A test's `clock` stands in for both."""
         self.config_path = config_path or C.CONFIG_PATH
         self.overrides = dict(overrides or {})  # command-line flags; win over the file
         self.publish = publish or (lambda msg: None)
-        self.clock = clock
+        self.wall = wall or clock or time.time
+        self.clock = clock = clock or time.monotonic
         self.connected = False
         self.device = None
+        self.ident = None                       # "vvvv:pppp" of the mouse being filtered
         self.model = self.connection = None     # friendly name and "dongle"/"receiver"/"cable" of a supported mouse
         self.error = "mouse not found"
-        self.stats = {"ticks": 0, "passed": 0, "dropped": 0, "debounced": 0, "since": clock()}
+        self.stats = _new_stats(self.wall())
+        self.override = {}                      # a client's temporary settings (see set_override); never saved
+        self.override_owner = None
+        self.paused = False                     # the mouse is left alone until resumed (never saved)
+        self.wake = False                       # something changed that the main loop should act on at once
         self.file_cfg = dict(C.DEFAULTS)
         try:
             self.file_cfg = C.load(self.config_path)
         except (OSError, ValueError) as ex:
             log.error("ignoring config: %s", ex)
-        self.cfg = C.normalize(self.overrides, self.file_cfg)  # ValueError: bad flags
+        self.cfg = self._effective(self.file_cfg)  # ValueError: bad flags
         self.power = power or SuspendWatch()
         # the connected mice with a wheel, for the "Mouse" choice; the real daemon (no config_path given) scans
         self.mouse_lister = mouse_lister or (scan.list_mice if config_path is None else None)
@@ -65,9 +83,11 @@ class Controller:
 
     # ---------- status ----------
     def status(self):
+        stats = dict(self.stats, debounced_by=dict(self.stats["debounced_by"]))
         return {"type": "status", "version": __version__, "connected": self.connected,
-                "device": self.device, "model": self.model, "connection": self.connection, "error": self.error, "config": C.to_wire(self.cfg),
-                "stats": dict(self.stats), "mice": self.mice, "clicklock_active": self.cl.active}
+                "device": self.device, "ident": self.ident, "model": self.model, "connection": self.connection,
+                "error": self.error, "config": C.to_wire(self.cfg), "override": dict(self.override),
+                "paused": self.paused, "stats": stats, "mice": self.mice, "clicklock_active": self.cl.active}
 
     def history_days(self):
         """The daily totals for the `history` command, oldest first (empty without a history)."""
@@ -101,6 +121,7 @@ class Controller:
         changed = ((connected, device, error, model, connection)
                    != (self.connected, self.device, self.error, self.model, self.connection))
         self.connected, self.device, self.error = connected, device, error
+        self.ident = mice.format_choice(*ident) if connected and ident else None
         self.model, self.connection = model, connection
         if not connected:
             self.reset_filter()
@@ -117,7 +138,7 @@ class Controller:
     def _clicklock_args(self):
         c = self.cfg
         return (c["clicklock"], c["clicklock_ms"], c["clicklock_mode"], c["clicklock_rate"],
-                c["clicklock_max_s"], c["clicklock_ignore_drag"])
+                c["clicklock_max_s"], c["clicklock_ignore_drag"], c["clicklock_drag_counts"])
 
     def reset_filter(self):
         self.wf = self._new_filter()
@@ -161,6 +182,16 @@ class Controller:
         `write(frames)` is called with the frames to emit before any counting or publishing, so
         the IPC side never delays the input path.
         """
+        # Fast path: nearly every frame is plain pointer motion (up to 8000 a second), and unless a button
+        # is being timed or held back, nothing here has anything to say about it.
+        if not self._outbox and not self.deb.held and self.cl.pressed_at is None and not self.cl.locked:
+            for ev in events:
+                if ev[0] != e.EV_REL or ev[1] > e.REL_Y:
+                    break
+            else:
+                if events:
+                    write([events])
+                return _NO_DECISIONS
         frames, decisions = self._take_outbox()
         up_frames, lock_changed = self._debounced_releases(self.deb.flush(t))   # releases that are due go first
         frames += up_frames
@@ -183,6 +214,8 @@ class Controller:
         self._record(decisions)
         if fixed:
             self.stats["debounced"] += fixed
+            for code in self.deb.merged_codes:
+                self.stats["debounced_by"][BUTTON_NAMES[code]] += 1
             self.publish(self.status())
         if lock_changed:
             self._clicklock_changed()
@@ -251,9 +284,22 @@ class Controller:
         except OSError:
             return None
 
+    def _effective(self, file_cfg):
+        """The live config for file_cfg: the file, a client's temporary override on top, command-line flags
+        on top of that. An override that no longer fits the file (hold_ms above a lowered lock_ms, say)
+        is dropped rather than refusing the file. Raises ValueError."""
+        base = file_cfg
+        if self.override:
+            try:
+                base = C.normalize(self.override, file_cfg)
+            except ValueError:
+                log.info("temporary settings no longer fit the saved ones; dropped")
+                self.override, self.override_owner = {}, None
+        return C.normalize(self.overrides, base)
+
     def _apply(self, file_cfg):
-        """Make file_cfg (plus command-line overrides) the live config. Raises ValueError."""
-        new = C.normalize(self.overrides, file_cfg)
+        """Make file_cfg (plus a client's override and the command-line flags) the live config. Raises ValueError."""
+        new = self._effective(file_cfg)
         self.file_cfg = file_cfg
         if new == self.cfg:
             return False
@@ -304,16 +350,60 @@ class Controller:
         except ValueError as ex:
             return str(ex)
         try:
-            C.save(new_file, self.config_path)
+            C.save(new_file, self.config_path, fsync=False)     # this is the input thread: don't wait for the disk
         except OSError as ex:
             return f"cannot write {self.config_path}: {ex.strerror or ex}"
         self._mtime = self._stat_mtime()
+        for k in partial:
+            self.override.pop(k, None)          # a setting changed by hand wins over a temporary one
+        if not self.override:
+            self.override_owner = None
         self._apply(new_file)
         self.publish(self.status())
         return None
 
+    def set_override(self, partial, owner=None):
+        """Temporary settings on top of the saved ones (C.OVERRIDE_KEYS only), replacing any earlier set; {}
+        ends them. Nothing is written to disk, and they end by themselves when `owner` (the client that sent
+        them) disconnects, so a crashed app can never leave them behind. Returns None or an error message."""
+        if not isinstance(partial, dict):
+            return "config must be a JSON object"
+        for k in partial:
+            if k not in C.OVERRIDE_KEYS:
+                return f"{k!r} cannot be set temporarily"
+        try:
+            full = C.normalize(partial, self.file_cfg)
+            C.normalize(self.overrides, full)
+        except ValueError as ex:
+            return str(ex)
+        new = {k: full[k] for k in partial}
+        changed = new != self.override
+        self.override, self.override_owner = new, (owner if new else None)
+        if changed:
+            self._apply(self.file_cfg)
+            self.publish(self.status())
+        return None
+
+    def client_gone(self, owner):
+        """A client disconnected: its temporary settings end with it."""
+        if self.override and owner is self.override_owner:
+            log.info("temporary settings ended (their client disconnected)")
+            self.set_override({})
+
+    def set_paused(self, on):
+        """Pause: let go of the mouse (no filter, no Click-Lock, the desktop reads it directly) until resumed.
+        Not saved: a restarted daemon always starts working."""
+        if not isinstance(on, bool):
+            return "on must be true or false"
+        if on != self.paused:
+            self.paused = on
+            self.wake = True
+            log.info("paused" if on else "resumed")
+            self.publish(self.status())
+        return None
+
     def reset_stats(self):
-        self.stats.update(ticks=0, passed=0, dropped=0, debounced=0, since=self.clock())
+        self.stats = _new_stats(self.wall())
         self.publish(self.status())
 
     def poll_config(self):
