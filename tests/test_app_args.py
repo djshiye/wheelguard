@@ -31,7 +31,7 @@ class WelcomeWiringTests(unittest.TestCase):
         overlay = (QML / "Wg" / "WelcomeOverlay.qml").read_text()
         self.assertIn("appSettings.welcomeSeen", overlay)
         self.assertIn("appSettings.finishWelcome()", overlay)
-        self.assertIn("appSettings.resetWelcome()", (QML / "Wg" / "AboutPage.qml").read_text())
+        self.assertIn("appSettings.resetWelcome()", (QML / "Wg" / "SettingsPage.qml").read_text())
 
 
 if __name__ == "__main__":

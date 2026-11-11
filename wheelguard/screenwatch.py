@@ -17,6 +17,8 @@ COMMAND = ("gdbus", "monitor", "--session", "--dest", "org.gnome.ScreenSaver",
            "--object-path", "/org/gnome/ScreenSaver")
 LOCKED = re.compile(rb"org\.gnome\.ScreenSaver\.ActiveChanged \(true,?\)")
 RETRY_S = 30.0          # a watcher that ended (session bus restarted) is started again this much later at the earliest
+RETRY_MAX_S = 1800.0    # ... and one that keeps ending at once (no session bus here) is tried ever more rarely
+SETTLED_S = 60.0        # a watcher that ran this long was working
 MAX_PENDING = 64 * 1024
 
 
@@ -26,13 +28,16 @@ class ScreenWatch:
         self._proc = None
         self._buf = b""
         self._retry_at = 0.0
+        self._delay = RETRY_S
+        self._started = 0.0
         self.start()
 
     def start(self):
         """Start the watcher unless it runs or was tried too recently. Never raises."""
         if self._proc is not None or self._clock() < self._retry_at:
             return
-        self._retry_at = self._clock() + RETRY_S
+        self._started = self._clock()
+        self._retry_at = self._started + self._delay
         try:
             self._proc = subprocess.Popen(self._command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                           stderr=subprocess.DEVNULL, env=dict(os.environ, LC_ALL="C"))
@@ -56,7 +61,7 @@ class ScreenWatch:
             while True:
                 data = os.read(self._proc.stdout.fileno(), 4096)
                 if not data:                        # the watcher ended (no session bus, bus restarted)
-                    self.close()
+                    self._ended()
                     break
                 self._buf += data
                 *lines, self._buf = self._buf.split(b"\n")
@@ -66,8 +71,15 @@ class ScreenWatch:
         except BlockingIOError:
             pass
         except OSError:
-            self.close()
+            self._ended()
         return locked
+
+    def _ended(self):
+        """The watcher went away by itself: back off if it never really ran, start over if it had been working."""
+        worked = self._clock() - self._started >= SETTLED_S
+        self._delay = RETRY_S if worked else min(RETRY_MAX_S, self._delay * 2)
+        self._retry_at = self._clock() + self._delay
+        self.close()
 
     def close(self):
         proc, self._proc = self._proc, None

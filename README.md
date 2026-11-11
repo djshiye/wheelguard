@@ -31,25 +31,34 @@ installs its own `/etc/yum.repos.d/wheelguard.repo`, so the repository stays con
   - Razer DeathAdder V4 Pro: DPI stages with separate X/Y, polling rate up to 8000 Hz, sleep timer,
     low-battery warning, battery
 - **Scroll filter for any mouse with a wheel**: supported mice are picked up automatically. For any other
-  mouse, press **Allow this mouse** on the Scroll protection page and enter your administrator password
-  once. That adds a device rule for that one mouse (`/etc/udev/rules.d/71-wheelguard-allowed-mice.rules`);
+  mouse, press **Allow this mouse** (in the mouse list under the status pill at the top of the window) and
+  enter your administrator password once. That adds a device rule for that one mouse (`/etc/udev/rules.d/71-wheelguard-allowed-mice.rules`);
   **Remove access** takes it back. As with the supported mice, programs you run can then read that
   mouse's movement and clicks. A mouse that shares its device with a keyboard is never allowed.
 - **Wheel health**: a 7 and 30 day chart of how often the wheel needed blocking, a warning
   if it starts bouncing more
 - **Double-click fix** for any mouse: ignores the extra click a worn button sends
 - **Per-game profiles**: switch scroll protection, Click-Lock and the DPI stage while a chosen app is in front
-- **Low-battery alerts** and keyboard shortcuts for Click-Lock and the DPI stage
+- **Works for games without a launcher entry** too (Lutris, Heroic, Wine): bring the game to the front
+  once and it appears in the profile app list. A profile never changes your saved settings
+- **Pause**: one shortcut (Super+Alt+P), or the Pause button under the status pill, makes Wheelguard let go
+  of the mouse completely until you resume
+- **Low-battery alerts** and keyboard shortcuts for Click-Lock, the DPI stage and Pause
 - **Click-Lock**: hold the left button for a few seconds (5 s by default, adjustable) and Wheelguard keeps
   clicking for you, or keeps the button pressed for long drags, until your next click (any other mouse
   button ends it too). It lets go by itself after 10 minutes (adjustable) and when the screen locks or the
   computer sleeps. Switch it on and off from the panel popup or a keyboard shortcut
 - **GNOME pointer settings** (speed, acceleration, scrolling) in the same app
 - **Panel icon** with an instant popup (battery, scroll protection, DPI stage); closing the window keeps
-  it running there, and it starts at login (switch on the About page). The icon is a GNOME Shell
+  it running there, and it starts at login (switch on the Settings page). The icon is a GNOME Shell
   extension, enabled automatically after the next login. Without it a tray icon is used if available,
   otherwise closing the window quits.
 - **Runs as a background service**: a user daemon starts with your session, the app is optional
+- **What the service may do**: it runs sandboxed, with no network access, and can write only its own
+  settings and history. To filter the wheel it reads your mouse and creates a virtual mouse in its place.
+  Creating that virtual mouse needs access to `/dev/uinput`, which the package grants to the logged-in
+  user, so, as on any system where a remapping tool is installed, programs you run could also create
+  virtual input devices
 - **Light and dark**, following GNOME
 
 <details>

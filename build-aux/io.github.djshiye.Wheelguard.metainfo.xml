@@ -42,7 +42,15 @@
       <description>
         <ul>
           <li>Allow this mouse: one button and your administrator password let Wheelguard protect a mouse it doesn't know, so scroll protection, Click-Lock and the Double-click fix work with any wheel mouse</li>
-          <li>Take the access back any time with Remove access on the Scroll protection page</li>
+          <li>Take the access back any time with Remove access</li>
+          <li>New Clicks page for Click-Lock and the Double-click fix, and a Settings page; choose the mouse to protect from the status pill at the top of the window</li>
+          <li>Pause: a shortcut (Super+Alt+P) or the Pause button makes Wheelguard let go of the mouse until you resume</li>
+          <li>Per-game profiles no longer change your saved settings, and work for games started from Lutris, Heroic or Wine</li>
+          <li>The Mouse page is split into sections, and follows the mouse being protected when two are connected</li>
+          <li>Click-Lock ends when the screen locks even with the app closed; "ignore drags" follows your DPI</li>
+          <li>The Double-click fix shows which button needed it</li>
+          <li>After an update the app offers to restart itself or the service</li>
+          <li>Fixed: a clock change could stretch or shorten the filter's timing</li>
           <li>Fixed: on a high-resolution scroll wheel, a held partial step came out as a whole notch</li>
         </ul>
       </description>

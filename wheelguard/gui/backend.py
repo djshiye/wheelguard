@@ -713,7 +713,7 @@ class PointerSettings(QObject):
 
 
 class Autostart(QObject):
-    """The 'Start in tray at login' switch on the About page (see autostart.py)."""
+    """The 'Start in tray at login' switch on the Settings page (see autostart.py)."""
 
     changed = Signal()
 

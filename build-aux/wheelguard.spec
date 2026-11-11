@@ -31,6 +31,8 @@ Requires:       python3-evdev
 Requires:       hicolor-icon-theme
 # "Allow this mouse" asks for the administrator password through pkexec
 Requires:       polkit
+# gdbus: desktop notifications, and the service ending Click-Lock when the screen locks
+Requires:       glib2
 
 %description
 A small per-user daemon grabs a supported mouse (Endgame Gear XM2w 4k v2,
@@ -140,7 +142,15 @@ fi
 %changelog
 * Wed Nov 11 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.7.0-1
 - Allow this mouse: one button and your administrator password let Wheelguard protect a mouse it doesn't know, so scroll protection, Click-Lock and the Double-click fix really work with any wheel mouse
-- Take the access back any time with Remove access on the Scroll protection page; uninstalling Wheelguard removes it too
+- Take the access back any time with Remove access; uninstalling Wheelguard removes it too
+- New Clicks page for Click-Lock and the Double-click fix, and a Settings page; the mouse to protect is now chosen from the status pill at the top of the window
+- Pause: a shortcut (Super+Alt+P) or the Pause button makes Wheelguard let go of the mouse until you resume
+- Per-game profiles no longer change your saved settings, and work for games started from Lutris, Heroic or Wine
+- The Mouse page is split into sections, and follows the mouse being protected when two are connected
+- Click-Lock ends when the screen locks even with the app closed; "ignore drags" follows your DPI
+- The Double-click fix shows which button needed it
+- After an update the app offers to restart itself or the service
+- Fix: a clock change could stretch or shorten the filter's timing; pointer movement is passed on with less work
 - Fix: on a high-resolution scroll wheel, a held partial step came out as a whole notch
 
 * Tue Nov 10 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.6.2-1

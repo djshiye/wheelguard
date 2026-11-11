@@ -322,7 +322,7 @@ Item {
                             Layout.fillWidth: true
                             text: daemon.state === "stopped" || daemon.state === "connecting"
                                   ? "Start the service in step 1 to choose a strength. Balanced is a good start."
-                                  : "Pick how firmly stray scrolls are caught. You can change this any time on the Scroll protection page."
+                                  : "Pick how firmly stray scrolls are caught. You can change this any time on the Scroll page."
                             font.pixelSize: Theme.fsBody
                             color: Theme.textMuted
                             wrapMode: Text.WordWrap

@@ -492,19 +492,40 @@ class LockWatch(unittest.TestCase):
         self.assertIsNone(w.fileno())
         w.close()
 
-    def test_restart_is_rate_limited(self):
-        now = [0.0]
-        w = ScreenWatch(command=("true",), clock=lambda: now[0])
-        self.addCleanup(w.close)
+    def _until_ended(self, w):
         for _ in range(200):
             w.drain()
             if w.fileno() is None:
-                break
+                return
             time.sleep(0.01)
-        self.assertIsNone(w.fileno())
+        self.fail("the watcher never ended")
+
+    def test_a_watcher_that_cannot_run_is_tried_ever_more_rarely(self):
+        now = [0.0]
+        w = ScreenWatch(command=("true",), clock=lambda: now[0])
+        self.addCleanup(w.close)
+        self._until_ended(w)                        # ended at once: wait 60 s, not 30
+        now[0] = 31.0
         w.start()
         self.assertIsNone(w.fileno())               # too soon
-        now[0] = 31.0
+        now[0] = 61.0
+        w.start()
+        self.assertIsNotNone(w.fileno())
+        self._until_ended(w)                        # and again: now 120 s
+        now[0] = 61.0 + 119.0
+        w.start()
+        self.assertIsNone(w.fileno())
+        now[0] = 61.0 + 121.0
+        w.start()
+        self.assertIsNotNone(w.fileno())
+
+    def test_a_watcher_that_had_been_working_comes_back_soon(self):
+        now = [0.0]
+        w = ScreenWatch(command=("true",), clock=lambda: now[0])
+        self.addCleanup(w.close)
+        now[0] = 500.0                              # it "ran" for a long time before ending
+        self._until_ended(w)
+        now[0] = 531.0
         w.start()
         self.assertIsNotNone(w.fileno())
 
