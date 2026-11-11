@@ -508,6 +508,7 @@ def main(argv=None):
                 last_err = None
                 idle(ctl, server, POLL_S, watcher)
                 continue
+            lockwatch.drain()               # nothing to end while no mouse is held; also notices a watcher that ended
             lockwatch.start()               # no-op while it runs; restarts one that ended, at most every 30 s
             cfg = ctl.cfg
             dev, err = discover(cfg["vendor"], cfg["product"])
