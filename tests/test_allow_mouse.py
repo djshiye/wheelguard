@@ -161,3 +161,35 @@ class AppSide(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AutomaticTakesAllowedMice(unittest.TestCase):
+    """Allowing a mouse is the user's say-so: Automatic protects it, after the supported mice."""
+
+    def test_shared_reader_matches_the_helper(self):
+        from wheelguard import mice
+        self.assertEqual(mice.ALLOWED_RULES, helper.RULES_PATH)
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "r.rules")
+            self.assertEqual(mice.allowed_mice(path), [])
+            helper.write_ids(["046d:c08b", "1532:0084"], path)
+            self.assertEqual(mice.allowed_mice(path), [(0x046D, 0xC08B), (0x1532, 0x0084)])
+
+    def test_reader_ignores_comments_and_junk(self):
+        from wheelguard import mice
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "r.rules")
+            Path(path).write_text('# ATTRS{id/vendor}=="dead", ATTRS{id/product}=="beef"\nnonsense\n'
+                                  'ATTRS{id/vendor}=="DEAD", ATTRS{id/product}=="BEEF"\n')
+            self.assertEqual(mice.allowed_ids(path), [])
+
+    def test_search_order(self):
+        try:
+            from wheelguard import daemon
+        except ImportError:
+            self.skipTest("evdev not available")
+        ids = daemon._wanted(0x3367, 0x1970, allowed=[(0x093A, 0x2510), (0x3367, 0x1982)])
+        self.assertEqual(ids[0], (0x3367, 0x1970))
+        self.assertEqual(ids[-1], (0x093A, 0x2510))                 # after every supported mouse
+        self.assertEqual(ids.count((0x3367, 0x1982)), 1)            # a supported mouse isn't listed twice
+        self.assertLess(ids.index((0x1532, 0x00BF)), ids.index((0x093A, 0x2510)))

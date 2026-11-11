@@ -30,10 +30,17 @@ installs its own `/etc/yum.repos.d/wheelguard.repo`, so the repository stays con
     polling rate up to 1000 Hz, battery
   - Razer DeathAdder V4 Pro: DPI stages with separate X/Y, polling rate up to 8000 Hz, sleep timer,
     low-battery warning, battery
+  - More Razer mice, settings shown read-only until tested on each model: DeathAdder V3 Pro and
+    V3 HyperSpeed, Viper V2 Pro, V3 Pro, V3 Pro SE, V3 HyperSpeed and Mini Signature Edition,
+    Basilisk V3 Pro and V3 Pro 35K, Cobra Pro (battery, DPI stages, polling rate, sleep timer)
+  - More Logitech G mice, settings shown read-only until tested on each model: G Pro Wireless,
+    G Pro Hero, G305, G102 / G203, G303 Shroud Edition, G403 Hero, G502 Hero, Lightspeed, X,
+    X Lightspeed and X Plus, G604, G703 Hero, G705, G903 Hero (battery, DPI stages, polling rate)
 - **Scroll filter for any mouse with a wheel**: supported mice are picked up automatically. For any other
   mouse, press **Allow this mouse** (in the mouse list under the status pill at the top of the window) and
-  enter your administrator password once. That adds a device rule for that one mouse (`/etc/udev/rules.d/71-wheelguard-allowed-mice.rules`);
-  **Remove access** takes it back. As with the supported mice, programs you run can then read that
+  enter your administrator password once. That adds a device rule for that one mouse (`/etc/udev/rules.d/71-wheelguard-allowed-mice.rules`),
+  and from then on **Automatic** protects it like a supported mouse (a supported mouse still comes first when
+  both are connected). **Remove access** takes it back. As with the supported mice, programs you run can then read that
   mouse's movement and clicks. A mouse that shares its device with a keyboard is never allowed.
 - **Wheel health**: a 7 and 30 day chart of how often the wheel needed blocking, a warning
   if it starts bouncing more
@@ -43,6 +50,9 @@ installs its own `/etc/yum.repos.d/wheelguard.repo`, so the repository stays con
   once and it appears in the profile app list. A profile never changes your saved settings
 - **Pause**: one shortcut (Super+Alt+P), or the Pause button under the status pill, makes Wheelguard let go
   of the mouse completely until you resume
+- **Battery for any wireless mouse**: for a mouse without its own Wheelguard driver, the panel icon, tray and
+  low-battery alerts show the level Linux already reports for it (through UPower, read-only: most Logitech
+  mice and Bluetooth mice that report one)
 - **Low-battery alerts** and keyboard shortcuts for Click-Lock, the DPI stage and Pause
 - **Click-Lock**: hold the left button for a few seconds (5 s by default, adjustable) and Wheelguard keeps
   clicking for you, or keeps the button pressed for long drags, until your next click (any other mouse

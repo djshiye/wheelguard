@@ -258,7 +258,7 @@ Item {
                                       : (ms === "asleep" ? "Your mouse is asleep" : (ms === "missing" ? "No supported mouse found" : "Couldn't read your mouse")))
                             body: ms === "ready" || ms === "applying" ? (mouse.battery >= 0 ? "Battery " + mouse.battery + "%. The Mouse page can change its DPI, polling rate and more." : "The Mouse page can change its DPI, polling rate and more.")
                                   : (ms === "asleep" ? "Click a button or move it, then check again."
-                                     : (ms === "missing" ? "Plug in the receiver or the cable, then check again. Wheelguard works with the " + mouse.supportedNames.join(", ").replace(/, ([^,]*)$/, " and $1") + "."
+                                     : (ms === "missing" ? "Plug in the receiver or the cable, then check again. Wheelguard works with " + mouse.supportedSummary + "."
                                         : (ms === "idle" || ms === "reading" ? "" : "The next step shows what to fix.")))
                             WgButton {
                                 visible: ["asleep", "missing", "unsupported", "denied", "error"].indexOf(mouseFound.ms) >= 0

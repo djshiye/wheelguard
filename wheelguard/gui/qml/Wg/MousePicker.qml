@@ -13,6 +13,15 @@ C.Popup {
                 return rows[i]
         return null
     }
+    // The allowed mouse the "Remove access" line is about: the one chosen, or the one Automatic is protecting.
+    readonly property var accessRow: {
+        if (chosen !== null && chosen.allowed)
+            return chosen
+        for (let i = 0; i < rows.length; i++)
+            if (rows[i].active && rows[i].allowed)
+                return rows[i]
+        return null
+    }
 
     width: Theme.px(400)
     padding: 8
@@ -181,11 +190,11 @@ C.Popup {
             Layout.leftMargin: 12
             Layout.rightMargin: 10
             Layout.topMargin: 6
-            visible: root.reachable && root.chosen !== null && root.chosen.allowed && mouseAccess.available
+            visible: root.reachable && root.accessRow !== null && mouseAccess.available
             spacing: 10
             Text {
                 Layout.fillWidth: true
-                text: "You allowed Wheelguard to read this mouse. Other programs you run can read its movement and clicks too."
+                text: "You allowed Wheelguard to read your " + (root.accessRow ? root.accessRow.name : "mouse") + ". Other programs you run can read its movement and clicks too."
                 font.pixelSize: Theme.fsSmall
                 color: Theme.textMuted
                 wrapMode: Text.WordWrap
@@ -194,7 +203,7 @@ C.Popup {
                 variant: "ghost"
                 text: mouseAccess.busy ? "Waiting…" : "Remove access"
                 enabled: !mouseAccess.busy
-                onClicked: mouseAccess.remove(root.chosen.id)
+                onClicked: if (root.accessRow) mouseAccess.remove(root.accessRow.id)
             }
         }
         Text {

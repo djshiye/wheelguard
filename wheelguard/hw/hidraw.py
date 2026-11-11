@@ -11,6 +11,8 @@ import select
 from dataclasses import dataclass
 from typing import List, Optional
 
+from .models import LOGI_LINKS, RAZER_LINKS
+
 VENDOR = 0x3367
 PID_DONGLE = 0x1970
 PID_WIRED = 0x1982
@@ -28,14 +30,20 @@ REPORT_A0 = bytes.fromhex("85a0")
 RAZER_VENDOR = 0x1532
 RAZER_DA_V4_PRO_WIRED = 0x00BE
 RAZER_DA_V4_PRO_WIRELESS = 0x00BF
-RAZER_PIDS = (RAZER_DA_V4_PRO_WIRED, RAZER_DA_V4_PRO_WIRELESS)
+# The rest of the Razer family (models.RAZER_LINKS) talks the same way on the same interface.
+RAZER_PIDS = (RAZER_DA_V4_PRO_WIRED, RAZER_DA_V4_PRO_WIRELESS) + tuple(
+    p for p in sorted(RAZER_LINKS) if p not in (RAZER_DA_V4_PRO_WIRED, RAZER_DA_V4_PRO_WIRELESS))
+RAZER_WIRED = frozenset(p for p, link in RAZER_LINKS.items() if link.wired)
 
 # Logitech G Pro X Superlight (first generation): the mouse as seen through its LIGHTSPEED receiver
 # (the kernel's hid-logitech-dj driver gives it its own HID device, PID 4093) and over the cable.
 LOGI_VENDOR = 0x046D
 LOGI_SUPERLIGHT_WIRELESS = 0x4093
 LOGI_SUPERLIGHT_WIRED = 0xC094
-LOGI_PIDS = (LOGI_SUPERLIGHT_WIRELESS, LOGI_SUPERLIGHT_WIRED)
+# The rest of the Logitech family (models.LOGI_LINKS) talks HID++ the same way.
+LOGI_PIDS = (LOGI_SUPERLIGHT_WIRELESS, LOGI_SUPERLIGHT_WIRED) + tuple(
+    p for p in sorted(LOGI_LINKS) if p not in (LOGI_SUPERLIGHT_WIRELESS, LOGI_SUPERLIGHT_WIRED))
+LOGI_WIRED = frozenset(p for p, link in LOGI_LINKS.items() if link.wired)
 # HID++: vendor usage page 0xFF00 with the long (20-byte) report 0x11.
 HIDPP_PAGE = bytes.fromhex("0600ff")
 HIDPP_LONG = bytes.fromhex("8511")
@@ -72,7 +80,11 @@ class Candidate:
 
     @property
     def wired(self) -> bool:
-        return self.pid in (PID_WIRED, RAZER_DA_V4_PRO_WIRED, LOGI_SUPERLIGHT_WIRED)
+        if self.kind == "razer":
+            return self.pid in RAZER_WIRED
+        if self.kind == "logitech":
+            return self.pid in LOGI_WIRED
+        return self.pid == PID_WIRED
 
 
 def descriptor_is_config_channel(desc: bytes) -> bool:
@@ -152,7 +164,7 @@ def _nodes(sysfs: str):
 
 
 def discover_razer(sysfs: str = SYSFS_HIDRAW, dev_dir: str = DEV_DIR) -> List[Candidate]:
-    """Interface-0 hidraw nodes of a DeathAdder V4 Pro (wired first)."""
+    """Interface-0 hidraw nodes of a Razer mouse Wheelguard knows (models.RAZER_LINKS), wired first."""
     found = [Candidate(os.path.join(dev_dir, name), vid, pid, name, "razer")
              for name, vid, pid, _desc in _nodes(sysfs)
              if vid == RAZER_VENDOR and pid in RAZER_PIDS and _interface_number(sysfs, name) == 0]
@@ -161,7 +173,7 @@ def discover_razer(sysfs: str = SYSFS_HIDRAW, dev_dir: str = DEV_DIR) -> List[Ca
 
 
 def discover_logitech(sysfs: str = SYSFS_HIDRAW, dev_dir: str = DEV_DIR) -> List[Candidate]:
-    """HID++ hidraw nodes of a G Pro X Superlight (wired first)."""
+    """HID++ hidraw nodes of a Logitech mouse Wheelguard knows (models.LOGI_LINKS), wired first."""
     found = [Candidate(os.path.join(dev_dir, name), vid, pid, name, "logitech")
              for name, vid, pid, desc in _nodes(sysfs)
              if vid == LOGI_VENDOR and pid in LOGI_PIDS and descriptor_is_hidpp(desc)]

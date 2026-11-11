@@ -451,6 +451,7 @@ class MouseController(QObject):
     # What the connected model offers (models.Model); the page shows only those controls.
     modelKey = Property(str, lambda s: s._model.key if s._known else "", notify=infoChanged)
     modelName = Property(str, lambda s: s._model.name if s._known else "", notify=infoChanged)
+    artKey = Property(str, lambda s: s._model.art_key if s._known else "", notify=infoChanged)    # MouseArt.qml
     brand = Property(str, lambda s: s._model.brand if s._known else "", notify=infoChanged)
     features = Property("QVariantList", lambda s: sorted(s._model.features), notify=infoChanged)
     maxStages = Property(int, lambda s: s._model.max_stages, notify=infoChanged)
@@ -463,6 +464,7 @@ class MouseController(QObject):
     dpiStep = Property(int, lambda s: s._model.dpi_step, notify=infoChanged)
     wirelessText = Property(str, lambda s: s._model.wireless_text, notify=infoChanged)
     supportedNames = Property("QVariantList", lambda s: list(models.supported_names()), constant=True)
+    supportedSummary = Property(str, lambda s: models.supported_summary(), constant=True)     # "the A, B and C, plus …"
     # Razer power settings
     idleMin = Property(int, lambda s: razer.IDLE_MIN, constant=True)
     idleMax = Property(int, lambda s: razer.IDLE_MAX, constant=True)

@@ -7,7 +7,7 @@
 %global __brp_python_bytecompile %{nil}
 
 Name:           wheelguard
-Version:        1.7.0
+Version:        1.9.0
 # CI appends .<commit count> so every build from main is a newer release.
 Release:        1%{?release_suffix}%{?dist}
 Summary:        Scroll bounce filter and advanced mouse settings (Endgame Gear, Logitech, Razer)
@@ -140,6 +140,22 @@ fi
 %{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-djshiye-%{name}
 
 %changelog
+* Wed Nov 11 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.9.0-1
+- Fifteen more Logitech G mice are recognised: G Pro Wireless, G Pro Hero, G305, G102 / G203, G303 Shroud Edition, G403 Hero, G502 Hero, G502 Lightspeed, G502 X, G502 X Lightspeed, G502 X Plus, G604, G703 Hero, G705 and G903 Hero
+- They are protected automatically, and the Mouse page and panel show their battery, DPI stages and polling rate; changing settings stays off until each model has been tested
+
+* Wed Nov 11 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.8.0-1
+- Ten more Razer mice are recognised: DeathAdder V3 Pro and V3 HyperSpeed, Viper V2 Pro, V3 Pro, V3 Pro SE, V3 HyperSpeed and Mini Signature Edition, Basilisk V3 Pro and V3 Pro 35K, Cobra Pro
+- They are protected automatically, and the Mouse page and panel show their battery, DPI stages, polling rate and sleep timer; changing settings stays off until each model has been tested
+
+* Wed Nov 11 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.7.2-1
+- Battery for any wireless mouse: the panel icon, tray and low-battery alerts now show the battery Linux reports for a mouse Wheelguard has no driver for (read-only, through UPower)
+
+* Wed Nov 11 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.7.1-1
+- Automatic now protects the mice you allowed, so a mouse stays protected after Allow this mouse even when you switch between mice; a supported mouse still comes first
+- Remove access is offered for an allowed mouse that Automatic is protecting
+- Friendlier wording when Wheelguard finds a mouse it doesn't know yet
+
 * Wed Nov 11 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.7.0-1
 - Allow this mouse: one button and your administrator password let Wheelguard protect a mouse it doesn't know, so scroll protection, Click-Lock and the Double-click fix really work with any wheel mouse
 - Take the access back any time with Remove access; uninstalling Wheelguard removes it too

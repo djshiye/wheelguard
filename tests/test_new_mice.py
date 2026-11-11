@@ -382,8 +382,14 @@ class NewDiscoveryTests(unittest.TestCase):
     def test_razer_interface_zero_only(self):
         root = self.tree([("hidraw0", "0003:00001532:000000BF", self.MOUSE, 0),
                           ("hidraw1", "0003:00001532:000000BF", self.MOUSE, 1),
-                          ("hidraw2", "0003:00001532:000000AA", self.MOUSE, 0)])
+                          ("hidraw2", "0003:00001532:00000084", self.MOUSE, 0)])     # a Razer it doesn't know
         self.assertEqual([c.sysname for c in hidraw.discover_razer(root)], ["hidraw0"])
+
+    def test_razer_family_is_found_wired_first(self):
+        root = self.tree([("hidraw0", "0003:00001532:000000C1", self.MOUSE, 0),      # Viper V3 Pro dongle
+                          ("hidraw1", "0003:00001532:000000AA", self.MOUSE, 0)])     # Basilisk V3 Pro cable
+        found = hidraw.discover_razer(root)
+        self.assertEqual([(c.sysname, c.pid, c.wired) for c in found], [("hidraw1", 0xAA, True), ("hidraw0", 0xC1, False)])
 
     def test_logitech_needs_hidpp(self):
         root = self.tree([("hidraw3", "0003:0000046D:00004093", self.MOUSE, 2),

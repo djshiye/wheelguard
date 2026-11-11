@@ -227,7 +227,8 @@ def mouse_rows(mice: List[dict], selected: str, active: str, allowed=()) -> List
     found = status_mice({"mice": mice})
     auto_name = next((m["name"] for m in found if m["id"] == active), "") if selected == mouse_ids.AUTO else ""
     rows = [{"id": mouse_ids.AUTO, "name": "Automatic",
-             "detail": auto_name or "Picks your supported mouse", "note": "",
+             "detail": auto_name or ("Picks a supported mouse or one you allowed" if allowed else "Picks your supported mouse"),
+             "note": "",
              "selected": selected == mouse_ids.AUTO, "active": False, "allowed": False, "accessible": True}]
     for m in found:
         note = "no access" if not m["accessible"] else ("" if m["supported"] else "not tested")

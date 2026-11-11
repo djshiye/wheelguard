@@ -12,10 +12,11 @@ from typing import Callable, List, Optional
 
 from PySide6.QtCore import Property, QObject, QProcess, Signal, Slot
 
+from .. import mice
+
 HELPER = "/usr/libexec/wheelguard-allow-mouse"
-RULES_PATH = "/etc/udev/rules.d/71-wheelguard-allowed-mice.rules"
+RULES_PATH = mice.ALLOWED_RULES
 ID_RE = re.compile(r"[0-9a-f]{4}:[0-9a-f]{4}")
-_RULE_RE = re.compile(r'ATTRS\{id/vendor\}=="([0-9a-f]{4})", ATTRS\{id/product\}=="([0-9a-f]{4})"')
 PKEXEC_DISMISSED, PKEXEC_DENIED = 126, 127      # pkexec: dialog closed / not authorised
 TIMEOUT_MS = 120000                             # the password dialog may sit there for a while
 
@@ -31,17 +32,7 @@ def valid_id(value) -> bool:
 
 def allowed_ids(path: str = RULES_PATH) -> List[str]:
     """The mice the user allowed, from the rules file the helper keeps ([] when there is none)."""
-    try:
-        with open(path, encoding="utf-8", errors="replace") as f:
-            text = f.read(65536)
-    except OSError:
-        return []
-    out: List[str] = []
-    for line in text.splitlines():
-        m = _RULE_RE.search(line) if not line.lstrip().startswith("#") else None
-        if m and f"{m.group(1)}:{m.group(2)}" not in out:
-            out.append(f"{m.group(1)}:{m.group(2)}")
-    return out
+    return mice.allowed_ids(path)
 
 
 def result_text(code: int, stderr: str) -> str:

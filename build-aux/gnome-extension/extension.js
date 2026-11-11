@@ -480,7 +480,7 @@ class WheelguardIndicator extends PanelMenu.Button {
 
         const mouseHere = s.Online && s.DaemonState === 'running';     // never show a stale battery
         this._batteryCard.visible = mouseHere;
-        this._dpiCard.visible = mouseHere;
+        this._dpiCard.visible = mouseHere && s.StageLabels.length > 0;    // a mouse known only by its battery has none
         this._asleepCard.visible = !mouseHere;
         this._asleepText.text = s.OfflineNote || EMPTY_STATE.OfflineNote;
         const known = mouseHere && s.Battery >= 0;

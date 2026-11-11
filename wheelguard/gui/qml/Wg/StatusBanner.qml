@@ -33,7 +33,9 @@ Item {
     readonly property bool allowable: canAllow && (denied || (unrecognised && !otherMouseAccessible))
     readonly property string title: ss === "paused" ? "Wheelguard is paused" : ss === "stopped" ? "The Wheelguard service isn't running"
         : (ss === "permission" ? (denied ? "Wheelguard can't read the mouse you chose" : "Wheelguard can't access your mouse")
-           : (unrecognised ? "Your mouse isn't a supported model" : "Waiting for mouse…"))
+           : (!unrecognised ? "Waiting for mouse…"
+              : (otherMouseAccessible ? "Wheelguard found a new mouse"
+                 : (canAllow ? "Allow Wheelguard to protect your mouse" : "Your mouse isn't a supported model"))))
     readonly property string body: ss === "paused"
         ? "It has let go of your mouse, so nothing is filtered and Click-Lock is off. Your settings are kept. It stays paused until you resume or log in again."
         : ss === "stopped"
@@ -49,7 +51,7 @@ Item {
               : (otherMouseAccessible
                  ? "Wheelguard sees your " + otherMouse + ", but Automatic only takes over supported mice. Use it anyway to protect its wheel too."
                  : (canAllow
-                    ? "Wheelguard sees your " + otherMouse + ", but isn't allowed to read it yet. Allow it once with your administrator password and Wheelguard protects its wheel too."
+                    ? "Wheelguard sees your " + otherMouse + " but isn't allowed to read it yet. Allow it once with your administrator password and Automatic protects it from then on. Only this mouse gets access, never a keyboard."
                     : "Wheelguard sees your " + otherMouse + ", but only supported mice get device access, so it can't protect this one yet. Supported: Endgame Gear XM2w 4k v2, Logitech G Pro X Superlight (first generation) and Razer DeathAdder V4 Pro."))))
 
     implicitHeight: shown ? card.implicitHeight + 16 : 0

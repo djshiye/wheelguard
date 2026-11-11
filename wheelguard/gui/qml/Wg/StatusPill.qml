@@ -8,7 +8,7 @@ Rectangle {
     property string device: ""
     property bool protecting: true
     property bool compact: false        // shorter labels for the tray popup
-    property bool unrecognised: false   // waiting, and the mouse that is connected isn't a supported model
+    property bool unrecognised: false   // waiting, and the mouse that is connected is one Wheelguard doesn't know
     property bool interactive: false    // a button that opens the mouse picker
     property bool open: false           // the picker is showing
     signal clicked()
@@ -32,7 +32,7 @@ Rectangle {
         if (daemonState === "running") return protecting ? "Protecting" : (compact ? "Off" : "Protection off")
         if (daemonState === "paused") return "Paused"
         if (daemonState === "waiting")
-            return unrecognised ? (compact ? "Unsupported" : "Mouse not supported") : (compact ? "No mouse" : "Waiting for mouse…")
+            return unrecognised ? (compact ? "New mouse" : "New mouse found") : (compact ? "No mouse" : "Waiting for mouse…")
         if (daemonState === "permission") return compact ? "No access" : "No device access"
         if (daemonState === "stopped") return compact ? "Stopped" : "Service not running"
         return "Connecting…"

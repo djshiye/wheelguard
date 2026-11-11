@@ -6,6 +6,7 @@
     tools/mock_daemon.py --scenario permission     # daemon up, udev rule missing
     tools/mock_daemon.py --scenario unsupported    # daemon up, only a mouse that isn't a supported model
     tools/mock_daemon.py --scenario unsupported-noaccess   # the same, and the service may not open it
+    tools/mock_daemon.py --scenario allowed        # Automatic protecting a mouse the user allowed
     tools/mock_daemon.py --scenario none           # no socket at all (just sleeps)
 
 Uses a private socket by default so it never collides with the real service:
@@ -206,13 +207,17 @@ class Mock:
 
     # --- protocol
     def status(self):
-        connected = self.scenario == "connected" and not self.paused
+        connected = self.scenario in ("connected", "allowed") and not self.paused
         error = "permission denied: /dev/input/event2" if self.scenario == "permission" else None
         if self.paused:
             error = "paused"
+        other = self.scenario == "allowed"
+        device = OTHER_MOUSE["device"] if other else DEVICE
+        ident = OTHER_MOUSE["vendor"] + ":" + OTHER_MOUSE["product"] if other else "3367:1970"
         return {"type": "status", "version": self.version, "connected": connected,
-                "device": DEVICE if connected else None, "ident": "3367:1970" if connected else None,
-                "model": MODEL if connected else None, "connection": CONNECTION if connected else None,
+                "device": device if connected else None, "ident": ident if connected else None,
+                "model": MODEL if connected and not other else None,
+                "connection": CONNECTION if connected and not other else None,
                 "error": error, "override": dict(self.override), "paused": self.paused,
                 "config": dict(self.cfg), "mice": self.mice(), "stats": dict(self.stats),
                 "clicklock_active": self.clicklock_active and self.cfg["clicklock"]}
@@ -220,6 +225,8 @@ class Mock:
     def mice(self):
         if self.scenario.startswith("unsupported"):
             return [dict(OTHER_MOUSE, accessible=self.scenario == "unsupported")]
+        if self.scenario == "allowed":
+            return [dict(OTHER_MOUSE, accessible=True)]
         if self.cfg["mouse"] == OTHER_MOUSE["vendor"] + ":" + OTHER_MOUSE["product"]:
             return MICE + [dict(OTHER_MOUSE, accessible=self.scenario != "permission")]     # the user picked it
         return MICE
@@ -413,7 +420,7 @@ class Mock:
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--scenario", choices=("connected", "disconnected", "permission", "unsupported",
-                                                "unsupported-noaccess", "none"),
+                                                "unsupported-noaccess", "allowed", "none"),
                     default="connected")
     ap.add_argument("--socket", default=default_socket())
     ap.add_argument("--seed", type=int, default=None)

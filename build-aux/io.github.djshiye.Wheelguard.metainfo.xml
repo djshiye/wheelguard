@@ -38,6 +38,38 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.9.0" date="2026-11-11">
+      <description>
+        <ul>
+          <li>Fifteen more Logitech G mice are recognised: G Pro Wireless, G Pro Hero, G305, G102 / G203, G303 Shroud Edition, G403 Hero, G502 Hero, G502 Lightspeed, G502 X, G502 X Lightspeed, G502 X Plus, G604, G703 Hero, G705 and G903 Hero</li>
+          <li>They are protected automatically, and the Mouse page and panel show their battery, DPI stages and polling rate; changing settings stays off until each model has been tested</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.8.0" date="2026-11-11">
+      <description>
+        <ul>
+          <li>Ten more Razer mice are recognised: DeathAdder V3 Pro and V3 HyperSpeed, Viper V2 Pro, V3 Pro, V3 Pro SE, V3 HyperSpeed and Mini Signature Edition, Basilisk V3 Pro and V3 Pro 35K, Cobra Pro</li>
+          <li>They are protected automatically, and the Mouse page and panel show their battery, DPI stages, polling rate and sleep timer; changing settings stays off until each model has been tested</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.7.2" date="2026-11-11">
+      <description>
+        <ul>
+          <li>Battery for any wireless mouse: the panel icon, tray and low-battery alerts now show the battery Linux reports for a mouse Wheelguard has no driver for (read-only, through UPower)</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.7.1" date="2026-11-11">
+      <description>
+        <ul>
+          <li>Automatic now protects the mice you allowed, so a mouse stays protected after Allow this mouse even when you switch between mice; a supported mouse still comes first</li>
+          <li>Remove access is offered for an allowed mouse that Automatic is protecting</li>
+          <li>Friendlier wording when Wheelguard finds a mouse it doesn't know yet</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.7.0" date="2026-11-11">
       <description>
         <ul>

@@ -370,7 +370,7 @@ Item {
             Text {
                 width: parent.width
                 text: "Changes are staged here and only sent when you press Apply."
-                      + (mouse.modelName === "" ? " Works with the " + mouse.supportedNames.join(", ").replace(/, ([^,]*)$/, " and $1") + "." : "")
+                      + (mouse.modelName === "" ? " Works with " + mouse.supportedSummary + "." : "")
                 font.pixelSize: Theme.fsBody
                 color: Theme.textMuted
                 wrapMode: Text.WordWrap
@@ -393,7 +393,8 @@ Item {
                 MouseArt {
                     Layout.alignment: Qt.AlignTop
                     unit: 0.95
-                    modelKey: mouse.modelKey
+                    modelKey: mouse.artKey
+                    modelName: mouse.modelName
                     highlight: root.hotButton
                     dim: !root.shown
                 }
@@ -532,7 +533,7 @@ Item {
             tone: Theme.amber
             icon: "plug"
             title: "No supported mouse found"
-            body: "Plug in the receiver, or connect the mouse with its cable, then press Refresh. Wheelguard can configure the " + mouse.supportedNames.join(", ").replace(/, ([^,]*)$/, " and $1") + "."
+            body: "Plug in the receiver, or connect the mouse with its cable, then press Refresh. Wheelguard can configure " + mouse.supportedSummary + "."
             WgButton { text: "Refresh"; iconName: "reset"; onClicked: mouse.refresh() }
         }
         Notice {
@@ -592,7 +593,7 @@ Item {
             Heading { title: "Sensitivity" }
             Hint {
                 text: "Up to " + root.countWord + " DPI stages. Click a stage to edit it; the mouse's DPI button cycles through them."
-                      + (mouse.modelKey === "logitech-pro-x-superlight" ? " Picking the active stage takes effect at once; after a restart the mouse begins in its default stage." : "")
+                      + (mouse.brand === "Logitech" ? " Picking the active stage takes effect at once; after a restart the mouse begins in its default stage." : "")
             }
 
             RowLayout {
@@ -947,7 +948,8 @@ Item {
             MouseArt {
                 Layout.alignment: Qt.AlignVCenter
                 unit: 0.9
-                modelKey: mouse.modelKey
+                modelKey: mouse.artKey
+                modelName: mouse.modelName
                 highlight: root.hotButton
             }
             }
@@ -1122,9 +1124,9 @@ Item {
         Text {
             width: parent.width
             visible: root.shown
-            text: mouse.modelKey === "logitech-pro-x-superlight"
+            text: mouse.brand === "Logitech"
                   ? "Wheelguard edits the mouse's onboard profile the way libratbag and Solaar do. It hasn't been tested on every firmware, and it isn't affiliated with or endorsed by Logitech."
-                  : mouse.modelKey === "razer-deathadder-v4-pro"
+                  : mouse.brand === "Razer"
                     ? "Wheelguard talks to the mouse with the protocol documented by the OpenRazer project. It hasn't been tested on every firmware, and it isn't affiliated with or endorsed by Razer."
                     : "Wheelguard talks to the mouse with a protocol reverse-engineered from the vendor's Windows tool. It hasn't been tested on every firmware, and it isn't affiliated with or endorsed by Endgame Gear."
             font.pixelSize: Theme.fsSmall

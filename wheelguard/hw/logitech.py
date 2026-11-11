@@ -1,4 +1,5 @@
-"""Logitech G Pro X Superlight (first generation): codec and driver. See docs/logitech-protocol.md.
+"""Logitech G mice with onboard profiles, first the G Pro X Superlight (first generation): codec and driver.
+See docs/logitech-protocol.md.
 
 The mouse keeps its settings in onboard profiles (HID++ feature 0x8100): flash sectors with a fixed
 layout and a CRC. The mouse's own DPI button cycles through the profile's five DPI slots, and the
@@ -14,9 +15,13 @@ A mouse that was never configured has no valid profile directory and runs on its
 (ROM) profile. The first Apply then does what libratbag does: it writes the edited copy of that
 profile to user sector 1, writes a directory that enables it, and selects it.
 
+The other G mice in models.LOGI_LINKS use the same profile layout. They get their own DPI range and stay
+read-only until each is confirmed on real hardware.
+
 Not verified on hardware.
 """
 from dataclasses import dataclass
+from functools import partial
 from typing import Callable, Dict, List, Optional
 
 from . import hidpp
@@ -24,6 +29,7 @@ from .drivers import Driver
 from .endgame import LinkError, Rejected, StatusError, WriteBlocked
 from .errors import Battery, HwError, MouseAsleep, Snapshot
 from .hidraw import LOGI_PIDS, LOGI_SUPERLIGHT_WIRED, LOGI_SUPERLIGHT_WIRELESS
+from .models import LOGI_LINKS, MODELS, Model
 from .models import SUPERLIGHT as MODEL
 
 # ---------------------------------------------------------------- profile layout (libratbag's
@@ -92,17 +98,17 @@ def empty() -> Dict[str, object]:
     return decode(bytes(MIN_SECTOR + 1))
 
 
-def snap_dpi(v: int) -> int:
-    v = max(DPI_MIN, min(DPI_MAX, int(v)))
-    return max(DPI_MIN, min(DPI_MAX, int(round(v / MODEL.dpi_step)) * MODEL.dpi_step))
+def snap_dpi(v: int, m: Model = MODEL) -> int:
+    v = max(m.dpi_min, min(m.dpi_max, int(v)))
+    return max(m.dpi_min, min(m.dpi_max, int(round(v / m.dpi_step)) * m.dpi_step))
 
 
-def check_key_value(key: str, v) -> None:
+def check_key_value(key: str, v, m: Model = MODEL) -> None:
     if key not in KEYS:
         raise ValueError(f"unknown setting: {key}")
     if key.startswith("dpi_"):
-        if not DPI_MIN <= v <= DPI_MAX:
-            raise ValueError(f"DPI must be {DPI_MIN}-{DPI_MAX}")
+        if not m.dpi_min <= v <= m.dpi_max:
+            raise ValueError(f"DPI must be {m.dpi_min}-{m.dpi_max}")
     elif key == "stage_count":
         if not 1 <= v <= N_SLOTS:
             raise ValueError(f"stage count must be 1-{N_SLOTS}")
@@ -110,7 +116,7 @@ def check_key_value(key: str, v) -> None:
         if not 0 <= v < N_SLOTS:
             raise ValueError("active stage out of range")
     elif key == "polling":
-        if v not in POLLING_CODES:
+        if v not in m.polling_codes:
             raise ValueError("unknown polling rate")
 
 
@@ -118,7 +124,7 @@ def _put_dpi(ba: bytearray, k: int, v: int) -> None:
     ba[P_DPI + 2 * k], ba[P_DPI + 2 * k + 1] = v & 0xFF, v >> 8
 
 
-def encode(blob: bytes, edits: Dict[str, object]) -> bytes:
+def encode(blob: bytes, edits: Dict[str, object], m: Model = MODEL) -> bytes:
     """Copy of the blob with only the edited fields changed; the sector CRC is recomputed when the
     sector changed. dpi_yN is ignored: this sensor has one DPI for both axes."""
     current = decode(blob)
@@ -128,7 +134,7 @@ def encode(blob: bytes, edits: Dict[str, object]) -> bytes:
         if current.get(key) == v:
             continue
         v = int(v)
-        check_key_value(key, v)
+        check_key_value(key, v, m)
         if key.startswith("dpi_x"):
             k = int(key[5:])
             if k < _count(ba[:sector_len]) or k < int(edits.get("stage_count", current["stage_count"])):
@@ -160,16 +166,16 @@ def changed_keys(old: Dict[str, object], new: Dict[str, object]) -> List[str]:
     return [k for k in KEYS if old.get(k) != new.get(k)]
 
 
-def validate_settings(s: Dict[str, object]) -> None:
+def validate_settings(s: Dict[str, object], m: Model = MODEL) -> None:
     n = int(s["stage_count"])
     if not 1 <= n <= N_SLOTS or not 0 <= int(s["active_stage"]) < n:
         raise ValueError("The active DPI stage must be one of the enabled stages.")
     for k in range(n):
-        if not DPI_MIN <= s[f"dpi_x{k}"] <= DPI_MAX:
-            raise ValueError(f"DPI stage {k + 1} must be {DPI_MIN}-{DPI_MAX}.")
+        if not m.dpi_min <= s[f"dpi_x{k}"] <= m.dpi_max:
+            raise ValueError(f"DPI stage {k + 1} must be {m.dpi_min}-{m.dpi_max}.")
 
 
-def blob_problems(blob: bytes) -> List[str]:
+def blob_problems(blob: bytes, m: Model = MODEL) -> List[str]:
     if not MIN_SECTOR + 1 <= len(blob) <= MAX_SECTOR + 1:
         return [f"unexpected profile size ({len(blob) - 1} bytes)"]
     b = blob[:-1]
@@ -179,13 +185,13 @@ def blob_problems(blob: bytes) -> List[str]:
     if all(x == 0xFF for x in b[:-2]) or not any(b[:-2]):
         probs.append("the profile is empty")
         return probs
-    if b[P_REPORT_RATE] not in POLLING_CODES:
+    if b[P_REPORT_RATE] not in m.polling_codes:
         probs.append(f"report rate {b[P_REPORT_RATE]} ms is not one this app knows")
     n = _count(b)
     if n == 0:
         probs.append("the profile has no DPI stages")
     for k in range(n):
-        if not DPI_MIN <= _dpi(b, k) <= DPI_MAX:
+        if not m.dpi_min <= _dpi(b, k) <= m.dpi_max:
             probs.append(f"DPI stage {k + 1} ({_dpi(b, k)}) is out of range")
     if b[P_DEFAULT_DPI] >= N_SLOTS:
         probs.append("the default DPI stage is out of range")
@@ -252,20 +258,28 @@ def directory_entries(sector: bytes) -> List[tuple]:
     return out
 
 
-class Codec:
+class LogiCodec:
+    """The module-level functions above for one model, as the object the session and the GUI expect."""
     KEYS = KEYS
     decode = staticmethod(decode)
     flat = staticmethod(flat)
     empty = staticmethod(empty)
-    encode = staticmethod(encode)
-    snap_dpi = staticmethod(snap_dpi)
-    check_key_value = staticmethod(check_key_value)
-    validate_settings = staticmethod(validate_settings)
-    blob_problems = staticmethod(blob_problems)
     changed_keys = staticmethod(changed_keys)
     describe_changes = staticmethod(describe_changes)
     plan_writes = staticmethod(plan_writes)
     merge_backup = staticmethod(merge_backup)
+
+    def __init__(self, model: Model):
+        self.model = model
+        self.encode = partial(encode, m=model)
+        self.snap_dpi = partial(snap_dpi, m=model)
+        self.check_key_value = partial(check_key_value, m=model)
+        self.validate_settings = partial(validate_settings, m=model)
+        self.blob_problems = partial(blob_problems, m=model)
+
+
+Codec = LogiCodec(MODEL)                    # the G Pro X Superlight's
+CODECS = {m.key: Codec if m is MODEL else LogiCodec(m) for m in MODELS.values() if m.brand == "Logitech"}
 
 
 # ---------------------------------------------------------------- driver
@@ -278,6 +292,9 @@ class LogitechDriver(Driver):
                  clock: Optional[Callable[[], float]] = None):
         super().__init__(dev, wired, sleep)
         self.pid = pid or (LOGI_SUPERLIGHT_WIRED if wired else LOGI_SUPERLIGHT_WIRELESS)
+        link = LOGI_LINKS.get(self.pid)
+        self.model = MODELS[link.model] if link else MODEL      # the connected model, not the class default
+        self.codec = CODECS[self.model.key]
         kw = {"clock": clock} if clock else {}
         self.hp = hidpp.HidppDevice(dev, sleep, **kw)
         self.identified = False
@@ -291,17 +308,17 @@ class LogitechDriver(Driver):
 
     @property
     def write_enabled(self) -> bool:
-        return self.identified and self.pid in LOGI_PIDS and not self.problem
+        return self.identified and self._may_write
 
     def identify(self, progress, f0, f1) -> Snapshot:
         span = f1 - f0
-        snap = Snapshot(self.wired, "", "", self.pid, model=MODEL.key)
+        snap = Snapshot(self.wired, "", "", self.pid, model=self.model.key)
         try:
             progress(f0, "Contacting the mouse…" if self.wired else "Contacting the receiver…")
             self.hp.ping()
             progress(f0 + span * 0.4, "Identifying the mouse…")
             fw = self.hp.firmware()
-            snap = Snapshot(self.wired, "", fw, self.pid, model=MODEL.key)
+            snap = Snapshot(self.wired, "", fw, self.pid, model=self.model.key)
             if not self.hp.has(hidpp.ONBOARD_PROFILES):
                 raise HwError("This mouse doesn't offer onboard profiles, so its settings can't be edited.", snap)
             info = self.hp.onboard_info()
@@ -315,8 +332,12 @@ class LogitechDriver(Driver):
             self.problem = "the mouse uses an onboard memory layout this app doesn't know"
         self.hp.sector_size = size
         self.identified = True
-        self.hp.write_enabled = self.pid in LOGI_PIDS and not self.problem
+        self.hp.write_enabled = self._may_write
         return snap
+
+    @property
+    def _may_write(self) -> bool:
+        return self.pid in LOGI_PIDS and self.model.confirmed and not self.problem
 
     def link_check(self) -> None:
         self.hp.ping()
@@ -428,13 +449,13 @@ class LogitechDriver(Driver):
     def write(self, op: Op) -> None:
         hp = self.hp
         if not self.write_enabled:
-            raise WriteBlocked("writes are disabled: the mouse has not been identified as a G Pro X Superlight")
+            raise WriteBlocked("writes are disabled for this mouse")
         if op.kind == "mode":
             hp.set_onboard_mode()
             self.mode = hidpp.MODE_ONBOARD
         elif op.kind in ("sector", "directory"):
             if op.kind == "sector":
-                probs = blob_problems(op.data + b"\x00")
+                probs = self.codec.blob_problems(op.data + b"\x00")
                 if probs or not 1 <= op.sector < self.sector_count:
                     raise Rejected("refusing to write this profile: " + ("; ".join(probs) or "bad sector"))
             elif op.sector != 0 or not sector_crc_ok(op.data) or not directory_entries(op.data):
@@ -471,4 +492,6 @@ class LogitechDriver(Driver):
         return HwError("The mouse isn't responding.", snap)
 
     def state_problem(self) -> str:
+        if not self.model.confirmed:
+            return "it hasn't been tested on the " + self.model.name + " yet, so it only reads the settings for now"
         return self.problem

@@ -24,7 +24,8 @@ from .errors import (ApplyResult, Battery, HwError, MouseAsleep, NoAccess, NoDev
                      UnsupportedMouse, VerifyMismatch, WriteFailed)
 from .hidraw import AccessDenied
 from .logitech import LogitechDriver
-from .models import supported_names
+from .models import supported_summary
+from . import logitech, razer
 from .razer import RazerDriver
 
 Progress = Callable[[float, str], None]
@@ -44,7 +45,7 @@ def default_backup_dir() -> Path:
 
 
 DRIVERS = {"endgame": EndgameDriver, "razer": RazerDriver, "logitech": LogitechDriver}
-CODECS = {d.model.key: d.codec for d in DRIVERS.values()}
+CODECS = {**{d.model.key: d.codec for d in DRIVERS.values()}, **razer.CODECS, **logitech.CODECS}   # one per model
 
 
 def codec_for(model_key: str):
@@ -104,8 +105,7 @@ def make_driver(opened, sleep: Callable[[float], None]) -> Driver:
 
 
 def missing_text() -> str:
-    names = supported_names()
-    return "No supported mouse found (" + ", ".join(names[:-1]) + " or " + names[-1] + ")."
+    return "No supported mouse found (" + supported_summary("or") + ")."
 
 
 class MouseSession:
