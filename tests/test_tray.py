@@ -124,7 +124,8 @@ class StateDictTests(unittest.TestCase):
     def test_status_pill(self):
         pill = traymodel.status_pill
         self.assertEqual(pill("running", True), ("Protecting", "good"))
-        self.assertEqual(pill("running", False), ("Paused", "amber"))
+        self.assertEqual(pill("running", False), ("Off", "amber"))
+        self.assertEqual(pill("paused", True), ("Paused", "amber"))
         self.assertEqual(pill("waiting", True), ("No mouse", "amber"))
         self.assertEqual(pill("permission", True), ("No access", "coral"))
         self.assertEqual(pill("stopped", True), ("Stopped", "coral"))
@@ -133,7 +134,8 @@ class StateDictTests(unittest.TestCase):
     def test_protection_detail(self):
         detail = traymodel.protection_detail
         self.assertEqual(detail("running", True, "Balanced", 0), "Balanced")
-        self.assertEqual(detail("running", False, "Balanced", 3), "Paused · Balanced · 3 dropped")
+        self.assertEqual(detail("running", False, "Balanced", 3), "Off · Balanced · 3 dropped")
+        self.assertEqual(detail("paused", True, "Balanced", 3), "Paused · switch on to resume")
         self.assertEqual(detail("stopped", True, "Balanced", 3), "Service not running")
 
     def test_snapshot_reads_the_backends(self):

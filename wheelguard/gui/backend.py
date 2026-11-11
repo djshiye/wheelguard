@@ -2,16 +2,32 @@
 import datetime
 import json
 import os
+import re
+import shutil
+import sys
+from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import Property, QObject, QProcess, QTimer, Signal, Slot
 from PySide6.QtNetwork import QLocalSocket
 
+from .. import __version__ as APP_VERSION
 from . import autostart, gsettings, presets, protocol
 
 SERVICE = "wheelguard"
 DEBOUNCE_MS = 250
 BACKOFF_S = (0.5, 1.0, 2.0, 4.0, 5.0)
+
+
+def installed_version(path: Optional[Path] = None) -> str:
+    """The version of the Wheelguard files on disk right now. After a package update this is newer than the
+    code this process loaded at login."""
+    path = path or Path(__file__).resolve().parents[1] / "__init__.py"
+    try:
+        m = re.search(r'__version__\s*=\s*"([^"]{1,40})"', path.read_text(encoding="utf-8"))
+    except OSError:
+        return ""
+    return m.group(1) if m else ""
 
 
 def default_socket_path() -> str:
@@ -25,7 +41,7 @@ def default_socket_path() -> str:
 class DaemonClient(QObject):
     """Non-blocking client for the wheelguard socket (QLocalSocket, auto-reconnect with backoff).
 
-    state: "connecting" | "stopped" | "permission" | "waiting" | "running"
+    state: "connecting" | "stopped" | "permission" | "waiting" | "running" | "paused"
     The displayed config (enabled/preMs/holdMs/lockMs) is what the sliders show; it follows the
     user's edits immediately, is sent to the daemon after a debounce, and snaps back to the
     daemon's config if the daemon answers with an error.
@@ -40,6 +56,8 @@ class DaemonClient(QObject):
     miceChanged = Signal()
     historyChanged = Signal()
     tick = Signal(int, str, bool, float)     # sign, kind, held, t
+    reconnected = Signal()                   # a fresh connection: the service has forgotten our temporary settings
+    updateChanged = Signal()
 
     def __init__(self, path: Optional[str] = None, parent=None):
         super().__init__(parent)
@@ -51,6 +69,11 @@ class DaemonClient(QObject):
         self._version = ""
         self._server_cfg = dict(protocol.CONFIG_DEFAULTS)
         self._clicklock_active = False
+        self._ident = ""
+        self._override: dict = {}           # the temporary settings we want in force (per-game profiles)
+        self._allowed = lambda: ()          # ids the user allowed (set_allowed_source)
+        self._debounced_by = (0, 0, 0)
+        self._disk_version = APP_VERSION
         self._mice: list = []
         self._history: list = []
         self._cfg = dict(self._server_cfg)
@@ -107,6 +130,10 @@ class DaemonClient(QObject):
         self._lines.clear()
         self._queue.clear()
         self._send({"cmd": "subscribe"})
+        if self._override:
+            self.reconnected.emit()         # before the service's answer is read (see ProfileController)
+            self._send({"cmd": "override", "config": self._override}, track="override")
+        self._check_update()
 
     def _on_error(self, _err):
         # Connection refused / not found / peer closed: all mean "no usable daemon right now".
@@ -176,7 +203,13 @@ class DaemonClient(QObject):
 
     def _on_status(self, msg: dict):
         ds = protocol.device_state(msg)
-        self._version = str(msg.get("version") or "")
+        version = str(msg.get("version") or "")
+        ident = protocol.status_ident(msg)
+        if (version, ident) != (self._version, self._ident):
+            self._version, self._ident = version, ident
+            self.stateChanged.emit()
+            self.miceChanged.emit()
+            self._check_update()
         self._set_state(ds.state, ds.device, ds.error, ds.label)
         cfg = protocol.status_config(msg)
         if cfg is not None:
@@ -190,8 +223,10 @@ class DaemonClient(QObject):
             self._clicklock_active = active
             self.clickLockActiveChanged.emit()
         st = protocol.status_stats(msg)
-        if (st["ticks"], st["dropped"], st["debounced"]) != (self._ticks, self._dropped, self._debounced):
+        if ((st["ticks"], st["dropped"], st["debounced"], st["debounced_by"])
+                != (self._ticks, self._dropped, self._debounced, self._debounced_by)):
             self._ticks, self._dropped, self._debounced = st["ticks"], st["dropped"], st["debounced"]
+            self._debounced_by = st["debounced_by"]
             self.statsChanged.emit()
 
     def _set_history(self, days: list):
@@ -328,6 +363,65 @@ class DaemonClient(QObject):
         if patch:
             self._stage(dict(patch), immediate=True)
 
+    def setOverride(self, config: dict):
+        """Per-game profiles: settings the service uses for as long as this app stays connected, without
+        saving them. {} ends them. Sent again by itself after a reconnect."""
+        config = dict(config)
+        if config == self._override:
+            return
+        self._override = config
+        self._send({"cmd": "override", "config": config}, track="override")
+
+    @Slot(bool)
+    def setPaused(self, on: bool):
+        """Pause: the service lets go of the mouse until resumed (or until it restarts)."""
+        self._send({"cmd": "pause", "on": bool(on)}, track="pause")
+
+    @Slot(int)
+    def setClickLockDragCounts(self, counts: int):
+        lo, hi = protocol.DRAG_COUNTS_RANGE
+        if lo <= int(counts) <= hi and int(counts) != self._cfg["clicklock_drag_counts"]:
+            self._stage({"clicklock_drag_counts": int(counts)}, immediate=True)
+
+    def set_allowed_source(self, fn):
+        """Where the ids of user-allowed mice come from (MouseAccess.allowed)."""
+        self._allowed = fn
+
+    @Slot()
+    def miceListChanged(self):
+        self.miceChanged.emit()
+
+    # --- after a package update
+    def _check_update(self):
+        disk = installed_version()
+        if disk != self._disk_version:
+            self._disk_version = disk
+        self.updateChanged.emit()
+
+    @Slot()
+    def restartService(self):
+        if self._service_busy:
+            return
+        self._service_busy, self._service_error = True, ""
+        self.serviceChanged.emit()
+        proc = QProcess(self)
+        proc.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        proc.finished.connect(lambda code, _status, p=proc: self._service_done(p, code))
+        proc.errorOccurred.connect(lambda _e, p=proc: self._service_done(p, -1))
+        self._proc = proc
+        proc.start("systemctl", ["--user", "restart", SERVICE])
+
+    @Slot()
+    def restartApp(self):
+        """Start the updated app once this one has gone (it owns the single-instance name until then)."""
+        exe = shutil.which("wheelguard-settings")
+        if exe is None:
+            exe = str(Path(sys.argv[0]).resolve())
+        script = 'while kill -0 "$1" 2>/dev/null; do sleep 0.2; done; exec "$2"'
+        QProcess.startDetached("/bin/sh", ["-c", script, "wheelguard-restart", str(os.getpid()), exe])
+        from PySide6.QtCore import QCoreApplication
+        QCoreApplication.quit()
+
     def flushSocket(self):
         """Push what was written out before the app exits."""
         if self._sock.state() == QLocalSocket.LocalSocketState.ConnectedState:
@@ -418,6 +512,16 @@ class DaemonClient(QObject):
     deviceLabel = Property(str, lambda s: s._label, notify=stateChanged)   # "Endgame Gear XM2w 4k v2 · dongle"
     detail = Property(str, lambda s: s._detail, notify=stateChanged)
     version = Property(str, lambda s: s._version, notify=stateChanged)
+    appVersion = Property(str, lambda s: APP_VERSION, constant=True)
+    # "" | "service" (restart the service) | "app" (this app is the old one: restart it)
+    updateNeeded = Property(str, lambda s: protocol.update_state(APP_VERSION, s._version, s._disk_version),
+                            notify=updateChanged)
+    paused = Property(bool, lambda s: s._state == "paused", notify=stateChanged)
+    configKnown = Property(bool, lambda s: s._state in protocol.CONFIG_STATES, notify=stateChanged)
+    ident = Property(str, lambda s: s._ident, notify=stateChanged)       # "vvvv:pppp" of the mouse being filtered
+    mouseRows = Property("QVariantList", lambda s: protocol.mouse_rows(s._mice, s._cfg["mouse"], s._ident,
+                                                                       tuple(s._allowed())), notify=miceChanged)
+    debouncedDetail = Property(str, lambda s: protocol.debounced_text(s._debounced_by), notify=statsChanged)
     enabled = Property(bool, lambda s: s._cfg["enabled"], notify=configChanged)
     preMs = Property(int, lambda s: s._cfg["pre_ms"], notify=configChanged)
     holdMs = Property(int, lambda s: s._cfg["hold_ms"], notify=configChanged)
@@ -467,6 +571,47 @@ class DaemonClient(QObject):
     serviceError = Property(str, lambda s: s._service_error, notify=serviceChanged)
 
 
+class MouseFollow(QObject):
+    """One mouse everywhere: the Mouse page talks to the mouse the service protects (when two supported mice
+    are connected), and Click-Lock's "ignore drags" distance follows that mouse's DPI."""
+
+    def __init__(self, daemon, mouse, parent=None, prefer=None):
+        super().__init__(parent)
+        self._daemon, self._mouse = daemon, mouse
+        if prefer is None:
+            from ..hw import session
+            prefer = session.prefer
+        self._prefer = prefer
+        self._ident = None
+        self._sent = 0                      # the last drag distance asked for: never asked twice (the service may refuse)
+        daemon.stateChanged.connect(self._on_daemon)
+        daemon.configChanged.connect(self._sync_drag)
+        mouse.trayChanged.connect(self._sync_drag)
+        self._on_daemon()
+
+    def _on_daemon(self):
+        ident = self._daemon.ident
+        if ident != self._ident:
+            self._ident = ident
+            self._sent = 0                  # another mouse, or the service came back: it may be asked again
+            ids = protocol.mouse_ids.parse_choice(ident) if ident else None
+            if self._prefer(ids) and self._mouse.state in ("ready", "missing", "asleep"):
+                self._mouse.refresh()
+        self._sync_drag()
+
+    def _sync_drag(self):
+        d, m = self._daemon, self._mouse
+        if not d.configKnown or not d.ident or not m.online:
+            return
+        if m.usbIdText[:4].lower() != d.ident[:4]:
+            return                          # the Mouse page shows another brand than the one being protected
+        base, stage = m.baseline, m.activeStage
+        counts = protocol.drag_counts_for_dpi(base.get(f"dpi_x{stage}")) if stage >= 0 else 0
+        if counts and counts != self._sent:
+            self._sent = counts
+            d.setClickLockDragCounts(counts)
+
+
 class PointerSettings(QObject):
     """org.gnome.desktop.peripherals.mouse via the gsettings CLI. Reads on start/focus, writes debounced."""
 
@@ -488,10 +633,36 @@ class PointerSettings(QObject):
         self._timer.setSingleShot(True)
         self._timer.setInterval(150)
         self._timer.timeout.connect(self._flush)
+        self._reader: Optional[QProcess] = None
 
     @Slot()
     def refresh(self):
-        vals = gsettings.read_all()
+        """Read GNOME's values without holding up the window: gsettings runs in the background and the
+        controls update when it answers (it used to be waited for, up to 3 s, on the UI thread)."""
+        if self._reader is not None or not gsettings.available():
+            if not gsettings.available():
+                self._take(None)
+            return
+        proc = QProcess(self)
+        self._reader = proc
+        proc.finished.connect(lambda code, _status, p=proc: self._read_done(p, code))
+        proc.errorOccurred.connect(lambda _e, p=proc: self._read_done(p, -1))
+        proc.start("gsettings", ["list-recursively", gsettings.SCHEMA])
+        QTimer.singleShot(int(gsettings.TIMEOUT_S * 1000), proc, proc.kill)
+
+    def _read_done(self, proc: QProcess, code: int):
+        if proc is not self._reader:
+            return
+        self._reader = None
+        text = bytes(proc.readAllStandardOutput()).decode(errors="replace") if code == 0 else None
+        proc.deleteLater()
+        self._take(gsettings.values_from(text))
+
+    def refreshNow(self):
+        """The same, waited for (tests)."""
+        self._take(gsettings.read_all())
+
+    def _take(self, vals):
         avail = vals is not None
         if avail != self._available:
             self._available = avail
@@ -545,7 +716,7 @@ class PointerSettings(QObject):
 
 
 class Autostart(QObject):
-    """The 'Start in tray at login' switch on the About page (see autostart.py)."""
+    """The 'Start in tray at login' switch on the Settings page (see autostart.py)."""
 
     changed = Signal()
 

@@ -20,6 +20,7 @@ Messages are UTF-8 JSON objects, one per line (`\n`-terminated), both directions
   "clicklock_rate": 10,
   "clicklock_max_s": 600,
   "clicklock_ignore_drag": true,
+  "clicklock_drag_counts": 400,
   "debounce_ms": 0,
   "mouse": "auto"
 }
@@ -44,9 +45,10 @@ the lock (that press goes through). Switching Click-Lock off or changing the
 mode ends a running lock at once.
 
 Ignore drags: with `clicklock_ignore_drag: true` (the default) and mode `repeat`, a hold only engages
-the lock if the pointer stayed roughly still: once the pointer has moved more than 100 counts
-(REL_X/REL_Y, measured from where the button went down) the press can no longer engage the lock. Mode
-`hold` ignores this setting and works as before.
+the lock if the pointer stayed roughly still: once the pointer has moved more than
+`clicklock_drag_counts` counts (50 to 20000, default 400; REL_X/REL_Y, measured from where the button
+went down) the press can no longer engage the lock. The app sets it to a quarter inch of hand movement
+at the mouse's DPI when it knows the DPI. Mode `hold` ignores both settings and works as before.
 
 Double-click fix: `debounce_ms` (0 = off, otherwise 10 to 150; default 0) drops a press of the left,
 right or middle button that arrives less than that many ms after the same button's previous release,
@@ -58,8 +60,13 @@ them. Each dropped press is counted in `stats.debounced`.
 Safety timer: `clicklock_max_s` (0 = never, otherwise 10 to 3600; default 600) ends a running lock by
 itself that long after it engaged; the button is handed back like for any other end of the lock. A
 running lock is also ended when the computer suspends (the daemon notices CLOCK_BOOTTIME running ahead
-of CLOCK_MONOTONIC, or its loop stalling for 15 s), and when a client sends `clicklock_stop` (the app
-does so when the screen locks).
+of CLOCK_MONOTONIC, or its loop stalling for 15 s), when the screen locks (the daemon watches
+`org.gnome.ScreenSaver` on the session bus through `gdbus monitor`; without gdbus or a session bus this
+is skipped), and when a client sends `clicklock_stop` (the app also does so when the screen locks).
+
+Timing: the daemon asks the kernel for CLOCK_MONOTONIC event timestamps (EVIOCSCLOCKID) and measures
+every interval on that clock, so a clock change (NTP step, timezone, suspend) can never stretch or
+shrink a filter window.
 
 `enabled: false` = pass every wheel tick through untouched (device stays grabbed, ticks are still
 reported with `kind: "pass"`). Missing keys take defaults. The daemon also notices hand edits
@@ -83,7 +90,9 @@ the block-rate chart (and the "wheel may be wearing" hint) from it.
 | `{"cmd": "subscribe"}` | start streaming `tick` and `status` events to this client | one `status` event, then the stream |
 | `{"cmd": "set", "config": {...partial...}}` | validate, merge, write config.json atomically, apply live | `{"type":"ok"}` or `{"type":"error","message":"..."}`, then a `status` event to all subscribers |
 | `{"cmd": "history"}` | fetch the daily wheel totals | one `{"type":"history","days":[{"date":"2026-11-09","ticks":5120,"dropped":61}, ...]}` event, oldest day first, at most 90 days (local dates; today's total is up to date) |
-| `{"cmd": "mice"}` | rescan the input devices (at most every 5 s, otherwise the last scan is reused) | one `{"type":"mice","mice":[...]}` event, same list as in `status` |
+| `{"cmd": "override", "config": {...}}` | temporary settings (per-game profiles): the given keys (`enabled`, `pre_ms`, `hold_ms`, `lock_ms`, `clicklock` only) replace the saved ones without being written to config.json. They belong to the sending client and end when it disconnects or sends `{}`. A `set` of an overridden key ends that key's override. An override that no longer validates against the saved config is dropped | `ok`/`error`, then `status` to subscribers |
+| `{"cmd": "pause", "on": true}` | pause: let go of the mouse (ungrab, close the virtual mouse) until `"on": false`; not saved, so a restart resumes | `ok`, then `status` to subscribers |
+| `{"cmd": "mice"}` | rescan the input devices (at most every 5 s, otherwise the last scan is reused; a mouse being plugged in or made accessible triggers a rescan by itself) | one `{"type":"mice","mice":[...]}` event, same list as in `status` |
 | `{"cmd": "reload"}` | re-read config.json | `ok`/`error` |
 | `{"cmd": "clicklock_stop"}` | end a running Click-Lock now and release any held button (nothing to do if none runs) | `ok`, then `status` to subscribers if a lock ended |
 | `{"cmd": "reset_stats"}` | zero the counters | `ok`, then `status` to subscribers |
@@ -96,23 +105,27 @@ Validation: `0 < hold_ms < lock_ms`, `0 <= pre_ms <= lock_ms`, all ms values <= 
 {"type": "status",
  "version": "1.0.0",
  "connected": true,                 // real mouse found and grabbed
+ "paused": false,                   // true after {"cmd":"pause","on":true}: connected is false and nothing is filtered
+ "ident": "3367:1970",              // vendor:product of the mouse being filtered; null when none
  "device": "Endgame Gear Endgame Gear HS Dongle",
  "model": "Endgame Gear XM2w 4k v2",   // friendly name of the supported mouse being filtered; null for any other mouse
  "connection": "dongle",            // "dongle", "receiver" or "cable"; null when the model is unknown
  "error": null,                     // e.g. "permission denied: /dev/input/event2" when the udev rule is missing
- "config": {...full effective config...},
+ "config": {...full effective config...},   // saved settings with any override on top
+ "override": {},                    // the temporary settings in force (see the override command)
  "mice": [{"name": "Endgame Gear XM2w 4k v2",   // friendly model name, else the device name
            "device": "Endgame Gear HS Dongle", "vendor": "3367", "product": "1970",
-           "supported": true, "connection": "dongle"}],   // connected mice with a scroll wheel; refreshed by status/subscribe/mice (<= every 5 s)
- "stats": {"ticks": 1234, "passed": 1120, "dropped": 114, "debounced": 3, "since": 1729400000.0},
+           "supported": true, "accessible": true, "connection": "dongle"}],   // connected mice with a scroll wheel; refreshed by status/subscribe/mice (<= every 5 s)
+ "stats": {"ticks": 1234, "passed": 1120, "dropped": 114, "debounced": 3,
+           "debounced_by": {"left": 3, "right": 0, "middle": 0}, "since": 1729400000.0},
  "clicklock_active": false}         // Click-Lock is engaged right now (a status event goes out when it changes)
 ```
 
 ```json
-{"type": "tick", "t": 1729400001.234, "sign": 1, "kind": "emit|drop|hold|pass", "held": false, "gap_ms": 12.5}
+{"type": "tick", "t": 5231.234, "sign": 1, "kind": "emit|drop|hold|pass", "held": false, "gap_ms": 12.5}
 ```
 
-`sign` is the raw REL_WHEEL sign (+1 = wheel up / away from user, -1 = down). A held tick produces
+`t` is CLOCK_MONOTONIC seconds (only differences between ticks mean anything). `sign` is the raw REL_WHEEL sign (+1 = wheel up / away from user, -1 = down). A held tick produces
 `hold` first and later an `emit` or `drop` with `held: true`.
 
 Only wheel ticks go on the wire, never pointer motion. Writes to clients are non-blocking: a client

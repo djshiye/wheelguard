@@ -9,7 +9,8 @@ APP_ID = "io.github.djshiye.Wheelguard"
 HERE = Path(__file__).resolve().parent
 QML_DIR = HERE / "qml"
 ICON_NAME = APP_ID + ".svg"
-PAGES = {"scroll": 0, "mouse": 1, "pointer": 2, "profiles": 3, "about": 4}     # sidebar order
+PAGES = {"scroll": 0, "clicks": 1, "mouse": 2, "pointer": 3, "profiles": 4, "settings": 5}     # sidebar order
+PAGE_ALIASES = {"about": "settings"}        # the page's name before 1.7.0
 
 
 def find_icon() -> Path:
@@ -31,9 +32,13 @@ def parse_args(argv):
     keys = ap.add_argument_group("for keyboard shortcuts (talk to the running app, no window)")
     keys.add_argument("--toggle-clicklock", action="store_true", help="switch Click-Lock on or off")
     keys.add_argument("--next-dpi-stage", action="store_true", help="switch the mouse to its next DPI stage")
+    keys.add_argument("--toggle-pause", action="store_true",
+                      help="pause Wheelguard (the service lets go of the mouse) or resume it")
     shot = ap.add_argument_group("screenshots (development)")
     shot.add_argument("--screenshot", metavar="PNG", help="render the window to PNG after a delay, then quit")
-    shot.add_argument("--page", choices=tuple(PAGES), default="scroll")
+    shot.add_argument("--page", choices=tuple(PAGES) + tuple(PAGE_ALIASES), default="scroll")
+    shot.add_argument("--section", type=int, metavar="N", help="on the Mouse page, show section N (0 to 3)")
+    shot.add_argument("--picker", action="store_true", help="open the mouse picker under the status pill")
     shot.add_argument("--advanced", action="store_true", help="open the Advanced expander")
     shot.add_argument("--theme", choices=("dark", "light"), help="force a theme instead of following GNOME")
     shot.add_argument("--text-scale", type=float, help="force a text size factor (GNOME Large Text is 1.25)")
@@ -79,10 +84,11 @@ def wait_for(QEventLoop, QTimer, signal, ms):
 def main(argv=None):
     args = parse_args(sys.argv[1:] if argv is None else argv)
 
-    if args.toggle_clicklock or args.next_dpi_stage:
+    if args.toggle_clicklock or args.next_dpi_stage or args.toggle_pause:
         from . import commands
-        return commands.main(commands.TOGGLE_CLICKLOCK if args.toggle_clicklock else commands.NEXT_DPI_STAGE,
-                             args.socket)
+        action = (commands.TOGGLE_PAUSE if args.toggle_pause
+                  else commands.TOGGLE_CLICKLOCK if args.toggle_clicklock else commands.NEXT_DPI_STAGE)
+        return commands.main(action, args.socket)
 
     # Qt's QML disk cache trusts source mtimes, but RPM clamps every file to the build day, so two
     # releases built the same day look identical and stale bytecode gets loaded. Key it by version.
@@ -120,11 +126,12 @@ def main(argv=None):
     from PySide6.QtQuickControls2 import QQuickStyle
     from . import shellext, tray
     from .appsettings import AppSettings
-    from .backend import Appearance, Autostart, DaemonClient, LiquidGlass, PointerSettings
+    from .backend import Appearance, Autostart, DaemonClient, LiquidGlass, MouseFollow, PointerSettings
     from .batteryalert import BatteryAlerts
     from .diagnostics import Diagnostics
     from .shortcuts import ShortcutsBackend
     from .mouse import MouseController
+    from .mouseaccess import MouseAccess
     from .profilectl import PROVIDER_ID, AppIconProvider, ProfileController
 
     QQuickStyle.setStyle("Basic")
@@ -192,6 +199,14 @@ def main(argv=None):
     ctx.setContextProperty("shortcuts", ShortcutsBackend(parent=engine))
     ctx.setContextProperty("diagnostics", Diagnostics(daemon, mouse, ext, app_settings, engine))
     ctx.setContextProperty("autostart", Autostart(engine))
+    # In a screenshot run the button is shown without the installed helper; it is never pressed there.
+    access = MouseAccess(
+        parent=engine, helper="/bin/true", which=lambda _n: "/bin/true",
+        rules_path=os.environ.get("WHEELGUARD_SHOT_RULES", "/nonexistent")) if shot else MouseAccess(parent=engine)
+    ctx.setContextProperty("mouseAccess", access)
+    daemon.set_allowed_source(lambda: access.allowed)
+    access.changed.connect(daemon.miceListChanged)
+    MouseFollow(daemon, mouse, engine)          # the Mouse page and "ignore drags" follow the protected mouse
     ctx.setContextProperty("iconUrl", QUrl.fromLocalFile(str(icon_path)))
     engine.load(QUrl.fromLocalFile(str(QML_DIR / "Main.qml")))
     if not engine.rootObjects():
@@ -216,7 +231,13 @@ def main(argv=None):
     w, h = (int(v) for v in args.size.lower().split("x"))
     win.setWidth(w)
     win.setHeight(h)
-    win.setProperty("pageIndex", PAGES[args.page])
+    win.setProperty("pageIndex", PAGES[PAGE_ALIASES.get(args.page, args.page)])
+    if args.section is not None:
+        page = win.findChild(QObject, "mousePage")
+        if page is not None:
+            page.setProperty("section", max(0, min(3, args.section)))
+    if args.picker:
+        QTimer.singleShot(max(0, args.delay_ms - 900), lambda: win.setProperty("pickerOpen", True))
     if args.profiles_demo in ("pick", "edit"):
         page = win.findChild(QObject, "profilesPage")
         if page is not None:

@@ -1,6 +1,8 @@
 """Ends a running Click-Lock when the screen locks, so a held or clicking button never carries on behind
 the lock screen. GNOME's screensaver announces it on the session bus (org.gnome.ScreenSaver.ActiveChanged);
-the daemon itself has no session bus, so the app, which does, tells it. No-op where the signal is absent."""
+the app tells the daemon. Since 1.7.0 the daemon also watches for it by itself (wheelguard/screenwatch.py), so
+this is the second line of defence and covers desktops that only have org.freedesktop.ScreenSaver.
+No-op where the signal is absent."""
 import logging
 
 from PySide6.QtCore import SLOT, QObject, Slot

@@ -30,8 +30,9 @@ MODES = (REPEAT, HOLD)
 
 DEFAULT_HOLD_MS = 5000
 DEFAULT_RATE = 10
-DRAG_COUNTS = 400           # REL_X/REL_Y counts the pointer may wander while held before it counts as a drag. Counts, not pixels:
-                            # a hand resting on a 1600-3200 DPI mouse jitters by 100+ counts, so 400 (~0.25 inch at 1600 DPI) is a real move
+DRAG_COUNTS = 400           # default for REL_X/REL_Y counts the pointer may wander while held before it counts as a drag. Counts, not
+                            # pixels: a hand resting on a 1600-3200 DPI mouse jitters by 100+ counts, so 400 (~0.25 inch at 1600 DPI) is a
+                            # real move. The app sets `clicklock_drag_counts` to 0.25 inch at the mouse's own DPI when it knows it.
 DEFAULT_MAX_S = 600         # safety timer: a lock that is still running after 10 minutes stops by itself
 
 Event = Tuple[int, int, int]
@@ -44,7 +45,7 @@ def _key(value) -> Frame:
 
 class ClickLock:
     def __init__(self, enabled=False, hold_ms=DEFAULT_HOLD_MS, mode=REPEAT, rate=DEFAULT_RATE,
-                 max_s=0, ignore_drag=True):
+                 max_s=0, ignore_drag=True, drag_counts=DRAG_COUNTS):
         self.phys_down = False      # the user's finger is on the button
         self.virtual_down = False   # what the rest of the system has been told
         self.locked = False
@@ -54,15 +55,16 @@ class ClickLock:
         self.locked_at = None       # when the running lock engaged (for the safety timer)
         self.timed_out = False      # the last lock ended because the safety timer ran out
         self.moved_x = self.moved_y = 0     # pointer motion since the current press (counts)
-        self.configure(enabled, hold_ms, mode, rate, max_s, ignore_drag)
+        self.configure(enabled, hold_ms, mode, rate, max_s, ignore_drag, drag_counts)
 
-    def configure(self, enabled, hold_ms, mode, rate, max_s=0, ignore_drag=True):
+    def configure(self, enabled, hold_ms, mode, rate, max_s=0, ignore_drag=True, drag_counts=DRAG_COUNTS):
         """Change the settings in place. Turning it off does not end a running lock: call stop()."""
         self.enabled = bool(enabled)
         self.hold = hold_ms / 1000.0
         self.mode = mode if mode in MODES else REPEAT
         self.half = 0.5 / max(1, rate)          # a click is down for half a period, up for the other half
         self.ignore_drag = bool(ignore_drag)
+        self.drag_counts = max(1, drag_counts or DRAG_COUNTS)
         self.max_s = max(0, max_s or 0)         # 0 = no safety timer
         if not self.enabled:
             self.pressed_at = None
@@ -142,7 +144,7 @@ class ClickLock:
                 self.moved_x += value
             elif etype == e.EV_REL and code == e.REL_Y:
                 self.moved_y += value
-        if math.hypot(self.moved_x, self.moved_y) > DRAG_COUNTS:
+        if math.hypot(self.moved_x, self.moved_y) > self.drag_counts:
             self.pressed_at = None
 
     def flush(self, now) -> Tuple[List[Frame], bool]:

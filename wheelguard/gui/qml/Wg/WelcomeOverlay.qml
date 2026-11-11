@@ -10,7 +10,7 @@ Item {
     id: root
     property int step: 0
     readonly property int lastStep: 2
-    readonly property bool serviceUp: daemon.state === "running" || daemon.state === "waiting" || daemon.state === "permission"
+    readonly property bool serviceUp: daemon.configKnown || daemon.state === "permission"
     property int cornerRadius: 18
     // The same advice everywhere the welcome mentions a missing device-access rule.
     readonly property string fixCommand: "sudo dnf reinstall wheelguard"
@@ -282,10 +282,10 @@ Item {
                             wrapMode: Text.WordWrap
                         }
                         CheckRow {
-                            tone: daemon.state === "permission" ? Theme.coral : (daemon.state === "running" || daemon.state === "waiting" ? Theme.good : Theme.textFaint)
-                            icon: daemon.state === "permission" ? "lock" : (daemon.state === "running" || daemon.state === "waiting" ? "check" : "clock")
+                            tone: daemon.state === "permission" ? Theme.coral : (daemon.configKnown ? Theme.good : Theme.textFaint)
+                            icon: daemon.state === "permission" ? "lock" : (daemon.configKnown ? "check" : "clock")
                             title: daemon.state === "permission" ? "Wheelguard can't read your mouse's scroll wheel"
-                                   : (daemon.state === "running" || daemon.state === "waiting" ? "Scroll wheel access is fine" : "Scroll wheel access: start the service first")
+                                   : (daemon.configKnown ? "Scroll wheel access is fine" : "Scroll wheel access: start the service first")
                             body: daemon.state === "permission" ? "The device-access (udev) rule is missing. " + root.fixText
                                   : (daemon.state === "stopped" ? "Go back and press Start service." : "")
                             command: daemon.state === "permission" ? root.fixCommand : ""
@@ -322,7 +322,7 @@ Item {
                             Layout.fillWidth: true
                             text: daemon.state === "stopped" || daemon.state === "connecting"
                                   ? "Start the service in step 1 to choose a strength. Balanced is a good start."
-                                  : "Pick how firmly stray scrolls are caught. You can change this any time on the Scroll protection page."
+                                  : "Pick how firmly stray scrolls are caught. You can change this any time on the Scroll page."
                             font.pixelSize: Theme.fsBody
                             color: Theme.textMuted
                             wrapMode: Text.WordWrap

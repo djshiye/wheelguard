@@ -132,12 +132,15 @@ class Server:
         return client
 
     def _drop(self, client):
+        if client.closed:
+            return
         client.closed = True
         self.clients.pop(client.sock.fileno(), None)
         try:
             client.sock.close()
         except OSError:
             pass
+        self.ctl.client_gone(client)
 
     def _read(self, client):
         try:
@@ -225,6 +228,10 @@ class Server:
             return {"type": "mice", "mice": ctl.refresh_mice(MICE_MAX_AGE)}
         if cmd == "set":
             err = ctl.set_config(msg.get("config"))
+        elif cmd == "override":
+            err = ctl.set_override(msg.get("config"), client)
+        elif cmd == "pause":
+            err = ctl.set_paused(msg.get("on"))
         elif cmd == "reload":
             err = ctl.reload()
         elif cmd == "clicklock_stop":

@@ -1,11 +1,12 @@
-"""GNOME custom keyboard shortcuts for Wheelguard's two quick commands.
+"""GNOME custom keyboard shortcuts for Wheelguard's quick commands.
 
     Super+Alt+C   toggle Click-Lock        (wheelguard-settings --toggle-clicklock)
     Super+Alt+D   next DPI stage           (wheelguard-settings --next-dpi-stage)
+    Super+Alt+P   pause or resume          (wheelguard-settings --toggle-pause)
 
 They are added as ordinary GNOME custom keybindings (org.gnome.settings-daemon.plugins.media-keys), so the
 user can change or remove them in GNOME Settings > Keyboard > Custom Shortcuts. Nothing is written until
-the user presses the button, the user's existing custom shortcuts are never changed, and our two entries
+the user presses the button, the user's existing custom shortcuts are never changed, and our entries
 are only ever appended to the list.
 """
 import re
@@ -44,6 +45,8 @@ SHORTCUTS = (
              ("<Super><Alt>c", "<Super><Alt>k"), "Super+Alt+C"),
     Shortcut("wheelguard-next-dpi", "Wheelguard: next DPI stage", "--next-dpi-stage",
              ("<Super><Alt>d", "<Super><Alt>i"), "Super+Alt+D"),
+    Shortcut("wheelguard-pause", "Wheelguard: pause or resume", "--toggle-pause",
+             ("<Super><Alt>p", "<Super><Alt>u"), "Super+Alt+P"),
 )
 
 
@@ -99,6 +102,11 @@ class Shortcuts:
         paths = self.read_list() or []
         return all(s.path in paths for s in SHORTCUTS)
 
+    def missing(self) -> int:
+        """How many of our shortcuts aren't there yet (someone who added them before 1.7.0 lacks Pause)."""
+        paths = self.read_list() or []
+        return sum(1 for s in SHORTCUTS if s.path not in paths)
+
     def assigned(self) -> List[str]:
         """The keys our shortcuts have right now, as people read them, in SHORTCUTS order (a fall-back key if
         the suggested one was taken, whatever the user changed it to, "no key set" for none)."""
@@ -148,17 +156,18 @@ class ShortcutsBackend(QObject):
         self._message = ""
         self._error = False
         self._installed = self._available and self._engine.installed()
-        self._keys = self._engine.assigned() if self._installed else [sc.label for sc in SHORTCUTS]
+        self._some = self._available and 0 < self._engine.missing() < len(SHORTCUTS)
+        self._keys = self._engine.assigned() if (self._installed or self._some) else [sc.label for sc in SHORTCUTS]
 
     @Slot()
     def add(self):
         res = self._engine.add()
         self._error = not res.ok
         if res.ok:
-            self._installed = True
+            self._installed, self._some = True, False
             self._keys = self._engine.assigned()
             self._message = ("Added. Change the keys any time in GNOME Settings > Keyboard > Custom Shortcuts."
-                             if res.added else "Both shortcuts are already there.")
+                             if res.added else "The shortcuts are already there.")
         else:
             self._message = res.error
         self.changed.emit()
@@ -166,11 +175,13 @@ class ShortcutsBackend(QObject):
     @Slot()
     def refresh(self):
         self._installed = self._available and self._engine.installed()
-        self._keys = self._engine.assigned() if self._installed else [sc.label for sc in SHORTCUTS]
+        self._some = self._available and 0 < self._engine.missing() < len(SHORTCUTS)
+        self._keys = self._engine.assigned() if (self._installed or self._some) else [sc.label for sc in SHORTCUTS]
         self.changed.emit()
 
     available = Property(bool, lambda s: s._available, constant=True)
     installed = Property(bool, lambda s: s._installed, notify=changed)
+    partly = Property(bool, lambda s: s._some, notify=changed)      # some are there, a newer one (Pause) is not
     message = Property(str, lambda s: s._message, notify=changed)
     failed = Property(bool, lambda s: s._error, notify=changed)
     labels = Property("QStringList", lambda s: [sc.label for sc in SHORTCUTS], constant=True)

@@ -363,17 +363,17 @@ class SingleInstanceTests(unittest.TestCase):
         self.assertEqual(d.calls, [("enabled", False)])
 
 
-    def test_shortcut_commands_over_the_bus(self):
+    def test_the_dpi_shortcut_goes_over_the_bus(self):
         svc = service.Service(bus=self.first)
         self.assertTrue(service.claim(self.first) and svc.register())
         d, m = FakeDaemon(), FakeMouse()
         svc.attach(d, m)
         out = self.other_process(self.PRELUDE + (
             "from wheelguard.gui import commands\n"
-            "print(commands.run_action('toggle-clicklock', service.call_remote_text, lambda: (False, 'x')))\n"
-            "print(commands.run_action('next-dpi-stage', service.call_remote_text, lambda: (False, 'x')))\n"))
-        self.assertEqual(out.splitlines(), ["(True, 'Click-Lock on')", "(True, 'DPI 400')"])
-        self.assertEqual(d.calls, [("clicklock", True)])
+            "print(commands.run_action('next-dpi-stage', service.call_remote_text, lambda: (False, 'x')))\n"
+            "print(commands.run_action('toggle-clicklock', service.call_remote_text, lambda: (True, 'direct')))\n"))
+        self.assertEqual(out.splitlines(), ["(True, 'DPI 400')", "(True, 'direct')"])
+        self.assertEqual(d.calls, [])           # Click-Lock and Pause go straight to the service, not the app
         self.assertEqual(m.calls, [("stage", 0)])
 
     def test_no_app_means_no_answer(self):

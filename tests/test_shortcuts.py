@@ -69,11 +69,11 @@ class AddTests(unittest.TestCase):
         self.g = FakeGsettings(**kw)
         return shortcuts.Shortcuts(self.g, lambda flag: "wheelguard-settings " + flag)
 
-    def test_adds_both_to_an_empty_list(self):
+    def test_adds_all_to_an_empty_list(self):
         s = self.make()
         res = s.add()
         self.assertTrue(res.ok)
-        self.assertEqual(res.added, ["Super+Alt+C", "Super+Alt+D"])
+        self.assertEqual(res.added, ["Super+Alt+C", "Super+Alt+D", "Super+Alt+P"])
         self.assertEqual(self.g.paths, [sc.path for sc in shortcuts.SHORTCUTS])
         clicklock = self.g.items[shortcuts.SHORTCUTS[0].path]
         self.assertEqual((clicklock["command"], clicklock["binding"]),
@@ -88,7 +88,7 @@ class AddTests(unittest.TestCase):
         before = {p: dict(v) for p, v in self.g.items.items() if p in mine}
         self.assertTrue(s.add().ok)
         self.assertEqual(self.g.paths[:2], mine)                       # order and entries kept
-        self.assertEqual(len(self.g.paths), 4)
+        self.assertEqual(len(self.g.paths), 5)
         self.assertEqual({p: self.g.items[p] for p in mine}, before)   # their items untouched
         for a in self.g.writes:           # only our own items and the list itself were written
             if a[2] != "custom-keybindings":
@@ -100,7 +100,7 @@ class AddTests(unittest.TestCase):
         n = len(self.g.writes)
         res = s.add()
         self.assertTrue(res.ok)
-        self.assertEqual((res.added, len(res.existing)), ([], 2))
+        self.assertEqual((res.added, len(res.existing)), ([], 3))
         self.assertEqual(len(self.g.writes), n)
 
     def test_does_not_overwrite_a_wheelguard_entry_the_user_changed(self):
@@ -108,7 +108,7 @@ class AddTests(unittest.TestCase):
         s = self.make(paths=[sc.path], bindings={sc.path: "<Super>x"})
         self.assertTrue(s.add().ok)
         self.assertEqual(self.g.items[sc.path]["binding"], "<Super>x")
-        self.assertEqual(self.g.paths, [sc.path, shortcuts.SHORTCUTS[1].path])
+        self.assertEqual(self.g.paths, [sc.path, shortcuts.SHORTCUTS[1].path, shortcuts.SHORTCUTS[2].path])
 
     def test_a_key_in_use_by_another_custom_shortcut_gets_the_fallback(self):
         other = BASE + "custom0/"
@@ -119,11 +119,11 @@ class AddTests(unittest.TestCase):
     def test_assigned_reports_the_keys_actually_in_use(self):
         other = BASE + "custom0/"
         s = self.make(paths=[other], bindings={other: "<Super><Alt>c"})
-        self.assertEqual(s.assigned(), ["Super+Alt+C", "Super+Alt+D"])       # not added yet: the suggestions
+        self.assertEqual(s.assigned(), ["Super+Alt+C", "Super+Alt+D", "Super+Alt+P"])       # not added yet: the suggestions
         s.add()
-        self.assertEqual(s.assigned(), ["Super+Alt+K", "Super+Alt+D"])       # the fall-back, not always Super+Alt+C
+        self.assertEqual(s.assigned(), ["Super+Alt+K", "Super+Alt+D", "Super+Alt+P"])       # the fall-back, not always Super+Alt+C
         self.g.items[shortcuts.SHORTCUTS[1].path]["binding"] = "<Super>x"    # changed in GNOME Settings
-        self.assertEqual(s.assigned(), ["Super+Alt+K", "Super+X"])
+        self.assertEqual(s.assigned(), ["Super+Alt+K", "Super+X", "Super+Alt+P"])
         self.g.items[shortcuts.SHORTCUTS[1].path]["binding"] = ""
         self.assertEqual(s.assigned()[1], "no key set")
 
@@ -175,6 +175,7 @@ class FakeDaemonSocket:
         self.path = os.path.join(self.dir, "wg.sock")
         self.cfg = {"clicklock": clicklock}
         self.reject = reject
+        self.paused = False
         self.got = []
         self.srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.srv.bind(self.path)
@@ -196,7 +197,10 @@ class FakeDaemonSocket:
                     msg = json.loads(line)
                     self.got.append(msg)
                     if msg["cmd"] == "status":
-                        out = {"type": "status", "connected": True, "config": self.cfg}
+                        out = {"type": "status", "connected": True, "config": self.cfg, "paused": self.paused}
+                    elif msg["cmd"] == "pause" and not self.reject:
+                        self.paused = msg["on"]
+                        out = {"type": "ok"}
                     elif self.reject:
                         out = {"type": "error", "message": self.reject}
                     else:
@@ -225,6 +229,25 @@ class DirectSocketTests(unittest.TestCase):
         d = FakeDaemonSocket(reject="clicklock_ms out of range")
         self.addCleanup(d.close)
         self.assertEqual(commands.toggle_clicklock_direct(d.path), (False, "clicklock_ms out of range"))
+
+    def test_pause_and_resume_without_the_app(self):
+        d = FakeDaemonSocket(clicklock=False)
+        self.addCleanup(d.close)
+        self.assertEqual(commands.toggle_pause_direct(d.path), (True, commands.PAUSED))
+        self.assertEqual(d.got[-1], {"cmd": "pause", "on": True})
+
+    def test_resume_when_paused(self):
+        d = FakeDaemonSocket(clicklock=False)
+        d.paused = True
+        self.addCleanup(d.close)
+        self.assertEqual(commands.toggle_pause_direct(d.path), (True, commands.RESUMED))
+        self.assertEqual(d.got[-1], {"cmd": "pause", "on": False})
+
+    def test_click_lock_and_pause_never_ask_the_app(self):
+        asked = []
+        for action in ("toggle-clicklock", "toggle-pause"):
+            self.assertEqual(commands.run_action(action, asked.append, lambda: (True, "done")), (True, "done"))
+        self.assertEqual(asked, [])
 
     def test_no_daemon(self):
         ok, text = commands.toggle_clicklock_direct("/nonexistent/wg.sock")

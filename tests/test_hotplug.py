@@ -80,6 +80,7 @@ class FakeServer:
 class FakeCtl:
     def __init__(self):
         self.invalidated = 0
+        self.wake = False
 
     def poll_config(self):
         pass

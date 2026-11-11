@@ -40,9 +40,16 @@ WgScrollPage {
     function startPick() {
         profiles.refreshApps()
         page.query = ""
-        page.appList = profiles.installedApps("")
+        page.appList = page.appsFor("")
         page.formError = ""
         page.mode = "pick"
+    }
+    // Apps that were in front lately and have no launcher entry come first: that is how a game started from
+    // Lutris, Heroic or Wine gets a profile.
+    function appsFor(text) {
+        const q = text.trim().toLowerCase()
+        const recent = profiles.recentApps().filter(function (a) { return q === "" || a.name.toLowerCase().indexOf(q) >= 0 })
+        return recent.concat(profiles.installedApps(text))
     }
     function startEdit(appId, name, icon, prot, lock, stage) {
         page.editId = appId
@@ -149,6 +156,11 @@ WgScrollPage {
             font.pixelSize: Theme.fsBody
             color: Theme.textMuted
             wrapMode: Text.WordWrap
+        }
+        Item { width: 1; height: 2 }
+        WgScope {
+            icon: "apps"
+            text: "Temporary: a profile never changes your saved settings"
         }
     }
 
@@ -377,7 +389,7 @@ WgScrollPage {
             maximumLength: 60
             onTextChanged: {
                 page.query = text
-                page.appList = profiles.installedApps(text)
+                page.appList = page.appsFor(text)
             }
             Keys.onEscapePressed: page.cancel()
             onVisibleChanged: if (visible) { text = ""; forceActiveFocus() }
@@ -388,6 +400,22 @@ WgScrollPage {
             text: page.query === "" ? "No more apps to add." : "No installed app matches \"" + page.query + "\"."
             font.pixelSize: Theme.fsBody
             color: Theme.textMuted
+            wrapMode: Text.WordWrap
+        }
+        Text {
+            Layout.fillWidth: true
+            visible: appSettings.profilesEnabled
+            text: "Missing a game started from Lutris, Heroic or Wine? Bring it to the front once, then come back here: it shows at the top of this list."
+            font.pixelSize: Theme.fsSmall
+            color: Theme.textFaint
+            wrapMode: Text.WordWrap
+        }
+        Text {
+            Layout.fillWidth: true
+            visible: !appSettings.profilesEnabled
+            text: "Missing a game started from Lutris, Heroic or Wine? Switch Per-game profiles on, bring the game to the front once, then come back here."
+            font.pixelSize: Theme.fsSmall
+            color: Theme.textFaint
             wrapMode: Text.WordWrap
         }
         ListView {
@@ -433,12 +461,24 @@ WgScrollPage {
                         side: Theme.px(32)
                         icon: modelData.icon
                     }
-                    Text {
+                    ColumnLayout {
                         Layout.fillWidth: true
-                        text: modelData.name
-                        font.pixelSize: Theme.fsBody
-                        color: Theme.text
-                        elide: Text.ElideRight
+                        spacing: 0
+                        Text {
+                            Layout.fillWidth: true
+                            text: modelData.name
+                            font.pixelSize: Theme.fsBody
+                            color: Theme.text
+                            elide: Text.ElideRight
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            visible: modelData.recent === true
+                            text: "Was in front a moment ago · not in the app list"
+                            font.pixelSize: Theme.fsSmall
+                            color: Theme.textMuted
+                            elide: Text.ElideRight
+                        }
                     }
                     WgIcon { name: "chevron"; size: 16; color: Theme.textFaint }
                 }

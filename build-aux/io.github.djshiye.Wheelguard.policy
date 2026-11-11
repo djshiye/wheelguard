@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>Wheelguard</vendor>
+  <vendor_url>https://github.com/djshiye/wheelguard</vendor_url>
+  <icon_name>io.github.djshiye.Wheelguard</icon_name>
+  <!-- "Allow this mouse": always asks for an administrator's password, and never remembers it. -->
+  <action id="io.github.djshiye.Wheelguard.allow-mouse">
+    <description>Let Wheelguard read another mouse</description>
+    <message>Authentication is required to let Wheelguard read this mouse</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/wheelguard-allow-mouse</annotate>
+  </action>
+</policyconfig>

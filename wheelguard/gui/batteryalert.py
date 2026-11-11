@@ -8,13 +8,11 @@ from typing import Dict, List, Optional
 
 from PySide6.QtCore import QObject, QProcess
 
+from .notifycli import APP_ID, NOTIFY_NAME, NOTIFY_PATH, notification_args  # noqa: F401
 from .traymodel import LOW_BATTERY_PERCENT, is_low  # noqa: F401
 
 LEVELS = (LOW_BATTERY_PERCENT, 5)
 HYSTERESIS = 5
-APP_ID = "io.github.djshiye.Wheelguard"
-NOTIFY_NAME = "org.freedesktop.Notifications"
-NOTIFY_PATH = "/org/freedesktop/Notifications"
 
 
 def message(percent: int) -> str:
@@ -45,14 +43,6 @@ class AlertTracker:
         for lv in due:                  # the milder level is spent too
             self._armed[lv] = False
         return min(due)
-
-
-def notification_args(text: str, summary: str = "Wheelguard") -> list:
-    """`gdbus call` arguments for org.freedesktop.Notifications.Notify. gdbus fills in the exact wire types
-    from the service's introspection (the replaces-id must be unsigned, which QtDBus cannot send from Python)."""
-    return ["call", "--session", "--dest", NOTIFY_NAME, "--object-path", NOTIFY_PATH,
-            "--method", NOTIFY_NAME + ".Notify", "Wheelguard", "0", APP_ID, summary, text, "[]",
-            "{'desktop-entry': <'" + APP_ID + "'>}", "-1"]
 
 
 def notify(text: str, summary: str = "Wheelguard") -> bool:

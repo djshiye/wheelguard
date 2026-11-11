@@ -6,7 +6,10 @@ import Wg
 Window {
     id: win
     property int pageIndex: 0
-    property alias advancedOpen: scrollPage.advancedOpen
+    property bool advancedOpen: false       // screenshots: open the Advanced expanders
+    property bool pickerOpen: false         // screenshots: open the mouse picker
+    onAdvancedOpenChanged: { scrollPage.advancedOpen = advancedOpen; clicksPage.advancedOpen = advancedOpen }
+    onPickerOpenChanged: pickerOpen ? picker.open() : picker.close()
     property alias welcomeStep: welcome.step
 
     readonly property bool maximized: visibility === Window.Maximized || visibility === Window.FullScreen
@@ -30,8 +33,16 @@ Window {
     // The app loads the mouse once at startup (for the tray); this covers the screenshot harness.
     // X hides to the tray (or quits when there is none); only the tray's Quit and Ctrl+Q exit.
     onClosing: (close) => { close.accepted = false; shell.closeMainWindow() }
-    onPageIndexChanged: if (pageIndex === 1) mouse.ensureLoaded()
-    Component.onCompleted: if (pageIndex === 1) mouse.ensureLoaded()
+    onPageIndexChanged: if (pageIndex === 2) mouse.ensureLoaded()
+    Component.onCompleted: if (pageIndex === 2) mouse.ensureLoaded()
+
+    Timer {   // keeps the mouse list current where it shows (the service rescans only now and then)
+        running: win.visible && (picker.opened || win.pageIndex === 0) && daemon.state !== "stopped" && daemon.state !== "connecting"
+        repeat: true
+        triggeredOnStart: true
+        interval: 5000
+        onTriggered: daemon.refreshMice()
+    }
 
     Shortcut { sequences: [StandardKey.Quit]; onActivated: Qt.quit() }
 
@@ -109,10 +120,20 @@ Window {
                 Item { Layout.fillWidth: true }
 
                 StatusPill {
+                    id: pill
                     daemonState: daemon.state
                     device: daemon.deviceLabel
                     protecting: daemon.enabled
                     unrecognised: daemon.otherMouse !== ""
+                    interactive: true
+                    open: picker.opened
+                    onClicked: picker.opened ? picker.close() : picker.open()
+
+                    MousePicker {
+                        id: picker
+                        x: pill.width - width
+                        y: pill.height + 8
+                    }
                 }
 
                 Row {
@@ -185,11 +206,12 @@ Window {
 
             Repeater {
                 model: [
-                    { label: "Scroll protection", icon: "shield" },
+                    { label: "Scroll", icon: "shield" },
+                    { label: "Clicks", icon: "hand" },
                     { label: "Mouse", icon: "mouse" },
                     { label: "Pointer", icon: "cursor" },
                     { label: "Profiles", icon: "apps" },
-                    { label: "About", icon: "info" }
+                    { label: "Settings", icon: "sliders" }
                 ]
                 delegate: Item {
                     id: nav
@@ -208,7 +230,7 @@ Window {
                     Keys.onSpacePressed: win.pageIndex = nav.index
                     Keys.onReturnPressed: win.pageIndex = nav.index
                     Keys.onUpPressed: if (nav.index > 0) { win.pageIndex = nav.index - 1; nav.nextItemInFocusChain(false).forceActiveFocus() }
-                    Keys.onDownPressed: if (nav.index < 4) { win.pageIndex = nav.index + 1; nav.nextItemInFocusChain(true).forceActiveFocus() }
+                    Keys.onDownPressed: if (nav.index < 5) { win.pageIndex = nav.index + 1; nav.nextItemInFocusChain(true).forceActiveFocus() }
                     WgFocusRing {}
 
                     Rectangle {
@@ -247,20 +269,6 @@ Window {
                     }
                 }
             }
-
-            Text {
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.bottom: parent.bottom
-                anchors.leftMargin: 14
-                anchors.rightMargin: 10
-                anchors.bottomMargin: 6
-                text: "The Mouse page uses reverse-engineered protocols. Not affiliated with Endgame Gear, Logitech or Razer."
-                font.pixelSize: Theme.fsSmall - 1
-                color: Theme.textFaint
-                wrapMode: Text.WordWrap
-                lineHeight: 1.1
-            }
         }
 
         // ---------------------------------------------------- content panel
@@ -279,7 +287,7 @@ Window {
             StatusBanner {
                 id: banner
                 width: parent.width
-                suppressed: win.pageIndex === 1     // the Mouse page doesn't involve the service
+                suppressed: win.pageIndex === 2     // the Mouse page doesn't involve the service
                 daemonState: daemon.state
                 detail: daemon.detail
                 busy: daemon.serviceBusy
@@ -287,10 +295,35 @@ Window {
                 chosenDenied: daemon.mouseChoice !== "auto" && !daemon.mouseChoiceSupported
                 otherMouse: daemon.otherMouse
                 otherMouseAccessible: daemon.otherMouseAccessible
+                canAllow: mouseAccess.available
+                allowBusy: mouseAccess.busy
+                allowError: mouseAccess.error
+                onAllowRequested: mouseAccess.allow(daemon.mouseChoice !== "auto" ? daemon.mouseChoice : daemon.otherMouseId)
                 onAutomaticRequested: daemon.setMouse("auto")
                 onUseOtherMouseRequested: daemon.setMouse(daemon.otherMouseId)
                 onStartRequested: daemon.startService()
                 onRetryRequested: daemon.refreshStatus()
+                onResumeRequested: daemon.setPaused(false)
+            }
+
+            // "Allow this mouse" worked: protect that mouse now. Access taken back: return to Automatic.
+            Connections {
+                target: mouseAccess
+                function onFinished(action, ident, ok) {
+                    if (!ok)
+                        return
+                    if (action === "add") {
+                        daemon.setMouse(ident)
+                        allowRefresh.restart()
+                    } else if (daemon.mouseChoice === ident) {
+                        daemon.setMouse("auto")
+                    }
+                }
+            }
+            Timer {
+                id: allowRefresh
+                interval: 1500
+                onTriggered: { daemon.refreshMice(); daemon.refreshStatus() }
             }
 
             Item {
@@ -305,25 +338,29 @@ Window {
                     anchors.fill: parent
                     opacity: win.pageIndex === 0 ? 1 : 0
                     visible: opacity > 0
+                    enabled: visible
                     transform: Translate { y: win.pageIndex === 0 ? 0 : 12; Behavior on y { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutCubic } } }
+                    Behavior on opacity { NumberAnimation { duration: Theme.normal } }
+                }
+                ClicksPage {
+                    id: clicksPage
+                    anchors.fill: parent
+                    opacity: win.pageIndex === 1 ? 1 : 0
+                    visible: opacity > 0
+                    enabled: visible
+                    transform: Translate { y: win.pageIndex === 1 ? 0 : 12; Behavior on y { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutCubic } } }
                     Behavior on opacity { NumberAnimation { duration: Theme.normal } }
                 }
                 MousePage {
                     objectName: "mousePage"
                     anchors.fill: parent
-                    opacity: win.pageIndex === 1 ? 1 : 0
-                    visible: opacity > 0
-                    transform: Translate { y: win.pageIndex === 1 ? 0 : 12; Behavior on y { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutCubic } } }
-                    Behavior on opacity { NumberAnimation { duration: Theme.normal } }
-                }
-                PointerPage {
-                    anchors.fill: parent
                     opacity: win.pageIndex === 2 ? 1 : 0
                     visible: opacity > 0
+                    enabled: visible
                     transform: Translate { y: win.pageIndex === 2 ? 0 : 12; Behavior on y { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutCubic } } }
                     Behavior on opacity { NumberAnimation { duration: Theme.normal } }
                 }
-                ProfilesPage {
+                PointerPage {
                     anchors.fill: parent
                     opacity: win.pageIndex === 3 ? 1 : 0
                     visible: opacity > 0
@@ -331,11 +368,20 @@ Window {
                     transform: Translate { y: win.pageIndex === 3 ? 0 : 12; Behavior on y { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutCubic } } }
                     Behavior on opacity { NumberAnimation { duration: Theme.normal } }
                 }
-                AboutPage {
+                ProfilesPage {
                     anchors.fill: parent
                     opacity: win.pageIndex === 4 ? 1 : 0
                     visible: opacity > 0
+                    enabled: visible
                     transform: Translate { y: win.pageIndex === 4 ? 0 : 12; Behavior on y { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutCubic } } }
+                    Behavior on opacity { NumberAnimation { duration: Theme.normal } }
+                }
+                SettingsPage {
+                    anchors.fill: parent
+                    opacity: win.pageIndex === 5 ? 1 : 0
+                    visible: opacity > 0
+                    enabled: visible
+                    transform: Translate { y: win.pageIndex === 5 ? 0 : 12; Behavior on y { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutCubic } } }
                     Behavior on opacity { NumberAnimation { duration: Theme.normal } }
                 }
             }

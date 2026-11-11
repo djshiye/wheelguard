@@ -60,10 +60,60 @@ WgScrollPage {
                     color: Theme.textMuted
                 }
                 Text {
-                    text: daemon.version !== "" ? "Service version " + daemon.version : "Service not connected"
+                    text: "Version " + daemon.appVersion
+                          + (daemon.version === "" ? " · service not connected"
+                             : daemon.version !== daemon.appVersion ? " · service " + daemon.version : "")
                     font.pixelSize: Theme.fsSmall
                     color: Theme.textFaint
                 }
+            }
+        }
+    }
+
+    // After a package update the panel app and the service keep running the old code until restarted.
+    WgCard {
+        width: parent.width
+        visible: daemon.updateNeeded !== ""
+        height: visible ? implicitHeight : 0
+        color: Theme.alpha(Theme.accentB, Theme.dark ? 0.10 : 0.08)
+        border.color: Theme.alpha(Theme.accentB, 0.35)
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 14
+            WgIcon { name: "sparkle"; size: 20; color: Theme.accentB; Layout.alignment: Qt.AlignTop }
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 2
+                Text {
+                    text: "Wheelguard was updated"
+                    font.pixelSize: Theme.fsBody
+                    font.weight: Font.DemiBold
+                    color: Theme.text
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: daemon.updateNeeded === "app"
+                          ? "This window is still the version from before the update. Restart Wheelguard to finish it. Your settings stay as they are."
+                          : "The background service is still version " + daemon.version + ". Restart it to finish the update. Your mouse keeps working, and protection is back within a second."
+                    font.pixelSize: Theme.fsSmall
+                    color: Theme.textMuted
+                    wrapMode: Text.WordWrap
+                }
+                Text {
+                    Layout.fillWidth: true
+                    visible: daemon.serviceError !== ""
+                    text: daemon.serviceError
+                    font.pixelSize: Theme.fsSmall
+                    color: Theme.coral
+                    wrapMode: Text.WordWrap
+                }
+            }
+            WgButton {
+                text: daemon.updateNeeded === "app" ? "Restart Wheelguard" : "Restart service"
+                iconName: "reset"
+                variant: "primary"
+                enabled: !daemon.serviceBusy
+                onClicked: daemon.updateNeeded === "app" ? daemon.restartApp() : daemon.restartService()
             }
         }
     }
@@ -98,10 +148,13 @@ WgScrollPage {
             visible: shortcuts.available
             title: "Keyboard shortcuts"
             description: shortcuts.message !== "" ? shortcuts.message
-                         : (shortcuts.installed ? shortcuts.keys[0] + " toggles Click-Lock and " + shortcuts.keys[1] + " switches to the next DPI stage. Change the keys in GNOME Settings > Keyboard > Custom Shortcuts."
-                            : "Adds two GNOME shortcuts: Super+Alt+C toggles Click-Lock and Super+Alt+D switches to the next DPI stage. Your own shortcuts are left alone.")
+                         : (shortcuts.installed || shortcuts.partly
+                            ? shortcuts.keys[0] + " toggles Click-Lock, " + shortcuts.keys[1] + " switches to the next DPI stage"
+                              + (shortcuts.partly ? ". New: a shortcut that pauses Wheelguard, so it lets go of your mouse at once."
+                                 : " and " + shortcuts.keys[2] + " pauses Wheelguard. Change the keys in GNOME Settings > Keyboard > Custom Shortcuts.")
+                            : "Adds three GNOME shortcuts: Super+Alt+C toggles Click-Lock, Super+Alt+D switches to the next DPI stage and Super+Alt+P pauses Wheelguard. Your own shortcuts are left alone.")
             WgButton {
-                text: shortcuts.installed ? "Added" : "Add keyboard shortcuts"
+                text: shortcuts.installed ? "Added" : (shortcuts.partly ? "Add the Pause shortcut" : "Add keyboard shortcuts")
                 iconName: shortcuts.installed ? "check" : "keyboard"
                 enabled: !shortcuts.installed
                 onClicked: shortcuts.add()
@@ -145,7 +198,7 @@ WgScrollPage {
         }
         Text {
             Layout.fillWidth: true
-            text: "Some scroll-wheel encoders occasionally report a scroll-down as a scroll-up. A small background service takes over your mouse, drops those bouncing ticks, and passes everything else through with no added latency. This app only changes the service's settings and shows what it is doing."
+            text: "Some scroll-wheel encoders occasionally report a scroll-down as a scroll-up. A small background service takes over your mouse, drops those bouncing ticks, and passes everything else through with no added latency. This app only changes the service's settings and shows what it is doing. The service runs in a sandbox: it has no network access and can write only its own settings. It needs to read your mouse and to create a virtual one in its place."
             font.pixelSize: Theme.fsBody
             color: Theme.textMuted
             wrapMode: Text.WordWrap

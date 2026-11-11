@@ -12,33 +12,45 @@ Item {
     property bool chosenDenied: false   // a mouse picked by hand (not a supported model) that we may not read
     property string otherMouse: ""      // Automatic found no supported mouse, but this other wheel mouse is connected
     property bool otherMouseAccessible: false
+    property bool canAllow: false       // "Allow this mouse" is available (the installed package's helper)
+    property bool allowBusy: false      // the administrator password dialog is open
+    property string allowError: ""
     signal startRequested()
     signal useOtherMouseRequested()
     signal automaticRequested()
+    signal allowRequested()
     signal retryRequested()
+    signal resumeRequested()
 
     property string ss: "stopped"   // last non-running state, kept while collapsing
-    onDaemonStateChanged: if (daemonState === "stopped" || daemonState === "permission" || daemonState === "waiting") ss = daemonState
+    onDaemonStateChanged: if (daemonState === "stopped" || daemonState === "permission" || daemonState === "waiting" || daemonState === "paused") ss = daemonState
     Component.onCompleted: if (shown) ss = daemonState
-    readonly property bool shown: !suppressed && (daemonState === "stopped" || daemonState === "permission" || daemonState === "waiting")
+    readonly property bool shown: !suppressed && (daemonState === "stopped" || daemonState === "permission" || daemonState === "waiting" || daemonState === "paused")
     readonly property bool unrecognised: ss === "waiting" && otherMouse !== ""
-    readonly property color tone: ss === "waiting" ? Theme.amber : Theme.coral
-    readonly property string icon: ss === "stopped" ? "power" : (ss === "permission" ? "lock" : (unrecognised ? "mouse" : "clock"))
+    readonly property color tone: ss === "waiting" || ss === "paused" ? Theme.amber : Theme.coral
+    readonly property string icon: ss === "paused" ? "hand" : ss === "stopped" ? "power" : (ss === "permission" ? "lock" : (unrecognised ? "mouse" : "clock"))
     readonly property bool denied: ss === "permission" && chosenDenied
-    readonly property string title: ss === "stopped" ? "The Wheelguard service isn't running"
+    readonly property bool allowable: canAllow && (denied || (unrecognised && !otherMouseAccessible))
+    readonly property string title: ss === "paused" ? "Wheelguard is paused" : ss === "stopped" ? "The Wheelguard service isn't running"
         : (ss === "permission" ? (denied ? "Wheelguard can't read the mouse you chose" : "Wheelguard can't access your mouse")
            : (unrecognised ? "Your mouse isn't a supported model" : "Waiting for mouse…"))
-    readonly property string body: ss === "stopped"
+    readonly property string body: ss === "paused"
+        ? "It has let go of your mouse, so nothing is filtered and Click-Lock is off. Your settings are kept. It stays paused until you resume or log in again."
+        : ss === "stopped"
         ? "Scroll protection works through a small background service. Start it to protect your wheel; settings below apply once it is running."
         : (ss === "permission"
            ? (denied
-              ? "Wheelguard isn't allowed to read this mouse. Only supported mice get access automatically. Switch back to Automatic."
+              ? (canAllow
+                 ? "Wheelguard isn't allowed to read this mouse yet. Allow it once with your administrator password, or pick another mouse below."
+                 : "Wheelguard isn't allowed to read this mouse. Only supported mice get access automatically. Switch back to Automatic.")
               : "The device-access (udev) rule is missing, so the service isn't allowed to read the mouse. Reinstall the wheelguard package (sudo dnf reinstall wheelguard), then log out and back in.")
            : (!unrecognised
               ? "The service is running but can't see the mouse. Wake it with a click or a scroll, and check that the dongle is plugged in."
               : (otherMouseAccessible
                  ? "Wheelguard sees your " + otherMouse + ", but Automatic only takes over supported mice. Use it anyway to protect its wheel too."
-                 : "Wheelguard sees your " + otherMouse + ", but only supported mice get device access, so it can't protect this one yet. Supported: Endgame Gear XM2w 4k v2, Logitech G Pro X Superlight (first generation) and Razer DeathAdder V4 Pro.")))
+                 : (canAllow
+                    ? "Wheelguard sees your " + otherMouse + ", but isn't allowed to read it yet. Allow it once with your administrator password and Wheelguard protects its wheel too."
+                    : "Wheelguard sees your " + otherMouse + ", but only supported mice get device access, so it can't protect this one yet. Supported: Endgame Gear XM2w 4k v2, Logitech G Pro X Superlight (first generation) and Razer DeathAdder V4 Pro."))))
 
     implicitHeight: shown ? card.implicitHeight + 16 : 0
     height: implicitHeight
@@ -136,6 +148,14 @@ Item {
                     wrapMode: Text.WrapAnywhere
                 }
                 Text {
+                    visible: root.allowError !== "" && root.allowable
+                    Layout.fillWidth: true
+                    text: root.allowError
+                    font.pixelSize: Theme.fsSmall
+                    color: Theme.coral
+                    wrapMode: Text.WordWrap
+                }
+                Text {
                     visible: root.serviceError !== "" && root.ss === "stopped"
                     Layout.fillWidth: true
                     text: root.serviceError
@@ -145,6 +165,14 @@ Item {
                 }
             }
 
+            WgButton {
+                Layout.alignment: Qt.AlignVCenter
+                visible: root.ss === "paused"
+                variant: "primary"
+                iconName: "play"
+                text: "Resume"
+                onClicked: root.resumeRequested()
+            }
             WgButton {
                 Layout.alignment: Qt.AlignVCenter
                 visible: root.ss === "stopped"
@@ -170,7 +198,16 @@ Item {
             }
             WgButton {
                 Layout.alignment: Qt.AlignVCenter
-                visible: root.denied
+                visible: root.allowable
+                variant: "primary"
+                iconName: "lock"
+                text: root.allowBusy ? "Waiting for password…" : "Allow this mouse"
+                enabled: !root.allowBusy
+                onClicked: root.allowRequested()
+            }
+            WgButton {
+                Layout.alignment: Qt.AlignVCenter
+                visible: root.denied && !root.allowable
                 variant: "primary"
                 text: "Use Automatic"
                 onClicked: root.automaticRequested()
