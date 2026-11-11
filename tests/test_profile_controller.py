@@ -242,7 +242,7 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(self.ctl.saveProfile("new.desktop", "Light", "keep", 1), "")
         self.assertEqual(self.ctl.count, 2)
         item = next(i for i in self.ctl.items if i["appId"] == "new.desktop")
-        self.assertEqual((item["summary"], item["stage"], item["clicklock"]), ("Light protection · DPI stage 2", 1, "keep"))
+        self.assertEqual((item["summary"], item["stage"], item["clicklock"]), ("Light protection · DPI stage 2 (800)", 1, "keep"))
         self.settings.setProfilesEnabled(True)
         self.ctl.focusChanged("new.desktop")
         self.assertEqual(self.m.calls, [("stage", 1)])
@@ -257,6 +257,17 @@ class ControllerTests(unittest.TestCase):
         self.ctl.saveProfile("game.desktop", "Maximum", "keep", -1)
         self.assertEqual(self.d.protection, (130, 50, 500))
         self.assertFalse(self.d.clickLock)          # no longer part of the profile: back to the user's
+
+    def test_the_list_follows_the_mouse_dpi_stages(self):
+        self.ctl.saveProfile("new.desktop", "keep", "keep", 0)
+        self.m.stageLabels = ["450", "800", "1600"]
+        self.m.trayChanged.emit()
+        item = next(i for i in self.ctl.items if i["appId"] == "new.desktop")
+        self.assertEqual(item["summary"], "DPI stage 1 (450)")
+        self.m.stageLabels = []
+        self.m.trayChanged.emit()
+        item = next(i for i in self.ctl.items if i["appId"] == "new.desktop")
+        self.assertEqual(item["summary"], "DPI stage 1")
 
     def test_the_app_list_leaves_out_apps_that_already_have_a_profile(self):
         self.ctl._apps = [{"id": "game.desktop", "name": "Game", "icon": ""},

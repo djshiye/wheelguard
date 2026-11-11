@@ -29,7 +29,7 @@ WgScrollPage {
         Rectangle {  // accent wash
             anchors.fill: parent
             radius: parent.radius
-            opacity: daemon.enabled ? 1 : 0.25
+            opacity: daemon.enabled && !daemon.paused ? 1 : 0.25
             Behavior on opacity { NumberAnimation { duration: Theme.slow } }
             gradient: Gradient {
                 orientation: Gradient.Horizontal
@@ -39,7 +39,7 @@ WgScrollPage {
         }
         Rectangle {  // top highlight hairline
             x: 24; y: 0; width: parent.width - 48; height: 1
-            opacity: daemon.enabled ? 1 : 0.2
+            opacity: daemon.enabled && !daemon.paused ? 1 : 0.2
             Behavior on opacity { NumberAnimation { duration: Theme.slow } }
             gradient: Gradient {
                 orientation: Gradient.Horizontal
@@ -63,7 +63,7 @@ WgScrollPage {
                 Layout.preferredWidth: 56
                 Layout.preferredHeight: 56
                 radius: 18
-                opacity: daemon.enabled ? 1 : 0.45
+                opacity: daemon.enabled && !daemon.paused ? 1 : 0.45
                 Behavior on opacity { NumberAnimation { duration: Theme.slow } }
                 gradient: Gradient {
                     GradientStop { position: 0.0; color: Theme.accentA }
@@ -85,12 +85,20 @@ WgScrollPage {
                     Layout.fillWidth: true
                     text: !page.reachable
                           ? "The service isn't running, so nothing is being filtered right now."
+                          : daemon.paused ? "Wheelguard is paused. Every wheel tick passes through untouched until you resume."
                           : (daemon.enabled
                              ? "Stray reverse ticks are blocked before they reach your games."
                              : "Protection is off. Every wheel tick passes through untouched.")
                     font.pixelSize: Theme.fsBody
                     color: Theme.textMuted
                     wrapMode: Text.WordWrap
+                }
+                WgScope {
+                    Layout.topMargin: 2
+                    icon: "mouse"
+                    text: daemon.state === "running" && daemon.deviceLabel !== ""
+                          ? "Applies to " + daemon.deviceLabel.split(" · ")[0] + ". Change the mouse at the top right."
+                          : "Applies to one mouse. Choose it at the top right."
                 }
             }
 
@@ -102,126 +110,18 @@ WgScrollPage {
                     trackHeight: 36
                     Accessible.name: "Scroll protection"
                     enabled: page.reachable
-                    checked: daemon.enabled
-                    onToggled: daemon.setEnabled(checked)
+                    checked: daemon.enabled && !daemon.paused
+                    onToggled: daemon.paused ? daemon.setPaused(false) : daemon.setEnabled(checked)
                 }
                 Text {
                     Layout.alignment: Qt.AlignHCenter
-                    text: !page.reachable ? "OFFLINE" : (daemon.enabled ? "ON" : "OFF")
+                    text: !page.reachable ? "OFFLINE" : daemon.paused ? "PAUSED" : (daemon.enabled ? "ON" : "OFF")
                     font.pixelSize: Theme.fsSmall - 1
                     font.weight: Font.DemiBold
                     font.letterSpacing: 1
-                    color: page.reachable && daemon.enabled ? Theme.accentB : Theme.textFaint
+                    color: page.reachable && daemon.enabled && !daemon.paused ? Theme.accentB : Theme.textFaint
                     Behavior on color { ColorAnimation { duration: Theme.normal } }
                 }
-            }
-        }
-    }
-
-    // ---------------------------------------------------------------- mouse
-    WgCard {
-        id: mouseCard
-        width: parent.width
-        pad: 20
-        spacing: 10
-        opacity: page.reachable ? 1 : 0.5
-        enabled: page.reachable
-        Behavior on opacity { NumberAnimation { duration: Theme.normal } }
-        readonly property bool allowedByUser: mouseAccess.available && daemon.mouseChoice !== "auto"
-                                              && mouseAccess.allowed.indexOf(daemon.mouseChoice) >= 0
-        readonly property bool untested: daemon.mouseChoice !== "auto" && daemon.mouseIndex > 0
-                                         && daemon.mouseLabels[daemon.mouseIndex].indexOf("(not tested)") >= 0
-
-        Timer {   // keeps the list current while this page is on screen (the service rescans only now and then)
-            running: page.shown && page.reachable
-            repeat: true
-            triggeredOnStart: true
-            interval: 5000
-            onTriggered: daemon.refreshMice()
-        }
-
-        GridLayout {     // the list drops under the text at Large Text
-            Layout.fillWidth: true
-            columns: Theme.textScale > 1.2 ? 1 : 2
-            columnSpacing: 16
-            rowSpacing: 10
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: 2
-                Text {
-                    text: "Mouse"
-                    font.pixelSize: Theme.fsH2
-                    font.weight: Font.DemiBold
-                    color: Theme.text
-                }
-                Text {
-                    Layout.fillWidth: true
-                    text: "Which mouse's wheel to protect. Automatic picks your supported mouse; any other mouse with a wheel can be chosen too."
-                    font.pixelSize: Theme.fsSmall
-                    color: Theme.textMuted
-                    wrapMode: Text.WordWrap
-                }
-            }
-            WgSelect {
-                Layout.alignment: Qt.AlignVCenter
-                Layout.fillWidth: Theme.textScale > 1.2
-                Layout.preferredWidth: Theme.px(240)
-                accessibleName: "Mouse to protect"
-                commitOnArrow: false
-                model: daemon.mouseLabels
-                currentIndex: daemon.mouseIndex
-                onActivated: (i) => daemon.setMouse(daemon.mouseIds[i])
-            }
-        }
-        RowLayout {
-            Layout.fillWidth: true
-            visible: daemon.mouseNoAccess
-            spacing: 10
-            WgIcon { name: "alert"; size: 16; color: Theme.amber }
-            Text {
-                Layout.fillWidth: true
-                text: mouseAccess.available
-                      ? "Wheelguard isn't allowed to read this mouse yet. Allow it above, or switch back to Automatic."
-                      : "Wheelguard isn't allowed to read this mouse. Only supported mice get access automatically. Switch back to Automatic."
-                font.pixelSize: Theme.fsSmall
-                color: Theme.textMuted
-                wrapMode: Text.WordWrap
-            }
-            WgButton {
-                text: "Use Automatic"
-                onClicked: daemon.setMouse("auto")
-            }
-        }
-        RowLayout {     // a mouse the user allowed: say so, and offer to take the access back
-            Layout.fillWidth: true
-            visible: mouseCard.allowedByUser && !daemon.mouseNoAccess
-            spacing: 10
-            WgIcon { name: "lock"; size: 16; color: Theme.textMuted }
-            Text {
-                Layout.fillWidth: true
-                text: mouseAccess.error !== "" ? mouseAccess.error
-                      : "You allowed Wheelguard to read this mouse. Other programs you run can read its movement and clicks too."
-                font.pixelSize: Theme.fsSmall
-                color: mouseAccess.error !== "" ? Theme.coral : Theme.textMuted
-                wrapMode: Text.WordWrap
-            }
-            WgButton {
-                text: mouseAccess.busy ? "Waiting for password…" : "Remove access"
-                enabled: !mouseAccess.busy
-                onClicked: mouseAccess.remove(daemon.mouseChoice)
-            }
-        }
-        RowLayout {
-            Layout.fillWidth: true
-            visible: mouseCard.untested
-            spacing: 10
-            WgIcon { name: "alert"; size: 16; color: Theme.amber }
-            Text {
-                Layout.fillWidth: true
-                text: "We haven't tested this mouse. Scroll protection should work, but if the wheel misbehaves, switch back to Automatic."
-                font.pixelSize: Theme.fsSmall
-                color: Theme.textMuted
-                wrapMode: Text.WordWrap
             }
         }
     }
@@ -455,8 +355,8 @@ WgScrollPage {
                                  : daemon.blockRate.toFixed(1) + "%")
                         font.pixelSize: Theme.px(22)
                         font.weight: Font.DemiBold
-                        color: stat.modelData.kind === "ticks" ? Theme.text
-                               : (daemon.dropped > 0 ? Theme.coral : Theme.text)
+                        // Blocked ticks are the filter doing its job: amber only once the wheel looks worn.
+                        color: stat.modelData.kind !== "ticks" && daemon.wearHint ? Theme.amber : Theme.text
                     }
                 }
             }
@@ -466,7 +366,7 @@ WgScrollPage {
                 variant: "ghost"
                 iconName: "reset"
                 text: "Reset"
-                enabled: daemon.state === "running" || daemon.state === "waiting"
+                enabled: daemon.configKnown
                 onClicked: { daemon.resetStats(); monitor.clearAll() }
             }
         }

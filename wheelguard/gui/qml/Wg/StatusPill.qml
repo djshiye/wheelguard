@@ -9,15 +9,28 @@ Rectangle {
     property bool protecting: true
     property bool compact: false        // shorter labels for the tray popup
     property bool unrecognised: false   // waiting, and the mouse that is connected isn't a supported model
+    property bool interactive: false    // a button that opens the mouse picker
+    property bool open: false           // the picker is showing
+    signal clicked()
+
+    activeFocusOnTab: interactive
+    Accessible.role: interactive ? Accessible.Button : Accessible.StaticText
+    Accessible.name: label + (detail !== "" ? ", " + detail : "") + (interactive ? ". Choose the mouse to protect, or pause." : "")
+    Accessible.onPressAction: if (interactive) clicked()
+    Keys.onSpacePressed: if (interactive) clicked()
+    Keys.onReturnPressed: if (interactive) clicked()
+    Keys.onEnterPressed: if (interactive) clicked()
+    WgFocusRing {}
 
     readonly property color tone: {
         if (daemonState === "running") return protecting ? Theme.good : Theme.amber
-        if (daemonState === "waiting") return Theme.amber
+        if (daemonState === "waiting" || daemonState === "paused") return Theme.amber
         if (daemonState === "permission" || daemonState === "stopped") return Theme.coral
         return Theme.textMuted
     }
     readonly property string label: {
-        if (daemonState === "running") return protecting ? "Protecting" : (compact ? "Paused" : "Protection off")
+        if (daemonState === "running") return protecting ? "Protecting" : (compact ? "Off" : "Protection off")
+        if (daemonState === "paused") return "Paused"
         if (daemonState === "waiting")
             return unrecognised ? (compact ? "Unsupported" : "Mouse not supported") : (compact ? "No mouse" : "Waiting for mouse…")
         if (daemonState === "permission") return compact ? "No access" : "No device access"
@@ -34,9 +47,9 @@ Rectangle {
     implicitHeight: Theme.px(34)
     implicitWidth: row.implicitWidth + 28
     radius: height / 2
-    color: Theme.alpha(tone, Theme.dark ? 0.12 : 0.14)
+    color: Theme.alpha(tone, (Theme.dark ? 0.12 : 0.14) + (pillMa.containsMouse || open ? 0.08 : 0))
     border.width: 1
-    border.color: Theme.alpha(tone, 0.38)
+    border.color: Theme.alpha(tone, open ? 0.7 : 0.38)
     Behavior on color { ColorAnimation { duration: Theme.normal } }
     Behavior on border.color { ColorAnimation { duration: Theme.normal } }
     Behavior on implicitWidth { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
@@ -77,5 +90,21 @@ Rectangle {
             font.pixelSize: Theme.fsSmall
             color: Theme.textMuted
         }
+        WgIcon {
+            visible: root.interactive
+            name: "chevron"
+            size: 12
+            rotation: root.open ? -90 : 90
+            color: Theme.textMuted
+            Behavior on rotation { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
+        }
+    }
+    MouseArea {
+        id: pillMa
+        anchors.fill: parent
+        enabled: root.interactive
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        onClicked: root.clicked()
     }
 }

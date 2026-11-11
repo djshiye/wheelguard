@@ -70,6 +70,7 @@ class ProfileController(QObject):
         self._engine.seed(profiles.journal_load(self._journal))     # a previous run died with a profile engaged
         self._journal_last = self._engine.restore_values()
         self._recent: list = []                 # app ids that had the focus lately, newest first (never titles)
+        self._labels = tuple(mouse.stageLabels)
         if hasattr(daemon, "reconnected"):
             daemon.reconnected.connect(lambda: self._engine.expect(SERVICE_KEYS))
         daemon.configChanged.connect(self._tick)
@@ -136,6 +137,11 @@ class ProfileController(QObject):
 
     @Slot()
     def _tick(self):
+        labels = tuple(self._mouse.stageLabels)
+        if labels != self._labels:              # the list shows each profile's DPI value
+            self._labels = labels
+            self._items = None
+            self.changed.emit()
         cur = self._current()
         self._engine.observe(cur)
         seeded = self._engine.seed_plan(cur)
@@ -216,7 +222,7 @@ class ProfileController(QObject):
         profile is matched by, so one of these can get a profile although the app list doesn't have it."""
         known = {a["id"] for a in self._apps_list()}
         have = {p.app_id for p in self._items_raw}
-        return [{"id": a, "name": desktopapps.display_name(a, ()), "icon": ""}
+        return [{"id": a, "name": desktopapps.display_name(a, ()), "icon": "", "recent": True}
                 for a in self._recent if a not in known and a not in have and not a.startswith(OWN_APP)]
 
     def _build_items(self):
@@ -226,7 +232,7 @@ class ProfileController(QObject):
         for p in self._items_raw:
             a = by_id.get(p.app_id)
             out.append({"appId": p.app_id, "name": desktopapps.display_name(p.app_id, apps),
-                        "icon": a["icon"] if a else "", "summary": profiles.summary(p),
+                        "icon": a["icon"] if a else "", "summary": profiles.summary(p, self._labels),
                         "protection": p.protection or "", "clicklock": "keep" if p.clicklock is None
                         else ("on" if p.clicklock else "off"),
                         "stage": -1 if p.stage is None else p.stage})

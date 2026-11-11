@@ -24,6 +24,9 @@ const START_COMMAND = ['wheelguard-settings', '--tray'];
 const START_TIMEOUT_S = 10;
 const FOCUS_DEBOUNCE_MS = 300;           // per-game profiles: a focus change must settle before the app is told
 const STEAM_CLASS_RE = /^steam_app_\d+$/;   // a Steam game's window class
+// A window with no launcher entry (a game from Lutris, Heroic or Wine) is known by its window class.
+// The same shape the app accepts for an app id: letters, digits and . _ + - with spaces inside.
+const WINDOW_CLASS_RE = /^[A-Za-z0-9_](?:[A-Za-z0-9._+ -]*[A-Za-z0-9._+-])?$/;
 const MAX_APP_ID = 200;                  // longer ids are not sent (the app would refuse them anyway)
 
 // Click-Lock hold-time slider: 1 to 15 s in half-second steps (wheelguard/gui/protocol.py, CLICKLOCK_MS_*).
@@ -496,7 +499,7 @@ class WheelguardIndicator extends PanelMenu.Button {
         this._profileCard.visible = s.ProfilesEnabled && s.ActiveProfile !== '';
         this._profileLabel.text = `Profile: ${s.ActiveProfile}`;
         this._protectDetail.text = s.ProtectionDetail;
-        const canSwitch = s.DaemonState === 'running' || s.DaemonState === 'waiting';
+        const canSwitch = ['running', 'waiting', 'paused'].includes(s.DaemonState);    // paused: switching on resumes
         this._switch.reactive = canSwitch;
         this._switch.opacity = canSwitch ? 255 : 128;
         this._setSwitch(this._switch, s.ProtectionEnabled);
@@ -529,8 +532,10 @@ class WheelguardIndicator extends PanelMenu.Button {
         const usable = canSwitch && s.ClickLockEnabled;
         this._clickLockSlider.reactive = usable;
         this._clickLockSlider.can_focus = usable;
-        for (const actor of this._clickLockSliderBox)
+        for (const actor of this._clickLockSliderBox) {
+            actor.visible = s.ClickLockEnabled;     // its settings only show while Click-Lock is on
             actor.opacity = usable ? 255 : 110;
+        }
         CLICKLOCK_MODES.forEach(([mode], i) => {
             const chip = this._clickLockModeChips[i];
             chip.reactive = usable;
@@ -771,9 +776,9 @@ class WheelguardIndicator extends PanelMenu.Button {
         });
     }
 
-    // The focused app's desktop-file id. Proton and Steam games rarely match a desktop file, so the
-    // tracker gives a window-backed app ("window:NN"); the window's WM class (never its title) is sent
-    // when it is a Steam game's "steam_app_<n>", and for any other window-backed app nothing is sent.
+    // The focused app's desktop-file id. Games rarely match a desktop file, so the tracker gives a
+    // window-backed app ("window:NN"); then the window's WM class is sent instead (a Steam game's
+    // "steam_app_<n>", or the program's own class for Lutris, Heroic and Wine). Never a window title.
     _focusedAppId() {
         const win = global.display.focus_window;
         if (!win)
@@ -784,7 +789,7 @@ class WheelguardIndicator extends PanelMenu.Button {
         const app = Shell.WindowTracker.get_default().get_window_app(win);
         const id = app?.get_id() ?? '';
         if (!app || app.is_window_backed?.() || id.startsWith('window:'))
-            return '';
+            return wmClass.length <= MAX_APP_ID && WINDOW_CLASS_RE.test(wmClass) ? wmClass : '';
         return id.length <= MAX_APP_ID ? id : '';
     }
 

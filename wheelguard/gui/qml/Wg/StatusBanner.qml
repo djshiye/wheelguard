@@ -20,20 +20,23 @@ Item {
     signal automaticRequested()
     signal allowRequested()
     signal retryRequested()
+    signal resumeRequested()
 
     property string ss: "stopped"   // last non-running state, kept while collapsing
-    onDaemonStateChanged: if (daemonState === "stopped" || daemonState === "permission" || daemonState === "waiting") ss = daemonState
+    onDaemonStateChanged: if (daemonState === "stopped" || daemonState === "permission" || daemonState === "waiting" || daemonState === "paused") ss = daemonState
     Component.onCompleted: if (shown) ss = daemonState
-    readonly property bool shown: !suppressed && (daemonState === "stopped" || daemonState === "permission" || daemonState === "waiting")
+    readonly property bool shown: !suppressed && (daemonState === "stopped" || daemonState === "permission" || daemonState === "waiting" || daemonState === "paused")
     readonly property bool unrecognised: ss === "waiting" && otherMouse !== ""
-    readonly property color tone: ss === "waiting" ? Theme.amber : Theme.coral
-    readonly property string icon: ss === "stopped" ? "power" : (ss === "permission" ? "lock" : (unrecognised ? "mouse" : "clock"))
+    readonly property color tone: ss === "waiting" || ss === "paused" ? Theme.amber : Theme.coral
+    readonly property string icon: ss === "paused" ? "hand" : ss === "stopped" ? "power" : (ss === "permission" ? "lock" : (unrecognised ? "mouse" : "clock"))
     readonly property bool denied: ss === "permission" && chosenDenied
     readonly property bool allowable: canAllow && (denied || (unrecognised && !otherMouseAccessible))
-    readonly property string title: ss === "stopped" ? "The Wheelguard service isn't running"
+    readonly property string title: ss === "paused" ? "Wheelguard is paused" : ss === "stopped" ? "The Wheelguard service isn't running"
         : (ss === "permission" ? (denied ? "Wheelguard can't read the mouse you chose" : "Wheelguard can't access your mouse")
            : (unrecognised ? "Your mouse isn't a supported model" : "Waiting for mouse…"))
-    readonly property string body: ss === "stopped"
+    readonly property string body: ss === "paused"
+        ? "It has let go of your mouse, so nothing is filtered and Click-Lock is off. Your settings are kept. It stays paused until you resume or log in again."
+        : ss === "stopped"
         ? "Scroll protection works through a small background service. Start it to protect your wheel; settings below apply once it is running."
         : (ss === "permission"
            ? (denied
@@ -162,6 +165,14 @@ Item {
                 }
             }
 
+            WgButton {
+                Layout.alignment: Qt.AlignVCenter
+                visible: root.ss === "paused"
+                variant: "primary"
+                iconName: "play"
+                text: "Resume"
+                onClicked: root.resumeRequested()
+            }
             WgButton {
                 Layout.alignment: Qt.AlignVCenter
                 visible: root.ss === "stopped"

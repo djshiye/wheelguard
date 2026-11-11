@@ -107,15 +107,17 @@ def to_json(p: Profile) -> Dict[str, object]:
             "stage": p.stage}
 
 
-def summary(p: Profile) -> str:
-    """"Strong protection · Click-Lock on · DPI stage 2" (only what the profile changes)."""
+def summary(p: Profile, stage_labels=()) -> str:
+    """"Strong protection · Click-Lock on · DPI stage 2 (800)": only what the profile changes. The DPI value
+    is added when the connected mouse's stages are known."""
     parts = []
     if p.protection:
         parts.append(f"{p.protection} protection")
     if p.clicklock is not None:
         parts.append("Click-Lock " + ("on" if p.clicklock else "off"))
     if p.stage is not None:
-        parts.append(f"DPI stage {p.stage + 1}")
+        dpi = f" ({stage_labels[p.stage]})" if 0 <= p.stage < len(stage_labels) and stage_labels[p.stage] else ""
+        parts.append(f"DPI stage {p.stage + 1}{dpi}")
     return " · ".join(parts)
 
 

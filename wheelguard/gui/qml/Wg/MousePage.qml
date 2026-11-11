@@ -31,6 +31,17 @@ Item {
     property var unlinked: ({})
     property bool confirmRestore: false
     property int hotButton: -1         // button row under the pointer or focus (lights it on the drawing)
+
+    // The settings are split into sections, so each fits on one screen. Only sections this mouse has show.
+    property int section: 0
+    readonly property var sections: {
+        var out = [{ key: "sens", label: "Sensitivity" }, { key: "perf", label: "Performance" }]
+        if (has("buttons")) out.push({ key: "buttons", label: "Buttons" })
+        out.push({ key: "power", label: hasPower ? "Power and backup" : "Backup" })
+        return out
+    }
+    readonly property bool hasPower: has("sleep_deep") || has("idle") || has("low_battery")
+    readonly property string sectionKey: sections[Math.max(0, Math.min(section, sections.length - 1))].key
     function setHot(i, on) { if (on) hotButton = i; else if (hotButton === i) hotButton = -1 }
 
     function isEdited(key) { return edited.indexOf(key) >= 0 }
@@ -358,11 +369,17 @@ Item {
             }
             Text {
                 width: parent.width
-                text: "These settings live on the mouse itself, so they follow it to any computer. Changes are staged here and only sent when you press Apply."
+                text: "Changes are staged here and only sent when you press Apply."
                       + (mouse.modelName === "" ? " Works with the " + mouse.supportedNames.join(", ").replace(/, ([^,]*)$/, " and $1") + "." : "")
                 font.pixelSize: Theme.fsBody
                 color: Theme.textMuted
                 wrapMode: Text.WordWrap
+            }
+            Item { width: 1; height: 2 }
+            WgScope {
+                icon: "save"
+                text: (mouse.modelName !== "" ? "Saved on your " + mouse.modelName : "Saved on the mouse itself")
+                      + ", so these settings follow it to any computer"
             }
         }
 
@@ -553,10 +570,20 @@ Item {
             body: "Wheelguard won't change anything on this mouse: " + mouse.problem + "."
         }
 
+        WgSegmented {
+            width: parent.width
+            height: Theme.px(44)
+            visible: root.shown
+            accessibleName: "Mouse settings section"
+            model: root.sections.map(function (x) { return x.label })
+            currentIndex: Math.max(0, Math.min(root.section, root.sections.length - 1))
+            onActivated: (i) => { root.section = i; sp.contentY = 0 }
+        }
+
         // ---------------------------------------------------------------- sensitivity
         WgCard {
             width: parent.width
-            visible: root.shown
+            visible: root.shown && root.sectionKey === "sens"
             enabled: root.editable
             opacity: root.editable ? 1 : 0.6
             Behavior on opacity { NumberAnimation { duration: Theme.normal } }
@@ -655,11 +682,14 @@ Item {
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 6
-                        WgIcon { visible: mouse.modelKey === "endgame-xm2w-4k-v2"; name: "alert"; size: 14; color: Theme.amber }
+                        // Only the XM2w's top end is unchecked, so the warning shows only when a value is up there.
+                        readonly property bool unchecked: mouse.modelKey === "endgame-xm2w-4k-v2"
+                            && Math.max(root.v["dpi_x" + editor.s] || 0, root.v["dpi_y" + editor.s] || 0) > 26000
+                        WgIcon { visible: parent.unchecked; name: "alert"; size: 14; color: Theme.amber }
                         Text {
                             Layout.fillWidth: true
-                            text: mouse.modelKey === "endgame-xm2w-4k-v2"
-                                  ? "Range 50 to 30000 DPI. The top end hasn't been checked against this sensor's real limit."
+                            text: parent.unchecked
+                                  ? "Above 26000 DPI hasn't been checked against this sensor's real limit. If the pointer feels wrong, pick a lower value."
                                   : "Range " + mouse.dpiMin + " to " + mouse.dpiMax + " DPI, in steps of " + mouse.dpiStep + "."
                             font.pixelSize: Theme.fsSmall
                             color: Theme.textFaint
@@ -703,7 +733,7 @@ Item {
         // ---------------------------------------------------------------- performance
         WgCard {
             width: parent.width
-            visible: root.shown
+            visible: root.shown && root.sectionKey === "perf"
             enabled: root.editable
             opacity: root.editable ? 1 : 0.6
             Behavior on opacity { NumberAnimation { duration: Theme.normal } }
@@ -761,7 +791,7 @@ Item {
         // ---------------------------------------------------------------- lift-off
         WgCard {
             width: parent.width
-            visible: root.shown && root.has("lod")
+            visible: root.shown && root.has("lod") && root.sectionKey === "perf"
             enabled: root.editable
             opacity: root.editable ? 1 : 0.6
             Behavior on opacity { NumberAnimation { duration: Theme.normal } }
@@ -787,7 +817,7 @@ Item {
         // ---------------------------------------------------------------- buttons
         WgCard {
             width: parent.width
-            visible: root.shown && root.has("buttons")
+            visible: root.shown && root.has("buttons") && root.sectionKey === "buttons"
             enabled: root.editable
             opacity: root.editable ? 1 : 0.6
             Behavior on opacity { NumberAnimation { duration: Theme.normal } }
@@ -800,7 +830,7 @@ Item {
                 font.weight: Font.DemiBold
                 color: Theme.text
             }
-            Hint { text: "Ignores extra clicks that arrive too soon after a press. It isn't a latency debounce: low values add no click delay. Default 8. The left and right buttons can use GX Speed or GX Safe instead." }
+            Hint { text: "Ignores extra clicks that arrive too soon after a press. It isn't a latency debounce: low values add no click delay. Default 8. The left and right buttons can use GX Speed or GX Safe instead. This filter runs inside the mouse; the Double-click fix on the Clicks page does a similar job on the computer, for any protected mouse." }
 
             Repeater {
                 model: 5
@@ -939,7 +969,7 @@ Item {
         // ---------------------------------------------------------------- power
         WgCard {
             width: parent.width
-            visible: root.shown && (root.has("sleep_deep") || root.has("idle") || root.has("low_battery"))
+            visible: root.shown && root.hasPower && root.sectionKey === "power"
             enabled: root.editable
             opacity: root.editable ? 1 : 0.6
             Behavior on opacity { NumberAnimation { duration: Theme.normal } }
@@ -1037,7 +1067,7 @@ Item {
         // ---------------------------------------------------------------- backup
         WgCard {
             width: parent.width
-            visible: root.shown
+            visible: root.shown && root.sectionKey === "power"
             spacing: 10
             Heading { title: "Backup" }
             Hint {
