@@ -7,7 +7,7 @@
 %global __brp_python_bytecompile %{nil}
 
 Name:           wheelguard
-Version:        1.6.2
+Version:        1.7.0
 # CI appends .<commit count> so every build from main is a newer release.
 Release:        1%{?release_suffix}%{?dist}
 Summary:        Scroll bounce filter and advanced mouse settings (Endgame Gear, Logitech, Razer)
@@ -29,6 +29,8 @@ BuildRequires:  systemd-rpm-macros
 Requires:       python3-pyside6
 Requires:       python3-evdev
 Requires:       hicolor-icon-theme
+# "Allow this mouse" asks for the administrator password through pkexec
+Requires:       polkit
 
 %description
 A small per-user daemon grabs a supported mouse (Endgame Gear XM2w 4k v2,
@@ -58,6 +60,10 @@ install -d %{buildroot}%{_bindir} %{buildroot}%{_libexecdir}
 printf '#!/usr/bin/python3 -sP\nimport sys\nsys.path.insert(0, "%{_datadir}/%{name}")\nfrom wheelguard.gui.app import main\nsys.exit(main())\n' > %{buildroot}%{_bindir}/wheelguard-settings
 printf '#!/usr/bin/python3 -sP\nimport sys\nsys.path.insert(0, "%{_datadir}/%{name}")\nfrom wheelguard.daemon import main\nsys.exit(main())\n' > %{buildroot}%{_libexecdir}/wheelguard-daemon
 chmod 0755 %{buildroot}%{_bindir}/wheelguard-settings %{buildroot}%{_libexecdir}/wheelguard-daemon
+
+# "Allow this mouse": the one root helper (run through pkexec) and its polkit action.
+install -pm 0755 build-aux/wheelguard-allow-mouse %{buildroot}%{_libexecdir}/wheelguard-allow-mouse
+install -Dpm 0644 build-aux/%{app_id}.policy %{buildroot}%{_datadir}/polkit-1/actions/%{app_id}.policy
 
 install -Dpm 0644 build-aux/wheelguard.service %{buildroot}%{_userunitdir}/wheelguard.service
 install -Dpm 0644 build-aux/80-wheelguard.preset %{buildroot}%{_userpresetdir}/80-wheelguard.preset
@@ -103,6 +109,11 @@ fi
 
 %postun
 %systemd_user_postun_with_restart wheelguard.service
+# Uninstalled (not upgraded): take back the access given with "Allow this mouse".
+if [ $1 -eq 0 ]; then
+    rm -f %{_sysconfdir}/udev/rules.d/71-wheelguard-allowed-mice.rules
+    udevadm control --reload >/dev/null 2>&1 || :
+fi
 
 %files
 %license LICENSE
@@ -110,6 +121,8 @@ fi
 %{_datadir}/%{name}/
 %{_bindir}/wheelguard-settings
 %{_libexecdir}/wheelguard-daemon
+%{_libexecdir}/wheelguard-allow-mouse
+%{_datadir}/polkit-1/actions/%{app_id}.policy
 %{_userunitdir}/wheelguard.service
 %{_userpresetdir}/80-wheelguard.preset
 %{_udevrulesdir}/70-wheelguard.rules
@@ -125,6 +138,11 @@ fi
 %{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-djshiye-%{name}
 
 %changelog
+* Wed Nov 11 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.7.0-1
+- Allow this mouse: one button and your administrator password let Wheelguard protect a mouse it doesn't know, so scroll protection, Click-Lock and the Double-click fix really work with any wheel mouse
+- Take the access back any time with Remove access on the Scroll protection page; uninstalling Wheelguard removes it too
+- Fix: on a high-resolution scroll wheel, a held partial step came out as a whole notch
+
 * Tue Nov 10 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.6.2-1
 - Fix: scroll protection didn't find the Logitech G Pro X Superlight behind its receiver and kept saying "Waiting for mouse"
 - When only a mouse Wheelguard doesn't support is connected, the app now says so instead of "can't see the mouse"

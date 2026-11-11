@@ -1,0 +1,190 @@
+#!/usr/bin/python3 -I
+"""Let the logged-in user read one more mouse, so Wheelguard can protect a model it doesn't know.
+
+Runs as root through pkexec (see io.github.djshiye.Wheelguard.policy); the app asks for it when the
+user presses "Allow this mouse". It does one thing: keep a small udev rules file with one fixed-format
+line per allowed mouse.
+
+    wheelguard-allow-mouse add 046d:c08b
+    wheelguard-allow-mouse remove 046d:c08b
+
+Kept deliberately narrow, because it runs with full rights:
+- the only input is the action and one "vvvv:pppp" id (lower-case hex), checked against a strict pattern;
+- no path, name or rule text ever comes from the caller; the file is rebuilt from the ids alone;
+- `add` only accepts a mouse that is connected right now, has a scroll wheel and has no keyboard keys;
+- the rule itself only matches pure mouse nodes (never a node that is also a keyboard), so allowing a
+  mouse can't expose what is typed;
+- standard library only, isolated mode (-I): nothing from the user's environment or folders is loaded.
+"""
+import glob
+import os
+import re
+import stat
+import subprocess
+import sys
+import tempfile
+
+RULES_PATH = "/etc/udev/rules.d/71-wheelguard-allowed-mice.rules"
+UDEVADM = "/usr/bin/udevadm"
+MAX_MICE = 16
+ID_RE = re.compile(r"[0-9a-f]{4}:[0-9a-f]{4}")
+RULE_RE = re.compile(r'SUBSYSTEM=="input", KERNEL=="event\*", ATTRS\{id/vendor\}=="([0-9a-f]{4})", '
+                     r'ATTRS\{id/product\}=="([0-9a-f]{4})", ENV\{ID_INPUT_MOUSE\}=="1", '
+                     r'ENV\{ID_INPUT_KEYBOARD\}!="1", TAG\+="uaccess"')
+HEADER = ("# Written by Wheelguard (\"Allow this mouse\"). One line per mouse the logged-in user may read,\n"
+          "# so Wheelguard can protect its scroll wheel. Only pure mouse nodes match, never a keyboard.\n"
+          "# Change it from the Wheelguard app; edits made by hand are dropped the next time it is written.\n")
+REL_WHEEL = 8
+LETTER_KEYS = (16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 30, 31, 32, 33, 34, 35, 36, 37, 38,
+               44, 45, 46, 47, 48, 49, 50)        # KEY_Q..KEY_P, KEY_A..KEY_L, KEY_Z..KEY_M
+
+OK, USAGE, REFUSED, FAILED = 0, 2, 3, 4
+
+
+def valid_id(value):
+    return isinstance(value, str) and ID_RE.fullmatch(value) is not None
+
+
+def rule(ident):
+    vendor, product = ident.split(":")
+    return (f'SUBSYSTEM=="input", KERNEL=="event*", ATTRS{{id/vendor}}=="{vendor}", '
+            f'ATTRS{{id/product}}=="{product}", ENV{{ID_INPUT_MOUSE}}=="1", '
+            f'ENV{{ID_INPUT_KEYBOARD}}!="1", TAG+="uaccess"')
+
+
+def parse(text):
+    """The ids in a rules file, in order, without duplicates. Lines that aren't exactly ours are ignored."""
+    ids = []
+    for line in text.splitlines():
+        m = RULE_RE.fullmatch(line.strip())
+        if m and f"{m.group(1)}:{m.group(2)}" not in ids:
+            ids.append(f"{m.group(1)}:{m.group(2)}")
+    return ids[:MAX_MICE]
+
+
+def render(ids):
+    return HEADER + "".join(rule(i) + "\n" for i in ids)
+
+
+def read_ids(path=RULES_PATH):
+    """The allowed ids. A missing file is empty; anything that isn't a plain file is refused (OSError)."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    except FileNotFoundError:
+        return []
+    with os.fdopen(fd, "r", encoding="utf-8", errors="replace") as f:
+        if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+            raise OSError(f"{path} is not a regular file")
+        return parse(f.read(65536))
+
+
+def write_ids(ids, path=RULES_PATH):
+    """Write the file atomically (0644), or remove it when no mouse is left."""
+    if not ids:
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
+        return
+    folder = os.path.dirname(path)
+    os.makedirs(folder, mode=0o755, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=folder, prefix=".wheelguard-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(render(ids))
+            f.flush()
+            os.fchmod(f.fileno(), 0o644)
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _attr(node, name):
+    with open(f"{node}/device/{name}", encoding="ascii", errors="replace") as f:
+        return f.read(4096).strip()
+
+
+def _bit(mask_text, bit):
+    """Bit `bit` of a sysfs capability mask (hex words, most significant first, 64 bits each)."""
+    words = mask_text.split()
+    index = len(words) - 1 - bit // 64
+    return index >= 0 and (int(words[index], 16) >> (bit % 64)) & 1 == 1
+
+
+def connected(ident, sysfs="/sys/class/input"):
+    """"" when a pure mouse node with a wheel and this id is connected, else why it can't be allowed."""
+    vendor, product = ident.split(":")
+    seen = False
+    for node in sorted(glob.glob(f"{sysfs}/event*")):
+        try:
+            if int(_attr(node, "id/vendor"), 16) != int(vendor, 16) or int(_attr(node, "id/product"), 16) != int(product, 16):
+                continue
+            if not _bit(_attr(node, "capabilities/rel") or "0", REL_WHEEL):
+                continue
+            seen = True
+            keys = _attr(node, "capabilities/key") or "0"
+            if not any(_bit(keys, k) for k in LETTER_KEYS):
+                return ""
+        except (OSError, ValueError):
+            continue
+    if seen:
+        return "This mouse shares its device with a keyboard, so it can't be allowed safely."
+    return "That mouse isn't connected. Plug it in or wake it, then try again."
+
+
+def change(action, ident, ids):
+    """The new id list, or raises ValueError with what to tell the user."""
+    ids = [i for i in ids if i != ident]
+    if action == "add":
+        if len(ids) >= MAX_MICE:
+            raise ValueError(f"Up to {MAX_MICE} mice can be allowed. Remove one first.")
+        ids.append(ident)
+    return ids
+
+
+def reload_udev():
+    """Make udev re-read the rules and re-apply them to the input devices that are there now."""
+    env = {"PATH": "/usr/sbin:/usr/bin"}
+    for args in (["control", "--reload"], ["trigger", "--subsystem-match=input", "--action=change"],
+                 ["settle", "--timeout=5"]):
+        subprocess.run([UDEVADM, *args], env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, timeout=15, check=False)
+
+
+def main(argv):
+    if len(argv) != 2 or argv[0] not in ("add", "remove") or not valid_id(argv[1]):
+        print("usage: wheelguard-allow-mouse add|remove vvvv:pppp", file=sys.stderr)
+        return USAGE
+    action, ident = argv
+    if os.geteuid() != 0:
+        print("This needs administrator rights.", file=sys.stderr)
+        return REFUSED
+    if action == "add":
+        why = connected(ident)
+        if why:
+            print(why, file=sys.stderr)
+            return REFUSED
+    try:
+        write_ids(change(action, ident, read_ids()))
+    except ValueError as ex:
+        print(ex, file=sys.stderr)
+        return REFUSED
+    except OSError as ex:
+        print(f"Couldn't update the device rule: {ex.strerror or ex}", file=sys.stderr)
+        return FAILED
+    try:
+        reload_udev()
+    except (OSError, subprocess.SubprocessError):
+        print("The rule was saved, but udev could not be reloaded. Unplug the mouse and plug it back in.",
+              file=sys.stderr)
+        return FAILED
+    return OK
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

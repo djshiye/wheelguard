@@ -203,6 +203,8 @@ class Mock:
     def mice(self):
         if self.scenario.startswith("unsupported"):
             return [dict(OTHER_MOUSE, accessible=self.scenario == "unsupported")]
+        if self.cfg["mouse"] == OTHER_MOUSE["vendor"] + ":" + OTHER_MOUSE["product"]:
+            return MICE + [dict(OTHER_MOUSE, accessible=self.scenario != "permission")]     # the user picked it
         return MICE
 
     def send(self, c, msg):

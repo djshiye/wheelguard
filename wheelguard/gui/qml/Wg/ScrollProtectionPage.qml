@@ -127,6 +127,8 @@ WgScrollPage {
         opacity: page.reachable ? 1 : 0.5
         enabled: page.reachable
         Behavior on opacity { NumberAnimation { duration: Theme.normal } }
+        readonly property bool allowedByUser: mouseAccess.available && daemon.mouseChoice !== "auto"
+                                              && mouseAccess.allowed.indexOf(daemon.mouseChoice) >= 0
         readonly property bool untested: daemon.mouseChoice !== "auto" && daemon.mouseIndex > 0
                                          && daemon.mouseLabels[daemon.mouseIndex].indexOf("(not tested)") >= 0
 
@@ -178,7 +180,9 @@ WgScrollPage {
             WgIcon { name: "alert"; size: 16; color: Theme.amber }
             Text {
                 Layout.fillWidth: true
-                text: "Wheelguard isn't allowed to read this mouse. Only supported mice get access automatically. Switch back to Automatic."
+                text: mouseAccess.available
+                      ? "Wheelguard isn't allowed to read this mouse yet. Allow it above, or switch back to Automatic."
+                      : "Wheelguard isn't allowed to read this mouse. Only supported mice get access automatically. Switch back to Automatic."
                 font.pixelSize: Theme.fsSmall
                 color: Theme.textMuted
                 wrapMode: Text.WordWrap
@@ -186,6 +190,25 @@ WgScrollPage {
             WgButton {
                 text: "Use Automatic"
                 onClicked: daemon.setMouse("auto")
+            }
+        }
+        RowLayout {     // a mouse the user allowed: say so, and offer to take the access back
+            Layout.fillWidth: true
+            visible: mouseCard.allowedByUser && !daemon.mouseNoAccess
+            spacing: 10
+            WgIcon { name: "lock"; size: 16; color: Theme.textMuted }
+            Text {
+                Layout.fillWidth: true
+                text: mouseAccess.error !== "" ? mouseAccess.error
+                      : "You allowed Wheelguard to read this mouse. Other programs you run can read its movement and clicks too."
+                font.pixelSize: Theme.fsSmall
+                color: mouseAccess.error !== "" ? Theme.coral : Theme.textMuted
+                wrapMode: Text.WordWrap
+            }
+            WgButton {
+                text: mouseAccess.busy ? "Waiting for password…" : "Remove access"
+                enabled: !mouseAccess.busy
+                onClicked: mouseAccess.remove(daemon.mouseChoice)
             }
         }
         RowLayout {

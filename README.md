@@ -30,8 +30,11 @@ installs its own `/etc/yum.repos.d/wheelguard.repo`, so the repository stays con
     polling rate up to 1000 Hz, battery
   - Razer DeathAdder V4 Pro: DPI stages with separate X/Y, polling rate up to 8000 Hz, sleep timer,
     low-battery warning, battery
-- **Scroll filter for any mouse with a wheel**: supported mice are picked up automatically, any other
-  mouse can be chosen on the Scroll protection page
+- **Scroll filter for any mouse with a wheel**: supported mice are picked up automatically. For any other
+  mouse, press **Allow this mouse** on the Scroll protection page and enter your administrator password
+  once. That adds a device rule for that one mouse (`/etc/udev/rules.d/71-wheelguard-allowed-mice.rules`);
+  **Remove access** takes it back. As with the supported mice, programs you run can then read that
+  mouse's movement and clicks. A mouse that shares its device with a keyboard is never allowed.
 - **Wheel health**: a 7 and 30 day chart of how often the wheel needed blocking, a warning
   if it starts bouncing more
 - **Double-click fix** for any mouse: ignores the extra click a worn button sends

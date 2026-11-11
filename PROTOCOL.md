@@ -44,7 +44,7 @@ the lock (that press goes through). Switching Click-Lock off or changing the
 mode ends a running lock at once.
 
 Ignore drags: with `clicklock_ignore_drag: true` (the default) and mode `repeat`, a hold only engages
-the lock if the pointer stayed roughly still: once the pointer has moved more than 100 counts
+the lock if the pointer stayed roughly still: once the pointer has moved more than 400 counts
 (REL_X/REL_Y, measured from where the button went down) the press can no longer engage the lock. Mode
 `hold` ignores this setting and works as before.
 

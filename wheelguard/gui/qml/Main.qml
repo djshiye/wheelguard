@@ -287,10 +287,34 @@ Window {
                 chosenDenied: daemon.mouseChoice !== "auto" && !daemon.mouseChoiceSupported
                 otherMouse: daemon.otherMouse
                 otherMouseAccessible: daemon.otherMouseAccessible
+                canAllow: mouseAccess.available
+                allowBusy: mouseAccess.busy
+                allowError: mouseAccess.error
+                onAllowRequested: mouseAccess.allow(daemon.mouseChoice !== "auto" ? daemon.mouseChoice : daemon.otherMouseId)
                 onAutomaticRequested: daemon.setMouse("auto")
                 onUseOtherMouseRequested: daemon.setMouse(daemon.otherMouseId)
                 onStartRequested: daemon.startService()
                 onRetryRequested: daemon.refreshStatus()
+            }
+
+            // "Allow this mouse" worked: protect that mouse now. Access taken back: return to Automatic.
+            Connections {
+                target: mouseAccess
+                function onFinished(action, ident, ok) {
+                    if (!ok)
+                        return
+                    if (action === "add") {
+                        daemon.setMouse(ident)
+                        allowRefresh.restart()
+                    } else if (daemon.mouseChoice === ident) {
+                        daemon.setMouse("auto")
+                    }
+                }
+            }
+            Timer {
+                id: allowRefresh
+                interval: 1500
+                onTriggered: { daemon.refreshMice(); daemon.refreshStatus() }
             }
 
             Item {

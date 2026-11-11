@@ -125,6 +125,7 @@ def main(argv=None):
     from .diagnostics import Diagnostics
     from .shortcuts import ShortcutsBackend
     from .mouse import MouseController
+    from .mouseaccess import MouseAccess
     from .profilectl import PROVIDER_ID, AppIconProvider, ProfileController
 
     QQuickStyle.setStyle("Basic")
@@ -192,6 +193,10 @@ def main(argv=None):
     ctx.setContextProperty("shortcuts", ShortcutsBackend(parent=engine))
     ctx.setContextProperty("diagnostics", Diagnostics(daemon, mouse, ext, app_settings, engine))
     ctx.setContextProperty("autostart", Autostart(engine))
+    # In a screenshot run the button is shown without the installed helper; it is never pressed there.
+    ctx.setContextProperty("mouseAccess", MouseAccess(
+        parent=engine, helper="/bin/true", which=lambda _n: "/bin/true",
+        rules_path=os.environ.get("WHEELGUARD_SHOT_RULES", "/nonexistent")) if shot else MouseAccess(parent=engine))
     ctx.setContextProperty("iconUrl", QUrl.fromLocalFile(str(icon_path)))
     engine.load(QUrl.fromLocalFile(str(QML_DIR / "Main.qml")))
     if not engine.rootObjects():

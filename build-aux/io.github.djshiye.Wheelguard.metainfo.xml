@@ -38,6 +38,15 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.7.0" date="2026-11-11">
+      <description>
+        <ul>
+          <li>Allow this mouse: one button and your administrator password let Wheelguard protect a mouse it doesn't know, so scroll protection, Click-Lock and the Double-click fix work with any wheel mouse</li>
+          <li>Take the access back any time with Remove access on the Scroll protection page</li>
+          <li>Fixed: on a high-resolution scroll wheel, a held partial step came out as a whole notch</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.6.2" date="2026-11-10">
       <description>
         <ul>
