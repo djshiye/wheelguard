@@ -38,6 +38,14 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.9.0" date="2026-11-11">
+      <description>
+        <ul>
+          <li>Fifteen more Logitech G mice are recognised: G Pro Wireless, G Pro Hero, G305, G102 / G203, G303 Shroud Edition, G403 Hero, G502 Hero, G502 Lightspeed, G502 X, G502 X Lightspeed, G502 X Plus, G604, G703 Hero, G705 and G903 Hero</li>
+          <li>They are protected automatically, and the Mouse page and panel show their battery, DPI stages and polling rate; changing settings stays off until each model has been tested</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.8.0" date="2026-11-11">
       <description>
         <ul>

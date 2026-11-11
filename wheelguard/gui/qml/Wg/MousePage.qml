@@ -593,7 +593,7 @@ Item {
             Heading { title: "Sensitivity" }
             Hint {
                 text: "Up to " + root.countWord + " DPI stages. Click a stage to edit it; the mouse's DPI button cycles through them."
-                      + (mouse.modelKey === "logitech-pro-x-superlight" ? " Picking the active stage takes effect at once; after a restart the mouse begins in its default stage." : "")
+                      + (mouse.brand === "Logitech" ? " Picking the active stage takes effect at once; after a restart the mouse begins in its default stage." : "")
             }
 
             RowLayout {
@@ -1124,7 +1124,7 @@ Item {
         Text {
             width: parent.width
             visible: root.shown
-            text: mouse.modelKey === "logitech-pro-x-superlight"
+            text: mouse.brand === "Logitech"
                   ? "Wheelguard edits the mouse's onboard profile the way libratbag and Solaar do. It hasn't been tested on every firmware, and it isn't affiliated with or endorsed by Logitech."
                   : mouse.brand === "Razer"
                     ? "Wheelguard talks to the mouse with the protocol documented by the OpenRazer project. It hasn't been tested on every firmware, and it isn't affiliated with or endorsed by Razer."

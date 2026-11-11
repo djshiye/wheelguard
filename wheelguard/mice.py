@@ -15,6 +15,9 @@ KNOWN = {
     # the rest of the Razer family (models.RAZER_LINKS)
     **{(0x1532, pid): (models.MODELS[link.model].name, "cable" if link.wired else "dongle")
        for pid, link in models.RAZER_LINKS.items() if pid not in (0x00BE, 0x00BF)},
+    # the rest of the Logitech family (models.LOGI_LINKS)
+    **{(0x046D, pid): (models.MODELS[link.model].name, "cable" if link.wired else "receiver")
+       for pid, link in models.LOGI_LINKS.items() if pid not in (0x4093, 0xC094)},
 }
 KNOWN_MICE = tuple(KNOWN)
 AUTO = "auto"

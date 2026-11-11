@@ -25,7 +25,7 @@ from .errors import (ApplyResult, Battery, HwError, MouseAsleep, NoAccess, NoDev
 from .hidraw import AccessDenied
 from .logitech import LogitechDriver
 from .models import supported_summary
-from . import razer
+from . import logitech, razer
 from .razer import RazerDriver
 
 Progress = Callable[[float, str], None]
@@ -45,7 +45,7 @@ def default_backup_dir() -> Path:
 
 
 DRIVERS = {"endgame": EndgameDriver, "razer": RazerDriver, "logitech": LogitechDriver}
-CODECS = {**{d.model.key: d.codec for d in DRIVERS.values()}, **razer.CODECS}     # every Razer model has its own
+CODECS = {**{d.model.key: d.codec for d in DRIVERS.values()}, **razer.CODECS, **logitech.CODECS}   # one per model
 
 
 def codec_for(model_key: str):

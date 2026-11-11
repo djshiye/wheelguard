@@ -11,7 +11,7 @@ import select
 from dataclasses import dataclass
 from typing import List, Optional
 
-from .models import RAZER_LINKS
+from .models import LOGI_LINKS, RAZER_LINKS
 
 VENDOR = 0x3367
 PID_DONGLE = 0x1970
@@ -40,7 +40,10 @@ RAZER_WIRED = frozenset(p for p, link in RAZER_LINKS.items() if link.wired)
 LOGI_VENDOR = 0x046D
 LOGI_SUPERLIGHT_WIRELESS = 0x4093
 LOGI_SUPERLIGHT_WIRED = 0xC094
-LOGI_PIDS = (LOGI_SUPERLIGHT_WIRELESS, LOGI_SUPERLIGHT_WIRED)
+# The rest of the Logitech family (models.LOGI_LINKS) talks HID++ the same way.
+LOGI_PIDS = (LOGI_SUPERLIGHT_WIRELESS, LOGI_SUPERLIGHT_WIRED) + tuple(
+    p for p in sorted(LOGI_LINKS) if p not in (LOGI_SUPERLIGHT_WIRELESS, LOGI_SUPERLIGHT_WIRED))
+LOGI_WIRED = frozenset(p for p, link in LOGI_LINKS.items() if link.wired)
 # HID++: vendor usage page 0xFF00 with the long (20-byte) report 0x11.
 HIDPP_PAGE = bytes.fromhex("0600ff")
 HIDPP_LONG = bytes.fromhex("8511")
@@ -79,7 +82,9 @@ class Candidate:
     def wired(self) -> bool:
         if self.kind == "razer":
             return self.pid in RAZER_WIRED
-        return self.pid in (PID_WIRED, LOGI_SUPERLIGHT_WIRED)
+        if self.kind == "logitech":
+            return self.pid in LOGI_WIRED
+        return self.pid == PID_WIRED
 
 
 def descriptor_is_config_channel(desc: bytes) -> bool:
@@ -168,7 +173,7 @@ def discover_razer(sysfs: str = SYSFS_HIDRAW, dev_dir: str = DEV_DIR) -> List[Ca
 
 
 def discover_logitech(sysfs: str = SYSFS_HIDRAW, dev_dir: str = DEV_DIR) -> List[Candidate]:
-    """HID++ hidraw nodes of a G Pro X Superlight (wired first)."""
+    """HID++ hidraw nodes of a Logitech mouse Wheelguard knows (models.LOGI_LINKS), wired first."""
     found = [Candidate(os.path.join(dev_dir, name), vid, pid, name, "logitech")
              for name, vid, pid, desc in _nodes(sysfs)
              if vid == LOGI_VENDOR and pid in LOGI_PIDS and descriptor_is_hidpp(desc)]

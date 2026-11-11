@@ -161,7 +161,56 @@ RAZER_LINKS: Dict[int, RazerLink] = {
     **{link.pid: link for _m, links in _FAMILY for link in links},
 }
 
-MODELS: Dict[str, Model] = {m.key: m for m in (ENDGAME_XM2W, SUPERLIGHT) + RAZER_FAMILY}
+# ---------------------------------------------------------------- the Logitech family
+# Logitech G mice with HID++ 2.0 onboard profiles keep DPI stages and the report rate in the same profile
+# layout as the Superlight (logitech.py checks the layout version the mouse reports and stays read-only on
+# any other). Product ids from libratbag's device files (MIT): the id behind a LIGHTSPEED receiver, which
+# hid-logitech-dj gives the mouse its own HID device for, and the id over the cable. Only mice with a 1000 Hz
+# maximum are listed: faster ones store the rate elsewhere. They start unconfirmed: read-only until checked.
+
+@dataclass(frozen=True)
+class LogiLink:
+    pid: int
+    model: str                  # Model.key
+    wired: bool
+
+
+_LOGI_SYMMETRIC, _LOGI_ERGO = "logitech-pro-x-superlight", "logitech-ergo"
+
+
+def _logi(key, name, dpi_min, dpi_max, art, receiver=(), cable=()):
+    model = Model(key=key, name=name, brand="Logitech", dpi_min=dpi_min, dpi_max=dpi_max, dpi_step=50,
+                  max_stages=5, polling=SUPERLIGHT.polling, features=frozenset(),
+                  wireless_text="Wireless via LIGHTSPEED receiver" if receiver else "Wired",
+                  usb_vendor=0x046D, confirmed=False, art=art)
+    return model, [LogiLink(p, key, False) for p in receiver] + [LogiLink(p, key, True) for p in cable]
+
+
+_LOGI_FAMILY = [
+    _logi("logitech-g-pro-wireless", "Logitech G Pro Wireless", 100, 25600, _LOGI_SYMMETRIC, (0x4079,), (0xC088,)),
+    _logi("logitech-g-pro-hero", "Logitech G Pro Hero", 100, 25600, _LOGI_SYMMETRIC, (), (0xC08C,)),
+    _logi("logitech-g305", "Logitech G305", 200, 12000, _LOGI_SYMMETRIC, (0x4074,)),
+    _logi("logitech-g203", "Logitech G102 / G203", 200, 8000, _LOGI_SYMMETRIC, (), (0xC084, 0xC092, 0xC09D)),
+    _logi("logitech-g303-shroud", "Logitech G303 Shroud Edition", 100, 25600, _LOGI_ERGO, (), (0xC097,)),
+    _logi("logitech-g403-hero", "Logitech G403 Hero", 100, 25600, _LOGI_ERGO, (), (0xC08F,)),
+    _logi("logitech-g502-hero", "Logitech G502 Hero", 100, 25600, _LOGI_ERGO, (), (0xC08B,)),
+    _logi("logitech-g502-lightspeed", "Logitech G502 Lightspeed", 100, 25600, _LOGI_ERGO, (0x407F,), (0xC08D,)),
+    _logi("logitech-g502-x", "Logitech G502 X", 100, 25600, _LOGI_ERGO, (), (0xC099,)),
+    _logi("logitech-g502-x-lightspeed", "Logitech G502 X Lightspeed", 100, 25600, _LOGI_ERGO, (0x409F,), (0xC098,)),
+    _logi("logitech-g502-x-plus", "Logitech G502 X Plus", 100, 25600, _LOGI_ERGO, (0x4099,), (0xC095,)),
+    _logi("logitech-g604", "Logitech G604", 100, 25600, _LOGI_ERGO, (0x4085,)),
+    _logi("logitech-g703-hero", "Logitech G703 Hero", 100, 25600, _LOGI_ERGO, (0x4086,), (0xC090,)),
+    _logi("logitech-g705", "Logitech G705", 100, 8200, _LOGI_ERGO, (0x409D,), (0xC096,)),
+    _logi("logitech-g903-hero", "Logitech G903 Hero", 100, 25600, _LOGI_SYMMETRIC, (0x4087,), (0xC091,)),
+]
+LOGI_FAMILY: Tuple[Model, ...] = (SUPERLIGHT,) + tuple(m for m, _l in _LOGI_FAMILY)
+LOGI_LINKS: Dict[int, LogiLink] = {
+    0x4093: LogiLink(0x4093, SUPERLIGHT.key, False),
+    0xC094: LogiLink(0xC094, SUPERLIGHT.key, True),
+    **{link.pid: link for _m, links in _LOGI_FAMILY for link in links},
+}
+
+MODELS: Dict[str, Model] = {m.key: m for m in (ENDGAME_XM2W,) + LOGI_FAMILY + RAZER_FAMILY}
 DEFAULT = ENDGAME_XM2W
 
 
@@ -181,8 +230,10 @@ def confirmed_names() -> Tuple[str, ...]:
 
 
 def supported_summary(joiner: str = "and") -> str:
-    """"the A, B and C, and N more Razer mice (read-only for now)" for messages: the full list is too long."""
+    """"the A, B and C, plus N more Logitech and Razer mice (read-only for now)" for messages: the full
+    list is too long."""
     names = confirmed_names()
     text = ", ".join(names[:-1]) + f" {joiner} " + names[-1] if len(names) > 1 else names[0]
-    more = sum(1 for m in MODELS.values() if not m.confirmed)
-    return f"the {text}" + (f", plus {more} more Razer mice (read-only for now)" if more else "")
+    more = [m for m in MODELS.values() if not m.confirmed]
+    brands = sorted({m.brand for m in more})
+    return f"the {text}" + (f", plus {len(more)} more {' and '.join(brands)} mice (read-only for now)" if more else "")

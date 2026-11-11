@@ -38,6 +38,13 @@ Item {
             palm: "M24 80 L96 80 C97 108 95 138 91 158 C86 182 74 193 60 193 C46 193 34 182 29 158 C25 138 23 108 24 80 Z",
             wheel: Qt.rect(55.5, 26, 9, 26), side: [Qt.rect(18, 90, 6.5, 24), Qt.rect(18, 56, 6.5, 22)]
         },
+        // the right-handed Logitech shape (G502, G703, G403, G604, G705): a wider right side and a thumb rest
+        "logitech-ergo": {
+            left: "M57 8 C39 8 27 20 24.5 46 C23.5 60 23 72 23.5 82 L57 82 Z",
+            right: "M57 8 C77 8 92 20 96 46 C98 60 99 72 98.5 82 L57 82 Z",
+            palm: "M23.5 82 L98.5 82 C101 110 99.5 140 94 162 C88 184 74 194 57 194 C40 194 29 184 24 162 C19.5 142 18 112 23.5 82 Z",
+            wheel: Qt.rect(52, 28, 10, 27), side: [Qt.rect(16.5, 96, 7, 25), Qt.rect(16.5, 62, 7, 23)]
+        },
         // the symmetric Razer shape (Viper, Cobra): narrower, with even sides
         "razer-viper": {
             left: "M60 8 C44 8 32 18 29 44 C27.5 58 27 72 27.5 84 L60 84 Z",

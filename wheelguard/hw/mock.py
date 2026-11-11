@@ -8,7 +8,7 @@ ever created when WHEELGUARD_HW_MOCK is set (see session.default_opener) or by t
                        razer|razer-wired|razer-asleep
                        razer-classic (a DeathAdder V3 Pro behind its dongle: the classic polling command)
                        razer-viper (a Viper V3 Pro behind its HyperPolling dongle)
-                       logitech|logitech-wired|logitech-factory|logitech-asleep
+                       logitech|logitech-wired|logitech-factory|logitech-asleep|logitech-g502
 
 FakeRazer and FakeLogitech do the same for the other two mice: they sit under razer.RazerDevice and
 hidpp.HidppDevice and answer like the real protocol (as documented by OpenRazer, libratbag and Solaar).
@@ -24,7 +24,7 @@ from .hidraw import (AccessDenied, LOGI_SUPERLIGHT_WIRED, LOGI_SUPERLIGHT_WIRELE
 MOCK_ENV = "WHEELGUARD_HW_MOCK"
 MODES = ("connected", "connected-wired", "asleep", "unsupported", "denied", "missing",
          "razer", "razer-wired", "razer-asleep", "razer-classic", "razer-viper",
-         "logitech", "logitech-wired", "logitech-factory", "logitech-asleep")
+         "logitech", "logitech-wired", "logitech-factory", "logitech-asleep", "logitech-g502")
 
 
 def default_blob() -> bytes:
@@ -245,6 +245,11 @@ class FakeLogitech:
             self.sectors[0x0000] = _sealed(d)
             self.sectors[0x0001] = superlight_profile(size)
             self.current = 0x0001
+        if mode == "logitech-g502":         # a G502 Lightspeed (read-only family model) through its receiver
+            self.pid = 0x407F
+            self.sectors[0x0001] = superlight_profile(size, (400, 800, 1600, 3200, 25600), 1)
+        else:
+            self.pid = LOGI_SUPERLIGHT_WIRED if self.wired else LOGI_SUPERLIGHT_WIRELESS
         self.dpi_index = 1
         self.millivolts = 3900
         self.sent: List[bytes] = []
@@ -365,5 +370,5 @@ def open_mock(mode: str):
     if isinstance(dev, FakeRazer):
         return dev, dev.wired, "razer", dev.pid
     if isinstance(dev, FakeLogitech):
-        return dev, dev.wired, "logitech", LOGI_SUPERLIGHT_WIRED if dev.wired else LOGI_SUPERLIGHT_WIRELESS
+        return dev, dev.wired, "logitech", dev.pid
     return dev, dev.wired

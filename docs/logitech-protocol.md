@@ -44,6 +44,22 @@ the memory model is 1 and the profile format is one libratbag parses (1-5).
 * Reads are 16 bytes at a time; the last read is aligned to the end of the sector (the firmware
   refuses reads past it). A write is: address (sector, 0, size) -> 16-byte chunks -> end.
 
+## The rest of the Logitech family
+
+`hw/models.py` (`LOGI_LINKS`) lists more Logitech G mice that libratbag drives with the same HID++ 2.0
+onboard profiles (product ids from libratbag's MIT-licensed device files): G Pro Wireless, G Pro Hero,
+G305, G102 / G203, G303 Shroud Edition, G403 Hero, G502 Hero, G502 Lightspeed, G502 X, G502 X
+Lightspeed, G502 X Plus, G604, G703 Hero, G705 and G903 Hero. They are reached exactly like the
+Superlight: through the HID device hid-logitech-dj creates for the mouse behind its receiver, or over the
+cable. Only mice whose fastest rate is 1000 Hz are listed, since faster ones keep the rate outside the
+profile. Per model Wheelguard records the DPI range of its sensor; the profile layout checks above apply
+unchanged, so a mouse that reports another memory model or profile format stays read-only.
+
+These models start **read-only** (`Model.confirmed = False`): Wheelguard reads settings and battery but
+refuses every write, in the driver, the HID++ transport and the session, until someone with that mouse
+confirms the readings match G HUB. Their input nodes are granted only where udev marks them as a pure
+mouse (`ID_INPUT_MOUSE`, never `ID_INPUT_KEYBOARD`).
+
 ## What Wheelguard does
 
 * **Read**: mode, directory, current profile, that profile's sector, current DPI index.

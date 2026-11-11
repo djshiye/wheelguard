@@ -7,7 +7,7 @@
 %global __brp_python_bytecompile %{nil}
 
 Name:           wheelguard
-Version:        1.8.0
+Version:        1.9.0
 # CI appends .<commit count> so every build from main is a newer release.
 Release:        1%{?release_suffix}%{?dist}
 Summary:        Scroll bounce filter and advanced mouse settings (Endgame Gear, Logitech, Razer)
@@ -140,6 +140,10 @@ fi
 %{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-djshiye-%{name}
 
 %changelog
+* Wed Nov 11 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.9.0-1
+- Fifteen more Logitech G mice are recognised: G Pro Wireless, G Pro Hero, G305, G102 / G203, G303 Shroud Edition, G403 Hero, G502 Hero, G502 Lightspeed, G502 X, G502 X Lightspeed, G502 X Plus, G604, G703 Hero, G705 and G903 Hero
+- They are protected automatically, and the Mouse page and panel show their battery, DPI stages and polling rate; changing settings stays off until each model has been tested
+
 * Wed Nov 11 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.8.0-1
 - Ten more Razer mice are recognised: DeathAdder V3 Pro and V3 HyperSpeed, Viper V2 Pro, V3 Pro, V3 Pro SE, V3 HyperSpeed and Mini Signature Edition, Basilisk V3 Pro and V3 Pro 35K, Cobra Pro
 - They are protected automatically, and the Mouse page and panel show their battery, DPI stages, polling rate and sleep timer; changing settings stays off until each model has been tested

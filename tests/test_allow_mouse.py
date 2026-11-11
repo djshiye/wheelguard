@@ -188,8 +188,8 @@ class AutomaticTakesAllowedMice(unittest.TestCase):
             from wheelguard import daemon
         except ImportError:
             self.skipTest("evdev not available")
-        ids = daemon._wanted(0x3367, 0x1970, allowed=[(0x046D, 0xC08B), (0x3367, 0x1982)])
+        ids = daemon._wanted(0x3367, 0x1970, allowed=[(0x093A, 0x2510), (0x3367, 0x1982)])
         self.assertEqual(ids[0], (0x3367, 0x1970))
-        self.assertEqual(ids[-1], (0x046D, 0xC08B))                 # after every supported mouse
+        self.assertEqual(ids[-1], (0x093A, 0x2510))                 # after every supported mouse
         self.assertEqual(ids.count((0x3367, 0x1982)), 1)            # a supported mouse isn't listed twice
-        self.assertLess(ids.index((0x1532, 0x00BF)), ids.index((0x046D, 0xC08B)))
+        self.assertLess(ids.index((0x1532, 0x00BF)), ids.index((0x093A, 0x2510)))
