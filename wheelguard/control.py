@@ -23,6 +23,7 @@ from .power import SuspendWatch
 log = logging.getLogger("wheelguard")
 POLL_S = 2.0  # config.json mtime poll interval
 BUTTON_NAMES = {e.BTN_LEFT: "left", e.BTN_RIGHT: "right", e.BTN_MIDDLE: "middle"}
+PROTECTION_KEYS = ("pre_ms", "hold_ms", "lock_ms")
 _NO_DECISIONS = ()
 
 
@@ -344,6 +345,11 @@ class Controller:
 
     def set_config(self, partial):
         """Validate, merge, write atomically and apply. Returns None or an error message."""
+        if isinstance(partial, dict) and any(k in partial for k in PROTECTION_KEYS):
+            # The three timings are one setting on screen. While a profile overrides them the user sees the
+            # temporary values, so an edit of one saves all three as shown, never a mix with hidden ones.
+            shown = {k: self.override[k] for k in PROTECTION_KEYS if k in self.override}
+            partial = {**shown, **partial}
         try:
             new_file = C.normalize(partial, self.file_cfg)
             C.normalize(self.overrides, new_file)

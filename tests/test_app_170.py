@@ -114,5 +114,57 @@ class PickTests(unittest.TestCase):
         self.assertIs(session.pick([self.A, self.B], (0x046d, 0xc08b)), self.A)
 
 
+try:
+    from PySide6.QtCore import QCoreApplication, QObject, Signal
+    from wheelguard.gui import backend
+    HAVE_QT = True
+except ImportError:
+    HAVE_QT = False
+
+if HAVE_QT:
+    class RefusingDaemon(QObject):
+        """A service that refuses the drag distance (an older one): every refusal reverts the config."""
+        stateChanged = Signal()
+        configChanged = Signal()
+
+        def __init__(self):
+            super().__init__()
+            self.ident, self.configKnown, self.asked = "3367:1970", True, []
+
+        def setClickLockDragCounts(self, counts):
+            self.asked.append(counts)
+            if len(self.asked) < 50:
+                self.configChanged.emit()           # the revert after the error reply
+
+    class DpiMouse(QObject):
+        trayChanged = Signal()
+        state, online, usbIdText, activeStage = "ready", True, "3367:1970", 0
+        baseline = {"dpi_x0": 800, "dpi_x1": 3200}
+
+        def refresh(self):
+            pass
+
+
+@unittest.skipUnless(HAVE_QT, "PySide6 not installed")
+class MouseFollowTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QCoreApplication.instance() or QCoreApplication([])
+
+    def test_a_refused_drag_distance_is_not_asked_for_again(self):
+        d, m = RefusingDaemon(), DpiMouse()
+        follow = backend.MouseFollow(d, m, prefer=lambda ids: False)
+        self.assertEqual(d.asked, [200])            # a quarter inch at 800 DPI, once
+        m.activeStage = 1
+        m.trayChanged.emit()
+        self.assertEqual(d.asked, [200, 800])       # a new DPI is a new question
+        d.ident = ""
+        d.stateChanged.emit()
+        d.ident = "3367:1970"
+        d.stateChanged.emit()                       # the service came back (maybe updated): ask again
+        self.assertEqual(d.asked, [200, 800, 800])
+        del follow
+
+
 if __name__ == "__main__":
     unittest.main()

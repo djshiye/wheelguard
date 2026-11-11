@@ -583,6 +583,7 @@ class MouseFollow(QObject):
             prefer = session.prefer
         self._prefer = prefer
         self._ident = None
+        self._sent = 0                      # the last drag distance asked for: never asked twice (the service may refuse)
         daemon.stateChanged.connect(self._on_daemon)
         daemon.configChanged.connect(self._sync_drag)
         mouse.trayChanged.connect(self._sync_drag)
@@ -592,6 +593,7 @@ class MouseFollow(QObject):
         ident = self._daemon.ident
         if ident != self._ident:
             self._ident = ident
+            self._sent = 0                  # another mouse, or the service came back: it may be asked again
             ids = protocol.mouse_ids.parse_choice(ident) if ident else None
             if self._prefer(ids) and self._mouse.state in ("ready", "missing", "asleep"):
                 self._mouse.refresh()
@@ -605,7 +607,8 @@ class MouseFollow(QObject):
             return                          # the Mouse page shows another brand than the one being protected
         base, stage = m.baseline, m.activeStage
         counts = protocol.drag_counts_for_dpi(base.get(f"dpi_x{stage}")) if stage >= 0 else 0
-        if counts:
+        if counts and counts != self._sent:
+            self._sent = counts
             d.setClickLockDragCounts(counts)
 
 

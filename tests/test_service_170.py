@@ -188,12 +188,34 @@ class WholeFrameWrites(unittest.TestCase):
         ui.write, ui.syn = mock.Mock(), mock.Mock()
         writer = daemon.FrameWriter(ui)
         with mock.patch.object(daemon.os, "write", side_effect=OSError(errno.EINVAL, "no")):
-            writer([MOVE])
+            writer([[LEFT_UP]])                     # uinput refuses before taking anything ...
             self.assertFalse(writer.batched)
-            ui.write.assert_not_called()            # the refused frame is not sent twice
+            ui.write.assert_called_once_with(*LEFT_UP)      # ... so the release must still go out
+            ui.syn.assert_called_once()
             writer([MOVE])
-        self.assertEqual(ui.write.call_count, 2)
-        ui.syn.assert_called_once()
+        self.assertEqual(ui.write.call_count, 3)
+        self.assertEqual(ui.syn.call_count, 2)
+
+    def test_a_short_write_sends_the_rest(self):
+        r, w = os.pipe()
+        self.addCleanup(os.close, r)
+        self.addCleanup(os.close, w)
+        writer = daemon.FrameWriter(self.ui(w))
+        size = daemon._EVENT.size
+        real = os.write
+        calls = []
+
+        def short(fd, data):
+            calls.append(len(data))
+            return real(fd, data[:size + 5]) - 5 if len(calls) == 1 else real(fd, data)
+
+        with mock.patch.object(daemon.os, "write", side_effect=short):
+            writer([MOVE, [LEFT_UP]])
+        data = os.read(r, 4096)[size + 5:]          # after the first event and the 5 stray bytes of the short write
+        got = [daemon._EVENT.unpack_from(data, i)[2:] for i in range(0, len(data), size)]
+        syn = (e.EV_SYN, e.SYN_REPORT, 0)
+        self.assertEqual(got, [MOVE[1], syn, LEFT_UP, syn])
+        self.assertTrue(writer.batched)
 
     def test_a_gone_device_still_raises(self):
         writer = daemon.FrameWriter(self.ui(7))
@@ -261,9 +283,28 @@ class Override(Base):
 
     def test_dropped_when_it_no_longer_fits_the_file(self):
         self.ctl.set_override({"hold_ms": 200}, owner="app")
-        self.assertIsNone(self.ctl.set_config({"lock_ms": 100}))       # hold 200 can't sit under lock 100
+        self.path.write_text(json.dumps({"lock_ms": 100}))             # hold 200 can't sit under lock 100
+        self.assertIsNone(self.ctl.reload())
         self.assertEqual(self.ctl.override, {})
         self.assertEqual(self.ctl.cfg["hold_ms"], C.DEFAULTS["hold_ms"])
+
+    def test_editing_one_timing_saves_the_three_as_shown(self):
+        """The sliders show the profile's values. Moving one must be judged against, and saved with, the
+        other two as they are on screen, not the hidden saved ones."""
+        self.ctl.set_override({"pre_ms": 100, "hold_ms": 50, "lock_ms": 600, "clicklock": True}, owner="app")
+        self.assertIsNone(self.ctl.set_config({"pre_ms": 400}))        # fine under the shown lock of 600
+        cfg = self.ctl.cfg
+        self.assertEqual((cfg["pre_ms"], cfg["hold_ms"], cfg["lock_ms"]), (400, 50, 600))
+        saved = json.loads(self.path.read_text())
+        self.assertEqual((saved["pre_ms"], saved["hold_ms"], saved["lock_ms"]), (400, 50, 600))
+        self.assertEqual(self.ctl.override, {"clicklock": True})       # what wasn't touched stays temporary
+        self.assertFalse(saved["clicklock"])
+
+    def test_other_settings_leave_the_temporary_timings_alone(self):
+        self.ctl.set_override({"pre_ms": 100, "hold_ms": 50, "lock_ms": 600}, owner="app")
+        self.assertIsNone(self.ctl.set_config({"clicklock_ms": 3000}))
+        self.assertEqual(self.ctl.override, {"pre_ms": 100, "hold_ms": 50, "lock_ms": 600})
+        self.assertEqual(json.loads(self.path.read_text())["lock_ms"], C.DEFAULTS["lock_ms"])
 
     def test_switching_click_lock_off_ends_a_running_lock(self):
         self.ctl.set_override({"clicklock": True}, owner="app")
@@ -568,6 +609,26 @@ class LockWatch(unittest.TestCase):
                 daemon.run_session(Dev(), ctl, None, lambda d: None, None, lockwatch)
         self.assertIn(55, calls[0])
         ctl.stop_clicklock.assert_called_once_with("the screen locked")
+
+
+class PauseWhileWaiting(unittest.TestCase):
+    def test_a_held_button_cannot_keep_a_pause_waiting(self):
+        dev = mock.Mock()
+        dev.active_keys.return_value = [e.BTN_LEFT]         # reported as down, forever
+        ctl = mock.MagicMock()
+        ctl.paused = True
+        self.assertIs(daemon.wait_for_buttons_up(dev, ctl, mock.Mock()), False)
+        self.assertIs(daemon.grab_when_buttons_up(dev, ctl, mock.Mock()), False)
+        dev.grab.assert_not_called()
+
+    def test_without_a_pause_it_grabs_as_before(self):
+        dev = mock.Mock()
+        dev.active_keys.return_value = []
+        ctl = mock.MagicMock()
+        ctl.paused = False
+        with mock.patch.object(daemon, "drain"):
+            self.assertIs(daemon.grab_when_buttons_up(dev, ctl, mock.Mock()), True)
+        dev.grab.assert_called_once()
 
 
 if __name__ == "__main__":

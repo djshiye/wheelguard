@@ -258,7 +258,8 @@ def write_frames(ui, frames):
 class FrameWriter:
     """Writes frames to the virtual mouse with one system call for all of them, instead of one per event
     (a motion frame is three events: X, Y and the SYN_REPORT). uinput takes any number of events in one
-    write. If the kernel ever refuses that, it goes back to one write per event for good."""
+    write. If the kernel ever refuses that, it goes back to one write per event for good. Either way every
+    event of every frame is written: a batch is never dropped, because it may hold a button's release."""
 
     def __init__(self, ui):
         self.ui = ui
@@ -269,17 +270,19 @@ class FrameWriter:
             data = pack_frames(frames)
             try:
                 done = os.write(self.ui.fd, data)
-                while done < len(data):                 # uinput takes whole events; carry on after the last one
-                    if done % _EVENT.size:
-                        raise OSError(errno.EIO, "short write to uinput")
-                    done += os.write(self.ui.fd, data[done:])
-                return
             except OSError as ex:
-                if ex.errno not in (errno.EINVAL, errno.EIO):
+                if ex.errno != errno.EINVAL:
                     raise
+                # uinput refuses with EINVAL before taking anything, so the whole batch is still to be written
                 log.warning("writing whole frames to the virtual mouse failed (%s); writing event by event", ex)
                 self.batched = False
-                return                                  # a refused write may have been taken in part: don't repeat it
+                write_frames(self.ui, frames)
+                return
+            done -= done % _EVENT.size                  # uinput takes whole events only
+            while done < len(data):                     # a short write: the rest, one event at a time
+                os.write(self.ui.fd, data[done:done + _EVENT.size])
+                done += _EVENT.size
+            return
         write_frames(self.ui, frames)
 
 
@@ -324,15 +327,18 @@ def wait_for_buttons_up(dev, ctl, server):
     Wheelguard lets go of the mouse: a stuck click that clicking again can't fix, because the new
     clicks arrive through the virtual mouse. This happens when the mouse wakes up or reconnects with a
     click. So wait (still answering IPC clients) until every button is up; the release then reaches
-    the desktop the normal way.
+    the desktop the normal way. Returns False when a client paused the daemon meanwhile (nothing is grabbed).
     """
     logged = False
     while buttons_down(dev):
+        if getattr(ctl, "paused", False) is True:
+            return False
         if not logged:
             log.info("waiting for the mouse buttons to be released before taking over the mouse")
             logged = True
         if service(ctl, server, POLL_S, (dev.fd,)):
             drain(dev)                     # not grabbed yet: the desktop gets these events itself
+    return True
 
 
 def drain(dev):
@@ -361,11 +367,12 @@ def grab_when_buttons_up(dev, ctl, server):
     and, if a button is down, let go of the mouse and wait for the release first.
     """
     while True:
-        wait_for_buttons_up(dev, ctl, server)
+        if wait_for_buttons_up(dev, ctl, server) is False:
+            return False
         drain(dev)
         dev.grab()
         if not buttons_down(dev):
-            return
+            return True
         log.info("a mouse button went down while taking over the mouse; waiting for its release")
         dev.ungrab()
 
@@ -393,7 +400,8 @@ def run_session(dev, ctl, server, tick_log, watcher=None, lockwatch=None):
             out.update(frame)
 
     try:
-        grab_when_buttons_up(dev, ctl, server)
+        if grab_when_buttons_up(dev, ctl, server) is False:
+            return True                     # paused while waiting for a held button: nothing was grabbed
         grabbed = True
         cfg = ctl.cfg
         pinned = mice.parse_choice(cfg.get("mouse"))
@@ -429,6 +437,8 @@ def run_session(dev, ctl, server, tick_log, watcher=None, lockwatch=None):
             extra = [dev.fd]
             if watcher is not None:
                 extra.append(watcher.fileno())
+            if lockwatch is not None:
+                lockwatch.start()           # no-op while it runs; brings back one that ended (rate-limited)
             lock_fd = None if lockwatch is None else lockwatch.fileno()
             if lock_fd is not None:
                 extra.append(lock_fd)
