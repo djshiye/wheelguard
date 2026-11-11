@@ -44,6 +44,9 @@ installs its own `/etc/yum.repos.d/wheelguard.repo`, so the repository stays con
   once and it appears in the profile app list. A profile never changes your saved settings
 - **Pause**: one shortcut (Super+Alt+P), or the Pause button under the status pill, makes Wheelguard let go
   of the mouse completely until you resume
+- **Battery for any wireless mouse**: for a mouse without its own Wheelguard driver, the panel icon, tray and
+  low-battery alerts show the level Linux already reports for it (through UPower, read-only: most Logitech
+  mice and Bluetooth mice that report one)
 - **Low-battery alerts** and keyboard shortcuts for Click-Lock, the DPI stage and Pause
 - **Click-Lock**: hold the left button for a few seconds (5 s by default, adjustable) and Wheelguard keeps
   clicking for you, or keeps the button pressed for long drags, until your next click (any other mouse

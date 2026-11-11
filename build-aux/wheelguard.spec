@@ -7,7 +7,7 @@
 %global __brp_python_bytecompile %{nil}
 
 Name:           wheelguard
-Version:        1.7.1
+Version:        1.7.2
 # CI appends .<commit count> so every build from main is a newer release.
 Release:        1%{?release_suffix}%{?dist}
 Summary:        Scroll bounce filter and advanced mouse settings (Endgame Gear, Logitech, Razer)
@@ -140,6 +140,9 @@ fi
 %{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-djshiye-%{name}
 
 %changelog
+* Wed Nov 11 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.7.2-1
+- Battery for any wireless mouse: the panel icon, tray and low-battery alerts now show the battery Linux reports for a mouse Wheelguard has no driver for (read-only, through UPower)
+
 * Wed Nov 11 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.7.1-1
 - Automatic now protects the mice you allowed, so a mouse stays protected after Allow this mouse even when you switch between mice; a supported mouse still comes first
 - Remove access is offered for an allowed mouse that Automatic is protecting

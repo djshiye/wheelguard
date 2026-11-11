@@ -38,6 +38,13 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.7.2" date="2026-11-11">
+      <description>
+        <ul>
+          <li>Battery for any wireless mouse: the panel icon, tray and low-battery alerts now show the battery Linux reports for a mouse Wheelguard has no driver for (read-only, through UPower)</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.7.1" date="2026-11-11">
       <description>
         <ul>

@@ -177,8 +177,12 @@ def main(argv=None):
     mouse = MouseController(parent=engine)
     shell = tray.AppShell(engine)
     app_settings = AppSettings(parent=engine, welcome_enabled=not shot or args.welcome is not None)
+    # The panel, the tray and the alerts: the mouse's own driver, else the battery UPower knows for it.
+    view = mouse
     if not shot:
-        BatteryAlerts(mouse, app_settings, parent=engine)
+        from .mouseview import MouseView
+        view = MouseView(mouse, daemon, parent=engine)
+        BatteryAlerts(view, app_settings, parent=engine)
 
     profile_ctl = ProfileController(daemon, mouse, app_settings, ext, parent=engine)
     engine.addImageProvider(PROVIDER_ID, AppIconProvider())
@@ -217,11 +221,11 @@ def main(argv=None):
     tray_icon = None
     if sni:
         # Hidden until the shell has said whether the extension (which replaces this icon) is active.
-        tray_icon = tray.TrayIcon(shell, daemon, mouse, icon, suppressed=not ext.answered or ext.active, parent=engine)
+        tray_icon = tray.TrayIcon(shell, daemon, view, icon, suppressed=not ext.answered or ext.active, parent=engine)
         ext.infoReceived.connect(lambda _info: tray_icon.setSuppressed(ext.active))
     shell.attach(win, ext, sni)
     if svc is not None:
-        svc.attach(daemon, mouse)
+        svc.attach(daemon, view)
         svc.attach_profiles(profile_ctl)
         svc.focusChanged.connect(profile_ctl.focusChanged)
         svc.showRequested.connect(shell.showMain)

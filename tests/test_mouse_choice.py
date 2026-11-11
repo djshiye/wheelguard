@@ -67,7 +67,7 @@ class World:
         return self
 
     def __exit__(self, *a):
-        for p in self.patches:
+        for p in reversed(self.patches):    # daemon.glob and scan.glob are the same module: undo in reverse
             p.stop()
 
 
