@@ -44,9 +44,13 @@ def _ident(dev):
     return (info.vendor, info.product) if info else None
 
 
-def _wanted(vendor, product):
+def _wanted(vendor, product, allowed=None):
+    """Automatic's search order: the configured mouse, the supported mice, then the mice the user allowed
+    ("Allow this mouse"). Allowing a mouse is the user's say-so, so Automatic takes it over like a supported one
+    and still prefers a supported mouse when both are connected."""
     ids = [(vendor, product)]
     ids += [k for k in KNOWN_MICE if k not in ids]
+    ids += [k for k in (mice.allowed_mice() if allowed is None else allowed) if k not in ids]
     return ids
 
 

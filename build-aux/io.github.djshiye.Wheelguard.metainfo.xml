@@ -38,6 +38,15 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.7.1" date="2026-11-11">
+      <description>
+        <ul>
+          <li>Automatic now protects the mice you allowed, so a mouse stays protected after Allow this mouse even when you switch between mice; a supported mouse still comes first</li>
+          <li>Remove access is offered for an allowed mouse that Automatic is protecting</li>
+          <li>Friendlier wording when Wheelguard finds a mouse it doesn't know yet</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.7.0" date="2026-11-11">
       <description>
         <ul>

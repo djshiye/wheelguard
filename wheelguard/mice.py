@@ -17,6 +17,12 @@ KNOWN_MICE = tuple(KNOWN)
 AUTO = "auto"
 _ID = re.compile(r"^([0-9a-fA-F]{4}):([0-9a-fA-F]{4})$")
 
+# Mice the user allowed with "Allow this mouse": the root helper (build-aux/wheelguard-allow-mouse) keeps one
+# rule line per mouse here. The file is world-readable; only its vendor/product pairs are taken from it.
+ALLOWED_RULES = "/etc/udev/rules.d/71-wheelguard-allowed-mice.rules"
+_RULE = re.compile(r'ATTRS\{id/vendor\}=="([0-9a-f]{4})", ATTRS\{id/product\}=="([0-9a-f]{4})"')
+MAX_ALLOWED = 16                # the helper never writes more
+
 
 def identify(vendor, product):
     """(model name, connection) of a supported mouse, or (None, None)."""
@@ -40,3 +46,23 @@ def parse_choice(value):
 
 def format_choice(vendor, product):
     return f"{vendor:04x}:{product:04x}"
+
+
+def allowed_ids(path=ALLOWED_RULES):
+    """The "vvvv:pppp" ids of the mice the user allowed, in file order ([] when there is no file)."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            text = f.read(65536)
+    except OSError:
+        return []
+    out = []
+    for line in text.splitlines():
+        m = _RULE.search(line) if not line.lstrip().startswith("#") else None
+        if m and f"{m.group(1)}:{m.group(2)}" not in out:
+            out.append(f"{m.group(1)}:{m.group(2)}")
+    return out[:MAX_ALLOWED]
+
+
+def allowed_mice(path=ALLOWED_RULES):
+    """allowed_ids() as (vendor, product) pairs, for the daemon's Automatic search."""
+    return [parse_choice(i) for i in allowed_ids(path)]

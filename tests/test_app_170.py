@@ -15,6 +15,14 @@ MICE = [{"vendor": "3367", "product": "1970", "name": "Endgame Gear XM2w", "supp
 
 
 class MouseRowsTests(unittest.TestCase):
+    def test_automatic_says_it_takes_allowed_mice_too(self):
+        self.assertEqual(protocol.mouse_rows(MICE, "auto", "")[0]["detail"], "Picks your supported mouse")
+        rows = protocol.mouse_rows(MICE, "auto", "", allowed={"046d:c08b"})
+        self.assertEqual(rows[0]["detail"], "Picks a supported mouse or one you allowed")
+        rows = protocol.mouse_rows(MICE, "auto", "046d:c08b", allowed={"046d:c08b"})
+        self.assertEqual(rows[0]["detail"], "Logitech G502")
+        self.assertTrue(rows[2]["active"] and rows[2]["allowed"])     # Remove access shows for it under Automatic
+
     def test_automatic_names_the_mouse_it_picked(self):
         rows = protocol.mouse_rows(MICE, "auto", "3367:1970")
         self.assertEqual([r["id"] for r in rows], ["auto", "3367:1970", "046d:c08b", "1234:abcd"])
@@ -26,7 +34,7 @@ class MouseRowsTests(unittest.TestCase):
         rows = protocol.mouse_rows(MICE, "046d:c08b", "046d:c08b", allowed={"046d:c08b"})
         self.assertEqual([r["selected"] for r in rows], [False, False, True, False])
         self.assertEqual([r["allowed"] for r in rows], [False, False, True, False])
-        self.assertEqual(rows[0]["detail"], "Picks your supported mouse")
+        self.assertEqual(rows[0]["detail"], "Picks a supported mouse or one you allowed")
 
     def test_a_saved_mouse_that_is_unplugged_still_shows(self):
         rows = protocol.mouse_rows(MICE[:1], "dead:beef", "")

@@ -8,6 +8,7 @@ Window {
     property int pageIndex: 0
     property bool advancedOpen: false       // screenshots: open the Advanced expanders
     property bool pickerOpen: false         // screenshots: open the mouse picker
+    property bool allowKeepsAutomatic: false    // "Allow this mouse" was pressed in the banner while on Automatic
     onAdvancedOpenChanged: { scrollPage.advancedOpen = advancedOpen; clicksPage.advancedOpen = advancedOpen }
     onPickerOpenChanged: pickerOpen ? picker.open() : picker.close()
     property alias welcomeStep: welcome.step
@@ -298,7 +299,10 @@ Window {
                 canAllow: mouseAccess.available
                 allowBusy: mouseAccess.busy
                 allowError: mouseAccess.error
-                onAllowRequested: mouseAccess.allow(daemon.mouseChoice !== "auto" ? daemon.mouseChoice : daemon.otherMouseId)
+                onAllowRequested: {
+                    win.allowKeepsAutomatic = daemon.mouseChoice === "auto"
+                    mouseAccess.allow(daemon.mouseChoice !== "auto" ? daemon.mouseChoice : daemon.otherMouseId)
+                }
                 onAutomaticRequested: daemon.setMouse("auto")
                 onUseOtherMouseRequested: daemon.setMouse(daemon.otherMouseId)
                 onStartRequested: daemon.startService()
@@ -306,14 +310,19 @@ Window {
                 onResumeRequested: daemon.setPaused(false)
             }
 
-            // "Allow this mouse" worked: protect that mouse now. Access taken back: return to Automatic.
+            // "Allow this mouse" worked: protect that mouse now. Allowed from the banner under Automatic, the
+            // choice stays Automatic (it takes over allowed mice too, so a supported mouse still wins when it
+            // comes back); picked in the mouse list, that mouse is chosen. Access taken back: return to Automatic.
             Connections {
                 target: mouseAccess
                 function onFinished(action, ident, ok) {
+                    const keepAuto = win.allowKeepsAutomatic
+                    win.allowKeepsAutomatic = false
                     if (!ok)
                         return
                     if (action === "add") {
-                        daemon.setMouse(ident)
+                        if (!keepAuto)
+                            daemon.setMouse(ident)
                         allowRefresh.restart()
                     } else if (daemon.mouseChoice === ident) {
                         daemon.setMouse("auto")

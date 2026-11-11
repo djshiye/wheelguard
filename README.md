@@ -32,8 +32,9 @@ installs its own `/etc/yum.repos.d/wheelguard.repo`, so the repository stays con
     low-battery warning, battery
 - **Scroll filter for any mouse with a wheel**: supported mice are picked up automatically. For any other
   mouse, press **Allow this mouse** (in the mouse list under the status pill at the top of the window) and
-  enter your administrator password once. That adds a device rule for that one mouse (`/etc/udev/rules.d/71-wheelguard-allowed-mice.rules`);
-  **Remove access** takes it back. As with the supported mice, programs you run can then read that
+  enter your administrator password once. That adds a device rule for that one mouse (`/etc/udev/rules.d/71-wheelguard-allowed-mice.rules`),
+  and from then on **Automatic** protects it like a supported mouse (a supported mouse still comes first when
+  both are connected). **Remove access** takes it back. As with the supported mice, programs you run can then read that
   mouse's movement and clicks. A mouse that shares its device with a keyboard is never allowed.
 - **Wheel health**: a 7 and 30 day chart of how often the wheel needed blocking, a warning
   if it starts bouncing more
