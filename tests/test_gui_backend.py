@@ -227,16 +227,16 @@ class ProtocolTests(unittest.TestCase):
                          {"enabled": False, "pre_ms": 90, "hold_ms": 35, "lock_ms": 400, "clicklock": False,
                           "clicklock_ms": 5000, "clicklock_mode": "repeat", "clicklock_rate": 10,
                           "clicklock_max_s": 600, "clicklock_ignore_drag": True, "clicklock_drag_counts": 400,
-                          "debounce_ms": 0, "mouse": "auto"})
+                          "clicklock_button": "left", "debounce_ms": 0, "scroll_speed": 100, "mouse": "auto"})
         st["config"].update(clicklock=True, clicklock_ms=7500, clicklock_mode=3)
         cfg = protocol.status_config(st)
         self.assertEqual((cfg["clicklock"], cfg["clicklock_ms"], cfg["clicklock_mode"]), (True, 7500, "repeat"))
         self.assertTrue(protocol.clicklock_active({"clicklock_active": True}))
         self.assertFalse(protocol.clicklock_active({}))
         self.assertEqual(protocol.status_stats(st), {"ticks": 100, "dropped": 9, "debounced": 0,
-                                                     "debounced_by": (0, 0, 0)})
+                                                     "debounced_by": (0, 0, 0, 0, 0)})
         self.assertIsNone(protocol.status_config({}))
-        self.assertEqual(protocol.status_stats({}), {"ticks": 0, "dropped": 0, "debounced": 0, "debounced_by": (0, 0, 0)})
+        self.assertEqual(protocol.status_stats({}), {"ticks": 0, "dropped": 0, "debounced": 0, "debounced_by": (0, 0, 0, 0, 0)})
         self.assertEqual(protocol.status_config({"config": {}})["lock_ms"], 300)
 
     def test_block_rate(self):

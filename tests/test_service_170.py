@@ -439,9 +439,9 @@ class Counts(Base):
             t += 1
         st = self.ctl.status()["stats"]
         self.assertEqual(st["debounced"], 3)
-        self.assertEqual(st["debounced_by"], {"left": 2, "right": 0, "middle": 1})
+        self.assertEqual(st["debounced_by"], {"left": 2, "right": 0, "middle": 1, "back": 0, "forward": 0})
         self.ctl.reset_stats()
-        self.assertEqual(self.ctl.status()["stats"]["debounced_by"], {"left": 0, "right": 0, "middle": 0})
+        self.assertEqual(self.ctl.status()["stats"]["debounced_by"], {"left": 0, "right": 0, "middle": 0, "back": 0, "forward": 0})
 
     def test_status_copy_is_not_the_live_counter(self):
         st = self.ctl.status()

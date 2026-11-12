@@ -7,7 +7,7 @@
 %global __brp_python_bytecompile %{nil}
 
 Name:           wheelguard
-Version:        1.9.1
+Version:        1.10.0
 # CI appends .<commit count> so every build from main is a newer release.
 Release:        1%{?release_suffix}%{?dist}
 Summary:        Scroll bounce filter and advanced mouse settings (Endgame Gear, Logitech, Razer)
@@ -140,6 +140,11 @@ fi
 %{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-djshiye-%{name}
 
 %changelog
+* Thu Nov 12 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.10.0-1
+- New: Scroll speed. A slider on the Scroll protection page sets how far one notch of the wheel scrolls, from 50% to 300%, for the mouse Wheelguard protects (GNOME has no setting for it)
+- Click-Lock works for left-handed use: with GNOME's left-handed switch on, it watches the right button of the mouse, which is then your main button
+- The Double-click fix now also covers the two thumb buttons (Back and Forward), and the Clicks page counts them
+
 * Thu Nov 12 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.9.1-1
 - The background service does about 30% less work for every report of the mouse, so it uses less processor time while the mouse moves (most at 4000 and 8000 Hz polling)
 - Looking for the mouse no longer opens the computer's other input devices (keyboards, touchpads): Wheelguard reads what the kernel shows about them and opens only the mouse

@@ -21,7 +21,9 @@ Messages are UTF-8 JSON objects, one per line (`\n`-terminated), both directions
   "clicklock_max_s": 600,
   "clicklock_ignore_drag": true,
   "clicklock_drag_counts": 400,
+  "clicklock_button": "left",
   "debounce_ms": 0,
+  "scroll_speed": 100,
   "mouse": "auto"
 }
 ```
@@ -37,7 +39,9 @@ status says "selected mouse not found". Changing `mouse` while a mouse is being 
 once. Keyboard and consumer-control nodes are never used. If the chosen mouse's device node can't be
 opened, the status error is `permission denied: /dev/input/eventN` as for any mouse.
 
-Click-Lock: with `clicklock: true`, holding the left button for `clicklock_ms` (500 to 30000) engages
+Click-Lock: with `clicklock: true`, holding the left button (the right one with
+`clicklock_button: "right"`; the app sets that while GNOME's left-handed switch is on, because GNOME swaps
+the buttons after the daemon has seen them) for `clicklock_ms` (500 to 30000) engages
 the lock. Mode `repeat` releases the button and clicks `clicklock_rate` times a second (1 to 30);
 mode `hold` keeps it pressed. Letting go is ignored while locked; the next click ends the lock and is
 swallowed (in `hold` mode its release lets go of the button). Pressing any other mouse button also ends
@@ -51,11 +55,17 @@ went down) the press can no longer engage the lock. The app sets it to a quarter
 at the mouse's DPI when it knows the DPI. Mode `hold` ignores both settings and works as before.
 
 Double-click fix: `debounce_ms` (0 = off, otherwise 10 to 150; default 0) drops a press of the left,
-right or middle button that arrives less than that many ms after the same button's previous release,
+right, middle, back or forward (side) button that arrives less than that many ms after the same button's previous release,
 and the release that belongs to it, so a worn switch's chatter reaches the desktop as one click. The
 window is measured from the last release that went through. A release is only ever dropped when its own
 press was dropped, so no button can stick. It works on the real button events, before Click-Lock sees
 them. Each dropped press is counted in `stats.debounced`.
+
+Scroll speed: `scroll_speed` (50 to 300, whole percent; default 100 = unchanged) scales how far one notch
+of the vertical wheel scrolls. It is applied after the filter, to the ticks that are let through: the
+high-resolution value (REL_WHEEL_HI_RES, 120 per notch) is scaled and the remainder carried to the next
+tick, and whole notches (REL_WHEEL) are counted from the scaled value, so nothing is lost or invented
+over time. The horizontal wheel is left alone.
 
 Safety timer: `clicklock_max_s` (0 = never, otherwise 10 to 3600; default 600) ends a running lock by
 itself that long after it engaged; the button is handed back like for any other end of the lock. A
@@ -117,7 +127,7 @@ Validation: `0 < hold_ms < lock_ms`, `0 <= pre_ms <= lock_ms`, all ms values <= 
            "device": "Endgame Gear HS Dongle", "vendor": "3367", "product": "1970",
            "supported": true, "accessible": true, "connection": "dongle"}],   // connected mice with a scroll wheel; refreshed by status/subscribe/mice (<= every 5 s)
  "stats": {"ticks": 1234, "passed": 1120, "dropped": 114, "debounced": 3,
-           "debounced_by": {"left": 3, "right": 0, "middle": 0}, "since": 1729400000.0},
+           "debounced_by": {"left": 3, "right": 0, "middle": 0, "back": 0, "forward": 0}, "since": 1729400000.0},
  "clicklock_active": false}         // Click-Lock is engaged right now (a status event goes out when it changes)
 ```
 

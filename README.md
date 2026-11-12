@@ -54,7 +54,9 @@ installs its own `/etc/yum.repos.d/wheelguard.repo`, so the repository stays con
   low-battery alerts show the level Linux already reports for it (through UPower, read-only: most Logitech
   mice and Bluetooth mice that report one)
 - **Low-battery alerts** and keyboard shortcuts for Click-Lock, the DPI stage and Pause
-- **Click-Lock**: hold the left button for a few seconds (5 s by default, adjustable) and Wheelguard keeps
+- **Scroll speed**: one slider for how far a notch of the wheel scrolls (50% to 300%), which GNOME has
+  no setting for
+- **Click-Lock**: hold the left button (the right one if GNOME is set to left-handed) for a few seconds (5 s by default, adjustable) and Wheelguard keeps
   clicking for you, or keeps the button pressed for long drags, until your next click (any other mouse
   button ends it too). It lets go by itself after 10 minutes (adjustable) and when the screen locks or the
   computer sleeps. Switch it on and off from the panel popup or a keyboard shortcut

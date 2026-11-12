@@ -309,7 +309,7 @@ class WheelguardIndicator extends PanelMenu.Button {
         return button;
     }
 
-    // Click-Lock: hold the left button and Wheelguard keeps clicking until the next click.
+    // Click-Lock: hold the main button and Wheelguard keeps clicking until the next click.
     _buildClickLock() {
         const card = this._card();
         const row = new St.BoxLayout({style_class: 'wg-row'});
@@ -624,7 +624,7 @@ class WheelguardIndicator extends PanelMenu.Button {
             return;
         const on = !this._state.ClickLockEnabled;
         this._state = {...this._state, ClickLockEnabled: on,
-            ClickLockDetail: on ? `Hold the left button ${secondsText(this._state.ClickLockMs)} to start` : 'Off'};
+            ClickLockDetail: on ? `Hold the main button ${secondsText(this._state.ClickLockMs)} to start` : 'Off'};
         this._render();
         this._proxy.SetClickLockRemote(on, () => this._pull());
     }

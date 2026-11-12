@@ -5,6 +5,10 @@ import QtQuick.Layouts
 WgScrollPage {
     id: page
     property alias advancedOpen: clAdv.expanded
+    // Click-Lock works on the main button: the right one when GNOME is set to left-handed.
+    readonly property string lockButton: daemon.clickLockButton === "right"
+                                         ? "the right button (your main button, as GNOME is set to left-handed)"
+                                         : "the left button"
 
     Column {
         width: parent.width
@@ -95,8 +99,8 @@ WgScrollPage {
                 Text {
                     Layout.fillWidth: true
                     text: daemon.clickLockMode === "hold"
-                          ? "Hold the left button and Wheelguard keeps it pressed after you let go, handy for long drags. Click again to let go."
-                          : "Hold the left button and Wheelguard keeps clicking for you, even after you let go. Click again to stop."
+                          ? "Hold " + page.lockButton + " and Wheelguard keeps it pressed after you let go, handy for long drags. Click again to let go."
+                          : "Hold " + page.lockButton + " and Wheelguard keeps clicking for you, even after you let go. Click again to stop."
                     font.pixelSize: Theme.fsBody - 1
                     color: Theme.textMuted
                     wrapMode: Text.WordWrap

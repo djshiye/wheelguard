@@ -285,6 +285,68 @@ WgScrollPage {
         }
     }
 
+    // ---------------------------------------------------------------- scroll speed
+    WgCard {
+        width: parent.width
+        pad: 20
+        spacing: 10
+        opacity: page.reachable ? 1 : 0.5
+        enabled: page.reachable && daemon.configKnown
+        Behavior on opacity { NumberAnimation { duration: Theme.normal } }
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 12
+            Text {
+                Layout.fillWidth: true
+                text: "Scroll speed"
+                font.pixelSize: Theme.fsH2
+                font.weight: Font.DemiBold
+                color: Theme.text
+            }
+            WgButton {
+                visible: daemon.scrollSpeed !== 100
+                variant: "ghost"
+                iconName: "reset"
+                text: "Reset"
+                Accessible.name: "Reset scroll speed"
+                onClicked: daemon.setScrollSpeed(100)
+            }
+            Text {
+                text: daemon.scrollSpeed + "%"
+                font.pixelSize: Theme.fsH2
+                font.weight: Font.DemiBold
+                color: Theme.accentValue
+            }
+        }
+        Text {
+            Layout.fillWidth: true
+            text: "How far one notch of the wheel scrolls. 100% is the mouse as it is."
+            font.pixelSize: Theme.fsBody - 1
+            color: Theme.textMuted
+            wrapMode: Text.WordWrap
+        }
+        WgSlider {
+            Accessible.name: "Scroll speed"
+            Layout.fillWidth: true
+            from: 50
+            to: 300
+            stepSize: 10
+            snapMode: WgSlider.SnapAlways
+            value: daemon.scrollSpeed
+            valueText: Math.round(value) + "%"
+            onMoved: daemon.setScrollSpeed(Math.round(value))
+        }
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.leftMargin: 4
+            Layout.rightMargin: 4
+            Text { text: "Slower"; font.pixelSize: Theme.fsSmall; color: Theme.textFaint }
+            Item { Layout.fillWidth: true }
+            Text { text: "Faster"; font.pixelSize: Theme.fsSmall; color: Theme.textFaint }
+        }
+    }
+
     // ---------------------------------------------------------------- monitor
     WgCard {
         width: parent.width

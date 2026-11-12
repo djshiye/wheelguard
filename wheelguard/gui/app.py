@@ -126,7 +126,7 @@ def main(argv=None):
     from PySide6.QtQuickControls2 import QQuickStyle
     from . import shellext, tray
     from .appsettings import AppSettings
-    from .backend import Appearance, Autostart, DaemonClient, LiquidGlass, MouseFollow, PointerSettings
+    from .backend import Appearance, Autostart, DaemonClient, HandFollow, LiquidGlass, MouseFollow, PointerSettings
     from .batteryalert import BatteryAlerts
     from .diagnostics import Diagnostics
     from .shortcuts import ShortcutsBackend
@@ -211,6 +211,7 @@ def main(argv=None):
     daemon.set_allowed_source(lambda: access.allowed)
     access.changed.connect(daemon.miceListChanged)
     MouseFollow(daemon, mouse, engine)          # the Mouse page and "ignore drags" follow the protected mouse
+    HandFollow(daemon, pointer, engine)         # Click-Lock's button follows GNOME's left-handed switch
     ctx.setContextProperty("iconUrl", QUrl.fromLocalFile(str(icon_path)))
     engine.load(QUrl.fromLocalFile(str(QML_DIR / "Main.qml")))
     if not engine.rootObjects():

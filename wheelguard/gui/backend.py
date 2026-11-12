@@ -72,7 +72,8 @@ class DaemonClient(QObject):
         self._ident = ""
         self._override: dict = {}           # the temporary settings we want in force (per-game profiles)
         self._allowed = lambda: ()          # ids the user allowed (set_allowed_source)
-        self._debounced_by = (0, 0, 0)
+        self._debounced_by = (0,) * len(protocol.DEBOUNCE_BUTTONS)
+        self._hand_known = False
         self._disk_version = APP_VERSION
         self._mice: list = []
         self._history: list = []
@@ -214,6 +215,7 @@ class DaemonClient(QObject):
         cfg = protocol.status_config(msg)
         if cfg is not None:
             self._server_cfg = cfg
+            self._hand_known = "clicklock_button" in msg["config"]     # an older service doesn't have it
             if not self._dirty():
                 self._set_cfg(cfg)
         if "mice" in msg:
@@ -328,6 +330,17 @@ class DaemonClient(QObject):
         if v:
             self._last_debounce_ms = v
         self._stage({"debounce_ms": v}, immediate=immediate or v == 0)
+
+    @Slot(int)
+    def setScrollSpeed(self, percent: int):
+        """How far one wheel notch scrolls, in percent of what the mouse sends (100 = unchanged)."""
+        lo, hi = protocol.SCROLL_SPEED_RANGE
+        self._stage({"scroll_speed": max(lo, min(hi, int(percent)))})
+
+    def set_clicklock_button(self, button: str):
+        """Which button Click-Lock watches: follows GNOME's left-handed switch (see HandFollow)."""
+        if self._hand_known and button in ("left", "right") and button != self._cfg["clicklock_button"]:
+            self._stage({"clicklock_button": button}, immediate=True)
 
     @Slot(bool)
     def setDebounce(self, on: bool):
@@ -536,6 +549,8 @@ class DaemonClient(QObject):
     clickLockMs = Property(int, lambda s: s._cfg["clicklock_ms"], notify=configChanged)
     clickLockMode = Property(str, lambda s: s._cfg["clicklock_mode"], notify=configChanged)
     clickLockRate = Property(int, lambda s: s._cfg["clicklock_rate"], notify=configChanged)
+    clickLockButton = Property(str, lambda s: s._cfg["clicklock_button"], notify=configChanged)
+    scrollSpeed = Property(int, lambda s: s._cfg["scroll_speed"], notify=configChanged)
     debounceMs = Property(int, lambda s: s._cfg["debounce_ms"], notify=configChanged)
     debounceOn = Property(bool, lambda s: s._cfg["debounce_ms"] > 0, notify=configChanged)
     debouncedClicks = Property(int, lambda s: s._debounced, notify=statsChanged)
@@ -619,11 +634,38 @@ class MouseFollow(QObject):
             d.setClickLockDragCounts(counts)
 
 
+class HandFollow(QObject):
+    """Click-Lock works on your main button: with GNOME's "left-handed" switch on, that is the right button
+    of the mouse (GNOME swaps the buttons after Wheelguard has seen them)."""
+
+    def __init__(self, daemon, pointer, parent=None):
+        super().__init__(parent)
+        self._daemon, self._pointer = daemon, pointer
+        self._sent = None                   # the last button asked for: never asked twice (the service may refuse)
+        daemon.configChanged.connect(self._sync)
+        daemon.stateChanged.connect(self._sync)
+        pointer.changed.connect(self._sync)
+        pointer.loadedChanged.connect(self._sync)
+        self._sync()
+
+    def _sync(self):
+        d, p = self._daemon, self._pointer
+        if not d.configKnown or not p.loaded:
+            return
+        want = "right" if p.leftHanded else "left"
+        if d.clickLockButton == want:
+            self._sent = None
+        elif want != self._sent:
+            self._sent = want
+            d.set_clicklock_button(want)
+
+
 class PointerSettings(QObject):
     """org.gnome.desktop.peripherals.mouse via the gsettings CLI. Reads on start/focus, writes debounced."""
 
     changed = Signal()
     availableChanged = Signal()
+    loadedChanged = Signal()
 
     KEYMAP = {  # qml name -> gsettings key
         "speed": "speed", "accelProfile": "accel-profile", "naturalScroll": "natural-scroll",
@@ -635,6 +677,7 @@ class PointerSettings(QObject):
         super().__init__(parent)
         self._v = {k: gsettings.KEYS[k][3] for k in gsettings.KEYS}
         self._available = gsettings.available()
+        self.loaded = False                 # GNOME's values have been read at least once (until then: defaults)
         self._pending: dict = {}
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
@@ -685,6 +728,9 @@ class PointerSettings(QObject):
                 changed = True
         if changed:
             self.changed.emit()
+        if not self.loaded:
+            self.loaded = True
+            self.loadedChanged.emit()
 
     def _user_set(self, key: str, value):
         value = gsettings.coerce(key, value)

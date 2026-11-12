@@ -17,7 +17,8 @@ TICK_KINDS = ("emit", "drop", "hold", "pass")
 CONFIG_DEFAULTS = {"enabled": True, "pre_ms": 60, "hold_ms": 25, "lock_ms": 300,
                    "clicklock": False, "clicklock_ms": 5000, "clicklock_mode": "repeat",
                    "clicklock_rate": 10, "clicklock_max_s": 600,
-                   "clicklock_ignore_drag": True, "clicklock_drag_counts": 400, "debounce_ms": 0, "mouse": "auto"}
+                   "clicklock_ignore_drag": True, "clicklock_drag_counts": 400, "clicklock_button": "left",
+                   "debounce_ms": 0, "scroll_speed": 100, "mouse": "auto"}
 # "Ignore drags" lets the pointer wander this far while the button is held, whatever the mouse's DPI.
 DRAG_INCHES = 0.25
 DRAG_COUNTS_RANGE = (50, 20000)         # the daemon's config.CLICKLOCK_DRAG_COUNTS
@@ -28,6 +29,10 @@ CLICKLOCK_MS_STEP = 500
 CLICKLOCK_MAX_S_CHOICES = (0, 60, 300, 600, 1800)    # "Stop automatically after": Never, 1, 5, 10, 30 min
 DEBOUNCE_MS_RANGE = (10, 150)           # "Double-click fix" slider; 0 means off
 DEBOUNCE_DEFAULT_ON_MS = 40             # what switching it on starts with
+DEBOUNCE_BUTTONS = (("left", "Left"), ("right", "Right"), ("middle", "Middle"),
+                    ("back", "Back"), ("forward", "Forward"))       # the service's name, what the app shows
+SCROLL_SPEED_RANGE = (50, 300)          # "Scroll speed" slider, percent (the daemon's config.SCROLL_SPEED)
+SCROLL_SPEED_STEP = 10
 CLICKLOCK_MODES = ("repeat", "hold")    # the daemon's clicklock.MODES (kept evdev-free here)
 
 
@@ -267,7 +272,7 @@ def status_stats(status: dict) -> dict:
     dropped = int(s.get("dropped", 0) or 0)
     by = s.get("debounced_by")
     per = []
-    for name in ("left", "right", "middle"):
+    for name, _label in DEBOUNCE_BUTTONS:
         v = by.get(name) if isinstance(by, dict) else 0
         per.append(max(0, int(v)) if isinstance(v, (int, float)) and not isinstance(v, bool) else 0)
     return {"ticks": ticks, "dropped": dropped, "debounced": max(0, int(s.get("debounced", 0) or 0)),
@@ -276,8 +281,7 @@ def status_stats(status: dict) -> dict:
 
 def debounced_text(per) -> str:
     """"Left 34 · Right 3": which buttons the Double-click fix had to help ("" when the service didn't say)."""
-    names = ("Left", "Right", "Middle")
-    parts = [f"{n} {v:,}" for n, v in zip(names, per, strict=True) if v > 0]
+    parts = [f"{label} {v:,}" for (_name, label), v in zip(DEBOUNCE_BUTTONS, per, strict=True) if v > 0]
     return " · ".join(parts)
 
 

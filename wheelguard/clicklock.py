@@ -39,13 +39,14 @@ Event = Tuple[int, int, int]
 Frame = List[Event]
 
 
-def _key(value) -> Frame:
-    return [(e.EV_KEY, e.BTN_LEFT, value)]
+BUTTONS = {"left": e.BTN_LEFT, "right": e.BTN_RIGHT}     # the button Click-Lock watches ("clicklock_button")
+DEFAULT_BUTTON = "left"
 
 
 class ClickLock:
     def __init__(self, enabled=False, hold_ms=DEFAULT_HOLD_MS, mode=REPEAT, rate=DEFAULT_RATE,
-                 max_s=0, ignore_drag=True, drag_counts=DRAG_COUNTS):
+                 max_s=0, ignore_drag=True, drag_counts=DRAG_COUNTS, button=DEFAULT_BUTTON):
+        self.button = e.BTN_LEFT    # the primary button: the right one for a left-handed setup (see configure)
         self.phys_down = False      # the user's finger is on the button
         self.virtual_down = False   # what the rest of the system has been told
         self.locked = False
@@ -55,10 +56,13 @@ class ClickLock:
         self.locked_at = None       # when the running lock engaged (for the safety timer)
         self.timed_out = False      # the last lock ended because the safety timer ran out
         self.moved_x = self.moved_y = 0     # pointer motion since the current press (counts)
-        self.configure(enabled, hold_ms, mode, rate, max_s, ignore_drag, drag_counts)
+        self.configure(enabled, hold_ms, mode, rate, max_s, ignore_drag, drag_counts, button)
 
-    def configure(self, enabled, hold_ms, mode, rate, max_s=0, ignore_drag=True, drag_counts=DRAG_COUNTS):
-        """Change the settings in place. Turning it off does not end a running lock: call stop()."""
+    def configure(self, enabled, hold_ms, mode, rate, max_s=0, ignore_drag=True, drag_counts=DRAG_COUNTS,
+                  button=DEFAULT_BUTTON):
+        """Change the settings in place. Turning it off does not end a running lock: call stop() (the caller
+        also does when `button` changes, before calling this: a lock belongs to the button it started on)."""
+        self.button = BUTTONS.get(button, e.BTN_LEFT)
         self.enabled = bool(enabled)
         self.hold = hold_ms / 1000.0
         self.mode = mode if mode in MODES else REPEAT
@@ -68,6 +72,9 @@ class ClickLock:
         self.max_s = max(0, max_s or 0)         # 0 = no safety timer
         if not self.enabled:
             self.pressed_at = None
+
+    def _key(self, value) -> Frame:
+        return [(e.EV_KEY, self.button, value)]
 
     @property
     def active(self) -> bool:
@@ -95,14 +102,14 @@ class ClickLock:
         frames, changed = self.flush(t)
         if self.pressed_at is not None and self.phys_down and self.ignore_drag and self.mode == REPEAT:
             self._track_motion(events)
-        if self.locked and any(ev[0] == e.EV_KEY and ev[1] != e.BTN_LEFT and ev[2] == 1
+        if self.locked and any(ev[0] == e.EV_KEY and ev[1] != self.button and ev[2] == 1
                                and e.BTN_MOUSE <= ev[1] < e.BTN_JOYSTICK for ev in events):
             # Any other mouse button (right, middle, side) is an emergency exit: the lock ends at
             # once and the button is handed back to the finger. That press itself goes through.
             stop_frames, _ = self.stop()
             frames, changed = frames + stop_frames, True
         idx = next((i for i, ev in enumerate(events)
-                    if ev[0] == e.EV_KEY and ev[1] == e.BTN_LEFT), None)
+                    if ev[0] == e.EV_KEY and ev[1] == self.button), None)
         if idx is None:
             return frames, list(events), changed
         value = events[idx][2]
@@ -134,7 +141,7 @@ class ClickLock:
             del rest[idx]
             rest = [ev for ev in rest if not (ev[0] == e.EV_MSC and ev[1] == e.MSC_SCAN)]
         else:
-            rest[idx] = (e.EV_KEY, e.BTN_LEFT, out)
+            rest[idx] = (e.EV_KEY, self.button, out)
         return frames, rest, changed
 
     def _track_motion(self, events):
@@ -160,12 +167,12 @@ class ClickLock:
             self.locked, self.pressed_at, changed = True, None, True
             self.locked_at, self.timed_out = now, False
             if self.mode == REPEAT:
-                frames.append(_key(0))          # finish the click the user is holding
+                frames.append(self._key(0))          # finish the click the user is holding
                 self.virtual_down = False
                 self.next_t = now + self.half
         elif self.locked and self.next_t is not None and now >= self.next_t:
             self.virtual_down = not self.virtual_down
-            frames.append(_key(1 if self.virtual_down else 0))
+            frames.append(self._key(1 if self.virtual_down else 0))
             self.next_t += self.half
             if self.next_t <= now:              # we were stalled: carry on from now, never in a burst
                 self.next_t = now + self.half
@@ -178,7 +185,7 @@ class ClickLock:
         frames = []
         if not self.stop_pending and self.virtual_down != self.phys_down:   # a stopping click settles itself
             self.virtual_down = self.phys_down
-            frames.append(_key(1 if self.phys_down else 0))
+            frames.append(self._key(1 if self.phys_down else 0))
         return frames, was
 
     def reset(self):
