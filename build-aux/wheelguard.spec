@@ -7,7 +7,7 @@
 %global __brp_python_bytecompile %{nil}
 
 Name:           wheelguard
-Version:        1.9.0
+Version:        1.9.1
 # CI appends .<commit count> so every build from main is a newer release.
 Release:        1%{?release_suffix}%{?dist}
 Summary:        Scroll bounce filter and advanced mouse settings (Endgame Gear, Logitech, Razer)
@@ -140,6 +140,11 @@ fi
 %{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-djshiye-%{name}
 
 %changelog
+* Thu Nov 12 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.9.1-1
+- The background service does about 30% less work for every report of the mouse, so it uses less processor time while the mouse moves (most at 4000 and 8000 Hz polling)
+- Looking for the mouse no longer opens the computer's other input devices (keyboards, touchpads): Wheelguard reads what the kernel shows about them and opens only the mouse
+- A mouse that was asleep when Wheelguard started at login is picked up by itself: the panel's battery and DPI stages, the low-battery alerts and the profiles' DPI switch no longer wait for the popup or the Mouse page to be opened
+
 * Wed Nov 11 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.9.0-1
 - Fifteen more Logitech G mice are recognised: G Pro Wireless, G Pro Hero, G305, G102 / G203, G303 Shroud Edition, G403 Hero, G502 Hero, G502 Lightspeed, G502 X, G502 X Lightspeed, G502 X Plus, G604, G703 Hero, G705 and G903 Hero
 - They are protected automatically, and the Mouse page and panel show their battery, DPI stages and polling rate; changing settings stays off until each model has been tested

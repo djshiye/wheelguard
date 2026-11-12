@@ -134,6 +134,7 @@ if HAVE_QT:
         """A service that refuses the drag distance (an older one): every refusal reverts the config."""
         stateChanged = Signal()
         configChanged = Signal()
+        tick = Signal(int, str, bool, float)
 
         def __init__(self):
             super().__init__()
@@ -148,9 +149,13 @@ if HAVE_QT:
         trayChanged = Signal()
         state, online, usbIdText, activeStage = "ready", True, "3367:1970", 0
         baseline = {"dpi_x0": 800, "dpi_x1": 3200}
+        rechecks = 0
 
         def refresh(self):
             pass
+
+        def recheck(self):
+            self.rechecks += 1
 
 
 @unittest.skipUnless(HAVE_QT, "PySide6 not installed")
@@ -171,6 +176,21 @@ class MouseFollowTests(unittest.TestCase):
         d.ident = "3367:1970"
         d.stateChanged.emit()                       # the service came back (maybe updated): ask again
         self.assertEqual(d.asked, [200, 800, 800])
+        del follow
+
+    def test_a_mouse_that_is_used_or_back_is_looked_at_again(self):
+        # 1.9.1: a mouse that was asleep when the app started used to stay "asleep" until the popup was opened
+        d, m = RefusingDaemon(), DpiMouse()
+        follow = backend.MouseFollow(d, m, prefer=lambda ids: False)
+        start = m.rechecks
+        d.tick.emit(1, "emit", False, 12.5)         # the wheel turned: the mouse is awake
+        self.assertEqual(m.rechecks, start + 1)
+        d.ident = ""
+        d.stateChanged.emit()                       # receiver unplugged: nothing to look at
+        self.assertEqual(m.rechecks, start + 1)
+        d.ident = "3367:1970"
+        d.stateChanged.emit()                       # and back
+        self.assertEqual(m.rechecks, start + 2)
         del follow
 
 

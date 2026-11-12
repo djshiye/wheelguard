@@ -22,6 +22,7 @@ from ..hw.session import (ApplyResult, Battery, HwError, MouseSession, Snapshot,
 BUSY_STATES = ("reading", "applying")
 REFRESH_MIN_S = 20          # at most one tray-triggered refresh per this many seconds
 BATTERY_EVERY_MS = 5 * 60 * 1000
+RECOVER_STATES = ("asleep", "missing")      # the mouse wasn't answering last time: worth another quiet look
 
 # Every key any model uses, with a harmless value: the page binds to keys of cards it hides, and this
 # keeps those bindings defined whatever mouse is connected.
@@ -295,11 +296,13 @@ class MouseController(QObject):
 
     @Slot()
     def startBackground(self):
-        """Keep the battery fresh every few minutes (the tray needs it while the window is hidden)."""
+        """Keep the battery fresh every few minutes (the tray needs it while the window is hidden), and look
+        again for a mouse that wasn't answering."""
         if self._timer is None:
             self._timer = QTimer(self)
             self._timer.setInterval(BATTERY_EVERY_MS)
             self._timer.timeout.connect(self.refreshBattery)
+            self._timer.timeout.connect(self.recheck)
             self._timer.start()
 
     def _may_refresh(self) -> bool:
@@ -310,6 +313,16 @@ class MouseController(QObject):
         """Timer or tray menu opened: battery only (probe + A1 B4), once the mouse has been read. Rate-limited."""
         if self._state == "ready" and self._may_refresh():
             self._background("battery")
+
+    @Slot()
+    def recheck(self):
+        """The mouse wasn't answering (asleep, or its receiver unplugged) and may be back: read it again,
+        quietly. Called every few minutes and whenever the service sees the mouse being used, so the panel,
+        the low-battery alerts and the profiles' DPI switch come back by themselves. Before, a mouse that
+        was asleep when the app started at login stayed "asleep" until the popup or the Mouse page was opened.
+        Rate-limited; never while edits are waiting on the Mouse page."""
+        if self._state in RECOVER_STATES and not self._staged and self._may_refresh():
+            self._background("poll")
 
     @Slot()
     def refreshQuietly(self):

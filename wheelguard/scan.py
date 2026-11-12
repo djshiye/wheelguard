@@ -42,9 +42,15 @@ def keyboard_like(vendor, product, caps):
     return has_letter_keys(caps) and mice.identify(vendor, product)[0] is None
 
 
-def _sysfs_info(path):
-    """(name, vendor, product) of an event node we may not open, from sysfs; None unless it has a wheel."""
-    base = f"/sys/class/input/{os.path.basename(path)}/device"
+def sysfs_probe(path, root="/sys/class/input"):
+    """What sysfs says about an event node, without opening it: (name, vendor, product) for a node with a
+    scroll wheel, False for one that certainly isn't a mouse we could use (no wheel, a keyboard or control
+    node by name, our own virtual mouse), None when sysfs can't be read (the caller then opens the node).
+
+    The searches ask this first and only open the nodes that pass. Before, every search opened every input
+    device on the computer (keyboards and touchpads included) just to rule it out, and opening a device
+    wakes it up if it was powered down."""
+    base = f"{root}/{os.path.basename(path)}/device"
 
     def attr(name):
         with open(f"{base}/{name}") as f:
@@ -53,10 +59,15 @@ def _sysfs_info(path):
         name = attr("name")
         if (any(n in name for n in SKIP_NAMES) or name.startswith(UI_PREFIX)
                 or int(attr("capabilities/rel") or "0", 16) >> e.REL_WHEEL & 1 != 1):
-            return None
+            return False
         return name, int(attr("id/vendor"), 16), int(attr("id/product"), 16)
     except (OSError, ValueError):
         return None
+
+
+def _sysfs_info(path):
+    """(name, vendor, product) of an event node we may not open, from sysfs; None unless it has a wheel."""
+    return sysfs_probe(path) or None
 
 
 def entry(name, vendor, product, accessible=True):
@@ -75,6 +86,8 @@ def list_mice():
     """
     found = {}                  # (vendor, product) -> [name, accessible]
     for path in sorted(glob.glob("/dev/input/event*")):
+        if sysfs_probe(path) is False:
+            continue                    # no wheel: not opened at all
         try:
             dev = evdev.InputDevice(path)
         except PermissionError:

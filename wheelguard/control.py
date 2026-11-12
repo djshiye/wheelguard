@@ -31,6 +31,7 @@ def _new_stats(since):
     return {"ticks": 0, "passed": 0, "dropped": 0, "debounced": 0,
             "debounced_by": dict.fromkeys(BUTTON_NAMES.values(), 0), "since": since}
 MICE_MIN_GAP_S = 3.0    # the input devices are never scanned more often than this
+HOUSEKEEPING_S = 0.25   # with nothing held or timed, handle_flush() only looks around this often
 
 
 class Controller:
@@ -79,6 +80,7 @@ class Controller:
         self._outbox = []        # frames released when the config changed under a pending hold
         self._outbox_decisions = []
         self._prev_t = None      # previous tick time, for gap_ms while passing through
+        self._housekeeping_at = None    # when handle_flush() next does its slow checks with nothing pending
         self._mtime = self._stat_mtime()
         self._next_poll = clock() + POLL_S
 
@@ -162,6 +164,21 @@ class Controller:
         """When a held button release (Double-click fix) is due (None when nothing is held)."""
         return self.deb.deadline
 
+    @property
+    def next_deadline(self):
+        """The earliest of the three deadlines above: when handle_flush() must run next (None: only when the
+        mouse or a client says something). Asked for every report of the mouse, so the usual answer is quick."""
+        best = None if self.wf.held is None else self.wf.deadline
+        if self.cl.locked or self.cl.pressed_at is not None:
+            due = self.cl.deadline
+            if due is not None and (best is None or due < best):
+                best = due
+        if self.deb.held:
+            due = self.deb.deadline
+            if best is None or due < best:
+                best = due
+        return best
+
     def _debounced_releases(self, items):
         """Button releases the debounce let go of, through Click-Lock like any other click.
         Returns (frames, lock_changed)."""
@@ -223,7 +240,16 @@ class Controller:
         return decisions
 
     def handle_flush(self, now, write):
-        """Release an expired hold (and anything left over from a config change)."""
+        """Release an expired hold (and anything left over from a config change).
+
+        Called after every report of the mouse. With nothing held back, timed or waiting to go out there is
+        nothing to release, and the slow checks (was the computer suspended, is the history due for saving)
+        are only made every HOUSEKEEPING_S."""
+        if (self._housekeeping_at is not None and now < self._housekeeping_at and not self._outbox
+                and self.wf.held is None and not self.deb.held
+                and self.cl.pressed_at is None and not self.cl.locked):
+            return _NO_DECISIONS
+        self._housekeeping_at = now + HOUSEKEEPING_S
         if self.power.poll():
             self.stop_clicklock("the computer was suspended")
         frames, decisions = self._take_outbox()

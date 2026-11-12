@@ -573,7 +573,8 @@ class DaemonClient(QObject):
 
 class MouseFollow(QObject):
     """One mouse everywhere: the Mouse page talks to the mouse the service protects (when two supported mice
-    are connected), and Click-Lock's "ignore drags" distance follows that mouse's DPI."""
+    are connected), and Click-Lock's "ignore drags" distance follows that mouse's DPI. It also tells the Mouse
+    page's backend when the service sees a mouse that wasn't answering come back."""
 
     def __init__(self, daemon, mouse, parent=None, prefer=None):
         super().__init__(parent)
@@ -586,6 +587,7 @@ class MouseFollow(QObject):
         self._sent = 0                      # the last drag distance asked for: never asked twice (the service may refuse)
         daemon.stateChanged.connect(self._on_daemon)
         daemon.configChanged.connect(self._sync_drag)
+        daemon.tick.connect(self._on_tick)
         mouse.trayChanged.connect(self._sync_drag)
         self._on_daemon()
 
@@ -597,7 +599,12 @@ class MouseFollow(QObject):
             ids = protocol.mouse_ids.parse_choice(ident) if ident else None
             if self._prefer(ids) and self._mouse.state in ("ready", "missing", "asleep"):
                 self._mouse.refresh()
+            elif ident:
+                self._mouse.recheck()       # a mouse (or its receiver) is back: it may answer again
         self._sync_drag()
+
+    def _on_tick(self, *_tick):
+        self._mouse.recheck()               # the wheel turned, so the mouse is awake (no-op unless it wasn't answering)
 
     def _sync_drag(self):
         d, m = self._daemon, self._mouse
