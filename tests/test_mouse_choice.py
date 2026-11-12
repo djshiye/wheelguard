@@ -37,8 +37,9 @@ class FakeInput:
 class World:
     """Pretend /dev/input: path -> FakeInput | 'denied' | 'gone'."""
 
-    def __init__(self, nodes, sysfs=None):
+    def __init__(self, nodes, sysfs=None, blind=False):
         self.nodes, self.sysfs = nodes, sysfs or {}
+        self.blind = blind              # sysfs can't be read: every node is opened, as before 1.9.1
         self.opened = []
 
     def glob(self, _pattern):
@@ -53,15 +54,23 @@ class World:
         self.opened.append(n)
         return n
 
+    def probe(self, path):
+        """What sysfs would say (scan.sysfs_probe): a node we may not open is known only from `sysfs`."""
+        n = self.nodes[path]
+        if isinstance(n, FakeInput):
+            if self.blind:
+                return None
+            skip = any(w in n.name for w in scan.SKIP_NAMES) or n.name.startswith(scan.UI_PREFIX)
+            wheel = e.REL_WHEEL in n.capabilities().get(e.EV_REL, [])
+            return (n.name, n.info.vendor, n.info.product) if wheel and not skip else False
+        return ("Hidden Mouse", *self.sysfs[path]) if path in self.sysfs else (None if self.blind else False)
+
     def __enter__(self):
         self.patches = [mock.patch.object(daemon.glob, "glob", self.glob),
                         mock.patch.object(scan.glob, "glob", self.glob),
                         mock.patch.object(daemon.evdev, "InputDevice", self.open),
                         mock.patch.object(scan.evdev, "InputDevice", self.open),
-                        mock.patch.object(daemon, "_sysfs_is_wheel_mouse",
-                                          lambda p, v, pr: self.sysfs.get(p) == (v, pr)),
-                        mock.patch.object(scan, "_sysfs_info", lambda p: self.sysfs.get(p) and (
-                            "Hidden Mouse", *self.sysfs[p]))]
+                        mock.patch.object(scan, "sysfs_probe", self.probe)]
         for p in self.patches:
             p.start()
         return self
@@ -77,6 +86,34 @@ ACME = ("Acme Optical Mouse", 0x1111, 0x2222)
 # The Superlight behind its LIGHTSPEED receiver, as hid-logitech-dj presents it: ONE input node, named after
 # the mouse, carrying the wheel, the buttons and the keyboard keys a button can be bound to.
 SUPERLIGHT_DJ = ("Logitech PRO X", 0x046D, 0x4093)
+
+
+class SysfsProbe(unittest.TestCase):
+    def node(self, root, n, name, vendor, product, rel):
+        d = Path(root) / f"event{n}" / "device"
+        (d / "id").mkdir(parents=True)
+        (d / "capabilities").mkdir()
+        (d / "name").write_text(name + "\n")
+        (d / "id" / "vendor").write_text(vendor + "\n")
+        (d / "id" / "product").write_text(product + "\n")
+        (d / "capabilities" / "rel").write_text(rel + "\n")
+
+    def test_reads_what_the_kernel_shows(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.node(root, 3, "Endgame Gear Endgame Gear HS Dongle", "3367", "1970", "1943")    # X, Y, wheels
+            self.node(root, 4, "Acme Touchpad", "1111", "0002", "3")                              # X and Y only
+            self.node(root, 5, "Endgame Gear HS Dongle Keyboard", "3367", "1970", "1943")
+            self.node(root, 6, "wheelguard Endgame Gear", "3367", "1970", "1943")
+            self.node(root, 7, "Acme Keys", "1111", "0003", "0")
+            self.node(root, 8, "Broken", "zz", "0003", "1943")
+            probe = lambda n: scan.sysfs_probe(f"/dev/input/event{n}", root)    # noqa: E731
+            self.assertEqual(probe(3), ("Endgame Gear Endgame Gear HS Dongle", 0x3367, 0x1970))
+            self.assertIs(probe(4), False)
+            self.assertIs(probe(5), False)          # a keyboard node of the same device
+            self.assertIs(probe(6), False)          # our own virtual mouse
+            self.assertIs(probe(7), False)
+            self.assertIsNone(probe(8))             # unreadable ids: can't say
+            self.assertIsNone(probe(99))            # no such node in sysfs: can't say
 
 
 class Config(unittest.TestCase):
@@ -104,6 +141,44 @@ class Config(unittest.TestCase):
 class Discover(unittest.TestCase):
     def tearDown(self):
         scan.set_selected("auto")
+
+    def test_only_the_wanted_mouse_is_opened(self):
+        # 1.9.1: sysfs is asked first, so a search doesn't open the keyboard, the touchpad or another mouse
+        keyboard = FakeInput("Acme Keyboard", 0x1111, 0x0001, wheel=False, letters=True)
+        touchpad = FakeInput("Acme Touchpad", 0x1111, 0x0002, wheel=False)
+        w = World({"/dev/input/event0": keyboard, "/dev/input/event1": touchpad,
+                   "/dev/input/event2": FakeInput(*ACME), "/dev/input/event3": FakeInput(*ENDGAME)})
+        with w:
+            dev, err = daemon.discover(0x3367, 0x1970, "auto")
+            self.assertEqual((dev.info.product, err), (0x1970, None))
+            self.assertEqual(w.opened, [dev])
+            w.opened.clear()
+            found = scan.list_mice()                    # the list opens the mice, nothing else
+            self.assertEqual(len(found), 2)
+            self.assertNotIn(keyboard, w.opened)
+            self.assertNotIn(touchpad, w.opened)
+
+    def test_without_sysfs_every_node_is_opened_as_before(self):
+        keyboard = FakeInput("Acme Keyboard", 0x1111, 0x0001, wheel=False, letters=True)
+        w = World({"/dev/input/event0": keyboard, "/dev/input/event3": FakeInput(*ENDGAME),
+                   "/dev/input/event4": "denied"}, blind=True)
+        with w:
+            dev, err = daemon.discover(0x3367, 0x1970, "auto")
+            self.assertEqual((dev.info.product, err), (0x1970, None))
+            self.assertIn(keyboard, w.opened)
+            self.assertTrue(keyboard.closed)
+            self.assertEqual([m["product"] for m in scan.list_mice()], ["1970"])
+
+    def test_denied_mouse_is_reported_with_many_known_mice(self):
+        # one sysfs read per node, however many mice Wheelguard knows (it was one per known mouse)
+        w = World({"/dev/input/event7": "denied", "/dev/input/event8": "denied"},
+                  sysfs={"/dev/input/event7": (0x1111, 0x2222), "/dev/input/event8": (0x046D, 0xC094)})
+        calls = []
+        with w:
+            real = scan.sysfs_probe
+            with mock.patch.object(scan, "sysfs_probe", lambda p: (calls.append(p), real(p))[1]):
+                self.assertEqual(daemon.discover(0x3367, 0x1970, "auto"), (None, "permission denied: /dev/input/event8"))
+        self.assertEqual(calls, ["/dev/input/event7", "/dev/input/event8"])
 
     def test_auto_keeps_todays_behaviour(self):
         w = World({"/dev/input/event1": FakeInput(*ACME), "/dev/input/event2": FakeInput(*SUPERLIGHT),

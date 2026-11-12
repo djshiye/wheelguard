@@ -53,7 +53,7 @@ class Clock(Base):
         bounce. The session now never reads the wall clock."""
         frames = []
         ctl = mock.MagicMock()
-        ctl.deadline = ctl.clicklock_deadline = ctl.debounce_deadline = None
+        ctl.deadline = ctl.clicklock_deadline = ctl.debounce_deadline = ctl.next_deadline = None
         ctl.paused = False
         ctl.cfg = dict(C.DEFAULTS)
         ctl.handle_frame.side_effect = lambda frame, t, write: frames.append(t) or []
@@ -379,7 +379,7 @@ class OverIpc(unittest.TestCase):
 class Pause(Base):
     def test_a_running_session_lets_go_of_the_mouse(self):
         ctl = mock.MagicMock()
-        ctl.deadline = ctl.clicklock_deadline = ctl.debounce_deadline = None
+        ctl.deadline = ctl.clicklock_deadline = ctl.debounce_deadline = ctl.next_deadline = None
         ctl.cfg = dict(C.DEFAULTS)
         ctl.paused = False
         ctl.restart_requested = False
@@ -572,7 +572,7 @@ class LockWatch(unittest.TestCase):
 
     def test_session_stops_click_lock_when_the_screen_locks(self):
         ctl = mock.MagicMock()
-        ctl.deadline = ctl.clicklock_deadline = ctl.debounce_deadline = None
+        ctl.deadline = ctl.clicklock_deadline = ctl.debounce_deadline = ctl.next_deadline = None
         ctl.cfg = dict(C.DEFAULTS)
         ctl.paused = False
         ctl.restart_requested = False

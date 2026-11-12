@@ -30,6 +30,8 @@ SETTLE_S = 0.25     # after a /dev/input change, let udev finish (permissions, s
 EVIOCSCLOCKID = 0x400445A0      # _IOW('E', 0xa0, int): which clock the kernel stamps this device's events with
 _EVENT = struct.Struct("llHHi")     # struct input_event: a timeval (ignored by uinput), type, code, value
 _SYN_REPORT = _EVENT.pack(0, 0, e.EV_SYN, e.SYN_REPORT, 0)
+READ_BYTES = 256 * _EVENT.size      # one read() takes up to this many of the mouse's events
+SLOW_S = 0.25       # how often a running session checks that the lock-screen watcher is still there
 
 
 # Mice Wheelguard knows, as (vendor, product) of their wheel-bearing input device (see mice.py for their
@@ -54,26 +56,6 @@ def _wanted(vendor, product, allowed=None):
     return ids
 
 
-def _sysfs_ids(path):
-    base = f"/sys/class/input/{os.path.basename(path)}/device"
-
-    def attr(name):
-        with open(f"{base}/{name}") as f:
-            return f.read().strip()
-    return attr
-
-
-def _sysfs_is_wheel_mouse(path, vendor, product):
-    """Match an event node we may not open by its sysfs attributes (name, ids, REL bitmask)."""
-    try:
-        attr = _sysfs_ids(path)
-        return (int(attr("id/vendor"), 16) == vendor and int(attr("id/product"), 16) == product
-                and not any(n in attr("name") for n in _SKIP_NAMES)
-                and int(attr("capabilities/rel") or "0", 16) >> e.REL_WHEEL & 1 == 1)
-    except (OSError, ValueError):
-        return False
-
-
 def discover(vendor, product, mouse=None):
     """(device, error): the wheel-bearing event node of the configured mouse or, failing that, of the
     first supported mouse found (KNOWN_MICE order); or a reason. `mouse` ("vvvv:pppp") pins one mouse
@@ -84,11 +66,18 @@ def discover(vendor, product, mouse=None):
     best = None                 # (rank, device)
     # not evdev.list_devices(): that silently skips nodes we are not allowed to open
     for path in sorted(glob.glob("/dev/input/event*")):
+        # Ask sysfs first and open only the nodes of a mouse we are looking for: a search (every couple of
+        # seconds while no mouse is there) no longer opens every keyboard and touchpad on the computer.
+        probe = scan.sysfs_probe(path)
+        if probe is False or (probe is not None and probe[1:] not in ids):
+            continue
         try:
             dev = evdev.InputDevice(path)
         except PermissionError:
-            if denied is None and any(_sysfs_is_wheel_mouse(path, v, p) for v, p in ids):
-                denied = path
+            if denied is None:
+                info = probe or scan._sysfs_info(path)
+                if info and info[1:] in ids:
+                    denied = path
             continue
         except OSError:
             continue
@@ -226,6 +215,22 @@ class FrameReader:
         return [fix]
 
 
+def read_events(fd):
+    """The events waiting on the mouse's event node, as its raw bytes (whole `struct input_event`s; b"" when
+    there is nothing right now).
+
+    This is the read python-evdev does, without making a Python object of every event: at 4000-8000 reports a
+    second that was a good part of the daemon's work. Raises OSError when the mouse is gone, like dev.read()."""
+    try:
+        data = os.read(fd, READ_BYTES)
+    except BlockingIOError:
+        return b""
+    if not data:                            # an event node never ends; a closed one does
+        raise OSError(errno.ENODEV, "mouse disconnected")
+    odd = len(data) % _EVENT.size
+    return data[:len(data) - odd] if odd else data
+
+
 def use_monotonic_clock(dev):
     """Ask the kernel to stamp this device's events with CLOCK_MONOTONIC instead of the wall clock.
 
@@ -293,10 +298,12 @@ class FrameWriter:
 def service(ctl, server, timeout, extra=()):
     """One select() round over the IPC sockets plus `extra` fds; returns the readable extra fds."""
     timeout = POLL_S if timeout is None else min(timeout, POLL_S)
-    readable, _, _ = select.select(list(extra) + server.fds(), [], [], timeout)
-    server.service([fd for fd in readable if fd not in extra])
+    readable = select.select([*extra, *server.fds()], (), (), timeout)[0]
+    mine = [fd for fd in readable if fd in extra]
+    if len(mine) != len(readable):
+        server.service([fd for fd in readable if fd not in extra])
     ctl.poll_config()
-    return [fd for fd in readable if fd in extra]
+    return mine
 
 
 def idle(ctl, server, seconds, watcher=None):
@@ -422,6 +429,17 @@ def run_session(dev, ctl, server, tick_log, watcher=None, lockwatch=None):
         # Nothing is held: grab_when_buttons_up() checked that after the grab. Not asked again here,
         # because asking (EVIOCGKEY) would throw away a click queued since then (see FrameReader).
         reader = FrameReader(dev.active_keys)
+        feed, handle_frame, handle_flush, unpack = reader.feed, ctl.handle_frame, ctl.handle_flush, _EVENT.iter_unpack
+        # The loop below runs once for every report of the mouse, up to 8000 times a second, so it does the
+        # least it can per round: the mouse's bytes are read directly (a real device; a stand-in is read through
+        # its read()), the list of things to wait on is only rebuilt when it changes, and the lock-screen
+        # watcher is looked after every SLOW_S instead.
+        raw = isinstance(dev, evdev.InputDevice)
+        dev_fd = dev.fd
+        watch_fd = None if watcher is None else watcher.fileno()
+        lock_fd = None
+        extra = None
+        slow_at = 0.0
         while True:
             if ctl.paused is True:
                 return True
@@ -430,34 +448,46 @@ def run_session(dev, ctl, server, tick_log, watcher=None, lockwatch=None):
                 log.info("mouse choice changed, switching")
                 ctl.set_device(False, None, "switching mouse")
                 return True
-            timeout = None
             now = time.monotonic()
-            if (deadline := ctl.deadline) is not None:
-                timeout = min(max(deadline - now, 0.0), ctl.cfg["hold_ms"] / 1000.0)
-            if (deadline := ctl.clicklock_deadline) is not None:
-                timeout = min(timeout if timeout is not None else POLL_S, max(deadline - now, 0.0))
-            if (deadline := ctl.debounce_deadline) is not None:
-                timeout = min(timeout if timeout is not None else POLL_S, max(deadline - now, 0.0))
-            extra = [dev.fd]
-            if watcher is not None:
-                extra.append(watcher.fileno())
-            if lockwatch is not None:
+            if lockwatch is not None and now >= slow_at:
+                slow_at = now + SLOW_S
                 lockwatch.start()           # no-op while it runs; brings back one that ended (rate-limited)
-            lock_fd = None if lockwatch is None else lockwatch.fileno()
-            if lock_fd is not None:
-                extra.append(lock_fd)
+                if lockwatch.fileno() != lock_fd:
+                    lock_fd, extra = lockwatch.fileno(), None
+            if extra is None:
+                extra = [fd for fd in (dev_fd, watch_fd, lock_fd) if fd is not None]
+            timeout = None
+            if (deadline := ctl.next_deadline) is not None:
+                timeout = max(deadline - now, 0.0)
             readable = service(ctl, server, timeout, extra)
-            if watcher is not None and watcher.fileno() in readable and watcher.drain():
-                ctl.invalidate_mice()
-            if lock_fd is not None and lock_fd in readable and lockwatch.drain():
-                ctl.stop_clicklock("the screen locked")
-            if dev.fd in readable:
+            mouse = False
+            for fd in readable:
+                if fd == dev_fd:
+                    mouse = True
+                elif fd == watch_fd:
+                    if watcher.drain():
+                        ctl.invalidate_mice()
+                elif fd == lock_fd:
+                    if lockwatch.drain():
+                        ctl.stop_clicklock("the screen locked")
+                    if lockwatch.fileno() != lock_fd:       # the watcher ended: stop waiting on it
+                        lock_fd, extra = lockwatch.fileno(), None
+            if mouse:
                 reader.next_batch()
                 read_at = time.monotonic()
-                for ev in dev.read():
-                    for frame in reader.feed(ev.type, ev.code, ev.value):
-                        tick_log(ctl.handle_frame(frame, ev.timestamp() if kernel_stamps else read_at, write))
-            tick_log(ctl.handle_flush(time.monotonic(), write))
+                if raw:
+                    for sec, usec, etype, code, value in unpack(read_events(dev_fd)):
+                        for frame in feed(etype, code, value):
+                            decisions = handle_frame(frame, sec + usec / 1000000.0 if kernel_stamps else read_at, write)
+                            if decisions:
+                                tick_log(decisions)
+                else:
+                    for ev in dev.read():
+                        for frame in feed(ev.type, ev.code, ev.value):
+                            tick_log(handle_frame(frame, ev.timestamp() if kernel_stamps else read_at, write))
+            decisions = handle_flush(time.monotonic(), write)
+            if decisions:
+                tick_log(decisions)
     finally:
         # Never leave a button pressed behind us (the kernel should release it when the virtual mouse
         # goes away, but say so explicitly as well).

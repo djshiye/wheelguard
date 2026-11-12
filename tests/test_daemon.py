@@ -198,7 +198,7 @@ class GrabRace(unittest.TestCase):
         dev.ungrab = dev.close = lambda: None
         ui = FakeUInput()
         ctl = mock.MagicMock()
-        ctl.deadline = ctl.clicklock_deadline = ctl.debounce_deadline = None
+        ctl.deadline = ctl.clicklock_deadline = ctl.debounce_deadline = ctl.next_deadline = None
         ctl.cfg = {"lock_ms": 300, "pre_ms": 60, "hold_ms": 25, "clicklock": False,
                    "clicklock_ms": 5000, "clicklock_mode": "repeat"}
         ctl.handle_frame.side_effect = lambda frame, t, write: write([frame]) or []
@@ -248,7 +248,7 @@ class SessionEnd(unittest.TestCase):
         dev.ungrab = dev.close = lambda: None
         ui = FakeUInput()
         ctl = mock.MagicMock()
-        ctl.deadline = ctl.clicklock_deadline = ctl.debounce_deadline = None
+        ctl.deadline = ctl.clicklock_deadline = ctl.debounce_deadline = ctl.next_deadline = None
         ctl.cfg = {"lock_ms": 300, "pre_ms": 60, "hold_ms": 25, "clicklock": False,
                    "clicklock_ms": 5000, "clicklock_mode": "repeat"}
         ctl.handle_frame.side_effect = lambda frame, t, write: write([frame]) or []

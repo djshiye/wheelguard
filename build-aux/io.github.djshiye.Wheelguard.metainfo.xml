@@ -38,6 +38,15 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.9.1" date="2026-11-12">
+      <description>
+        <ul>
+          <li>The background service does about 30% less work for every report of the mouse, so it uses less processor time while the mouse moves (most at 4000 and 8000 Hz polling)</li>
+          <li>Looking for the mouse no longer opens the computer's other input devices (keyboards, touchpads): Wheelguard reads what the kernel shows about them and opens only the mouse</li>
+          <li>A mouse that was asleep when Wheelguard started at login is picked up by itself: the panel's battery and DPI stages, the low-battery alerts and the profiles' DPI switch no longer wait for the popup or the Mouse page to be opened</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.9.0" date="2026-11-11">
       <description>
         <ul>

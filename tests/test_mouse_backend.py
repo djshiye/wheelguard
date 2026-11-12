@@ -218,6 +218,55 @@ class MouseControllerTests(unittest.TestCase):
         self.wait(c, ("ready",))
         self.assertTrue(c.online)
 
+    def test_recheck_brings_back_a_mouse_that_was_asleep(self):
+        # asleep when the app started at login: nothing read it again until the popup was opened
+        now = [100.0]
+        c = self.make("asleep", clock=lambda: now[0])
+        c.refresh()
+        self.wait(c, ("asleep",))
+        self.assertFalse(c.online)
+        self.dev.mode = "connected"                 # the user picks the mouse up
+        c.recheck()
+        self.wait(c, ("ready",))
+        self.assertTrue(c.online)
+        self.assertEqual(c.battery, 82)
+        self.assertEqual(self.writes(), [])         # read-only
+
+    def test_recheck_is_rate_limited_and_leaves_a_working_mouse_alone(self):
+        now = [100.0]
+        c = self.make("asleep", clock=lambda: now[0])
+        c.refresh()
+        self.wait(c, ("asleep",))
+        self.dev.sent.clear()
+        c.recheck()                                 # still asleep
+        loop = QEventLoop()
+        c.infoChanged.connect(loop.quit)
+        QTimer.singleShot(3000, loop.quit)
+        loop.exec()
+        self.assertEqual(c.state, "asleep")
+        asked = len(self.dev.sent)
+        self.assertGreater(asked, 0)
+        for _ in range(20):                         # every wheel tick asks; the mouse is asked once per 20 s
+            c.recheck()
+        QCoreApplication.processEvents()
+        self.assertEqual(len(self.dev.sent), asked)
+        ready = self.loaded(clock=lambda: now[0])
+        self.dev.sent.clear()
+        ready.recheck()                             # nothing to recover
+        QCoreApplication.processEvents()
+        self.assertEqual(self.dev.sent, [])
+
+    def test_recheck_never_runs_with_edits_waiting(self):
+        now = [100.0]
+        c = self.loaded(clock=lambda: now[0])
+        c.setValue("polling", 0x04)
+        c._state = "asleep"
+        self.dev.sent.clear()
+        c.recheck()
+        QCoreApplication.processEvents()
+        self.assertEqual(self.dev.sent, [])
+        c._state = "ready"
+
     def test_unknown_worker_job_is_an_error_not_a_restore(self):
         c = self.loaded()
         res = []

@@ -70,6 +70,7 @@ class Server:
         self.path = path or socket_path()
         self.listener = None
         self.clients = {}  # fd -> Client
+        self._fds = None   # fds() until the next client comes or goes
         self._deferred = None  # events published while a command runs go out after its reply
         ctl.publish = self.publish
 
@@ -85,7 +86,7 @@ class Server:
         os.chmod(self.path, 0o600)
         sock.listen(8)
         sock.setblocking(False)
-        self.listener = sock
+        self.listener, self._fds = sock, None
         log.info("listening on %s", self.path)
 
     def close(self):
@@ -93,7 +94,7 @@ class Server:
             self._drop(c)
         if self.listener is not None:
             self.listener.close()
-            self.listener = None
+            self.listener, self._fds = None, None
             try:
                 os.unlink(self.path)
             except OSError:
@@ -101,10 +102,13 @@ class Server:
 
     # ---------- select() integration ----------
     def fds(self):
-        fds = list(self.clients)
-        if self.listener is not None:
-            fds.append(self.listener.fileno())
-        return fds
+        """What to select() on. The same list object until a client comes or goes or the server stops, so a
+        caller in a tight loop can tell with `is` that nothing changed. Don't modify it."""
+        if self._fds is None:
+            self._fds = list(self.clients)
+            if self.listener is not None:
+                self._fds.append(self.listener.fileno())
+        return self._fds
 
     def service(self, readable):
         """Handle the fds from `fds()` that select() reported readable."""
@@ -129,6 +133,7 @@ class Server:
         sock.setblocking(False)
         client = Client(sock)
         self.clients[sock.fileno()] = client
+        self._fds = None
         return client
 
     def _drop(self, client):
@@ -136,6 +141,7 @@ class Server:
             return
         client.closed = True
         self.clients.pop(client.sock.fileno(), None)
+        self._fds = None
         try:
             client.sock.close()
         except OSError:
@@ -164,9 +170,10 @@ class Server:
             self._drop(client)
 
     # ---------- sending ----------
-    def _send(self, client, msg):
-        """Send one whole message or disconnect the client. Never blocks."""
-        data = encode(msg)
+    def _send(self, client, msg, data=None):
+        """Send one whole message (`data`: already encoded) or disconnect the client. Never blocks."""
+        if data is None:
+            data = encode(msg)
         try:
             sent = client.sock.send(data)
         except (BlockingIOError, InterruptedError):
@@ -185,9 +192,12 @@ class Server:
         if self._deferred is not None:
             self._deferred.append(msg)
             return
+        data = None
         for client in list(self.clients.values()):
             if client.subscribed:
-                self._send(client, msg)
+                if data is None:
+                    data = encode(msg)          # once, however many clients listen
+                self._send(client, msg, data)
 
     # ---------- commands ----------
     def _line(self, client, line):
