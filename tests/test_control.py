@@ -67,7 +67,7 @@ class Counters(Base):
         self.now = 2000.0
         self.ctl.reset_stats()
         self.assertEqual(self.ctl.stats, {"ticks": 0, "passed": 0, "dropped": 0, "debounced": 0,
-                                          "debounced_by": {"left": 0, "right": 0, "middle": 0}, "since": 2000.0})
+                                          "debounced_by": {"left": 0, "right": 0, "middle": 0, "back": 0, "forward": 0}, "since": 2000.0})
         self.assertEqual(self.events[-1]["type"], "status")
 
     def test_tick_event_shape(self):

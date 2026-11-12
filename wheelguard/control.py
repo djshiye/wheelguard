@@ -19,10 +19,12 @@ from .core import DROP, EMIT, PASS, Decision, WheelFilter
 from .history import History
 from .frames import flush_frames, process_frame, tick_sign
 from .power import SuspendWatch
+from .scrollspeed import ScrollSpeed
 
 log = logging.getLogger("wheelguard")
 POLL_S = 2.0  # config.json mtime poll interval
-BUTTON_NAMES = {e.BTN_LEFT: "left", e.BTN_RIGHT: "right", e.BTN_MIDDLE: "middle"}
+BUTTON_NAMES = {e.BTN_LEFT: "left", e.BTN_RIGHT: "right", e.BTN_MIDDLE: "middle",
+                e.BTN_SIDE: "back", e.BTN_EXTRA: "forward"}
 PROTECTION_KEYS = ("pre_ms", "hold_ms", "lock_ms")
 _NO_DECISIONS = ()
 
@@ -77,6 +79,7 @@ class Controller:
         self.wf = self._new_filter()
         self.cl = ClickLock(*self._clicklock_args())
         self.deb = ClickDebounce(self.cfg["debounce_ms"])
+        self.scroll = ScrollSpeed(self.cfg["scroll_speed"])     # applied to what leaves the filter (see _send)
         self._outbox = []        # frames released when the config changed under a pending hold
         self._outbox_decisions = []
         self._prev_t = None      # previous tick time, for gap_ms while passing through
@@ -141,12 +144,13 @@ class Controller:
     def _clicklock_args(self):
         c = self.cfg
         return (c["clicklock"], c["clicklock_ms"], c["clicklock_mode"], c["clicklock_rate"],
-                c["clicklock_max_s"], c["clicklock_ignore_drag"], c["clicklock_drag_counts"])
+                c["clicklock_max_s"], c["clicklock_ignore_drag"], c["clicklock_drag_counts"], c["clicklock_button"])
 
     def reset_filter(self):
         self.wf = self._new_filter()
         self.cl.reset()
         self.deb.reset()
+        self.scroll.reset()
         self._outbox, self._outbox_decisions = [], []
         self._prev_t = None
 
@@ -228,7 +232,7 @@ class Controller:
                 d = [Decision(PASS, t, sign, gap, False, "filter disabled")]
         frames, decisions = frames + f, decisions + d
         if frames:
-            write(frames)
+            self._send(frames, write)
         self._record(decisions)
         if fixed:
             self.stats["debounced"] += fixed
@@ -262,13 +266,22 @@ class Controller:
             f, d = flush_frames(self.wf, now)
             frames, decisions = frames + f, decisions + d
         if frames:
-            write(frames)
+            self._send(frames, write)
         self._record(decisions)
         if self.history is not None:
             self.history.maybe_save()
         if lock_changed:
             self._clicklock_changed()
         return decisions
+
+    def _send(self, frames, write):
+        """Write frames that went through the full path, at the chosen scroll speed (plain pointer motion
+        takes the fast path in handle_frame and never comes here)."""
+        if self.scroll.active:
+            frames = self.scroll.frames(frames)
+            if not frames:
+                return
+        write(frames)
 
     def stop_clicklock(self, reason):
         """End a running Click-Lock from outside the input path (suspend, screen lock, a client's
@@ -344,7 +357,15 @@ class Controller:
             self.deb.configure(new["debounce_ms"])
             frames, _ = self._debounced_releases(self.deb.drain())     # let go of what was held back
             self._outbox += frames
+        if old["scroll_speed"] != new["scroll_speed"]:
+            self.scroll.configure(new["scroll_speed"])
         if any(old[k] != new[k] for k in C.CLICKLOCK_KEYS):
+            if old["clicklock_button"] != new["clicklock_button"]:
+                frames, was_active = self.cl.stop()       # a lock belongs to the button it started on
+                self._outbox += frames
+                self.cl.reset()                           # the old button is no longer ours: it passes through as it is
+                if was_active:
+                    log.info("click-lock released (its button changed)")
             self.cl.configure(*self._clicklock_args())
             if not new["clicklock"] or old["clicklock_mode"] != new["clicklock_mode"]:
                 frames, was_active = self.cl.stop()       # switched off: hand the button back now

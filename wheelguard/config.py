@@ -8,7 +8,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from . import clicklock, core, mice
+from . import clicklock, core, mice, scrollspeed
 
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "wheelguard"
 CONFIG_PATH = CONFIG_DIR / "config.json"
@@ -28,7 +28,9 @@ DEFAULTS = {
     "clicklock_max_s": clicklock.DEFAULT_MAX_S,
     "clicklock_ignore_drag": True,
     "clicklock_drag_counts": clicklock.DRAG_COUNTS,
+    "clicklock_button": clicklock.DEFAULT_BUTTON,
     "debounce_ms": 0,
+    "scroll_speed": scrollspeed.DEFAULT,
     "mouse": mice.AUTO,
 }
 MS_KEYS = ("lock_ms", "pre_ms", "hold_ms")
@@ -39,8 +41,9 @@ CLICKLOCK_RATE = (1, 30)        # repeat clicks per second
 CLICKLOCK_MAX_S = (10, 3600)    # safety timer: a running lock stops by itself after this long (0 = never)
 CLICKLOCK_DRAG_COUNTS = (50, 20000)     # "ignore drags": how far the pointer may wander (the app sets ~0.25 inch for the mouse's DPI)
 DEBOUNCE_MS = (10, 150)         # "Double-click fix": ignore a second press this soon after a release (0 = off)
+SCROLL_SPEED = scrollspeed.RANGE      # percent of what the mouse sends per wheel notch (100 = unchanged)
 CLICKLOCK_KEYS = ("clicklock", "clicklock_ms", "clicklock_mode", "clicklock_rate", "clicklock_max_s",
-                  "clicklock_ignore_drag", "clicklock_drag_counts")
+                  "clicklock_ignore_drag", "clicklock_drag_counts", "clicklock_button")
 # What a client may change for as long as it stays connected, without touching config.json (the `override`
 # command; the app uses it for per-game profiles).
 OVERRIDE_KEYS = ("enabled", "pre_ms", "hold_ms", "lock_ms", "clicklock")
@@ -98,6 +101,10 @@ def normalize(partial, base=None):
             if v not in clicklock.MODES:
                 raise ValueError("clicklock_mode must be " + " or ".join(f'"{m}"' for m in clicklock.MODES))
             cfg[k] = v
+        elif k == "clicklock_button":
+            if v not in clicklock.BUTTONS:
+                raise ValueError("clicklock_button must be " + " or ".join(f'"{b}"' for b in clicklock.BUTTONS))
+            cfg[k] = v
         elif k == "mouse":
             cfg[k] = _mouse(v)
         elif k in ("vendor", "product"):
@@ -126,6 +133,9 @@ def normalize(partial, base=None):
     lo, hi = DEBOUNCE_MS
     if cfg["debounce_ms"] != 0 and not lo <= cfg["debounce_ms"] <= hi:
         raise ValueError(f"debounce_ms must be 0 (off) or between {lo} and {hi}")
+    lo, hi = SCROLL_SPEED
+    if not lo <= cfg["scroll_speed"] <= hi or cfg["scroll_speed"] != int(cfg["scroll_speed"]):
+        raise ValueError(f"scroll_speed must be a whole number between {lo} and {hi}")
     if not 0 < cfg["retry_s"] <= MAX_RETRY_S:
         raise ValueError(f"retry_s must be > 0 and <= {MAX_RETRY_S}")
     return cfg

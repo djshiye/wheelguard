@@ -38,6 +38,15 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.10.0" date="2026-11-12">
+      <description>
+        <ul>
+          <li>New: Scroll speed. A slider on the Scroll protection page sets how far one notch of the wheel scrolls, from 50% to 300%, for the mouse Wheelguard protects (GNOME has no setting for it)</li>
+          <li>Click-Lock works for left-handed use: with GNOME's left-handed switch on, it watches the right button of the mouse, which is then your main button</li>
+          <li>The Double-click fix now also covers the two thumb buttons (Back and Forward), and the Clicks page counts them</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.9.1" date="2026-11-12">
       <description>
         <ul>

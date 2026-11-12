@@ -102,10 +102,19 @@ class Engine(unittest.TestCase):
         self.assertEqual(sorted(out), sorted([(L, 1), (L, 0), (R, 1), (R, 0), (M, 1), (M, 0)]))
         self.assertEqual([c for c, v in out if v], [L, R, M])
 
+    def test_thumb_buttons_are_covered_too(self):
+        # 1.10.0: the two side buttons wear out like the others (they were passed through untouched)
+        for button in (SIDE, e.BTN_EXTRA):
+            deb = ClickDebounce(150)
+            out, dropped = run(deb, [(1.0, button, 1), (1.01, button, 0), (1.02, button, 1), (1.03, button, 0)])
+            self.assertEqual(out, [(button, 1), (button, 0)])
+            self.assertEqual(dropped, 1)
+
     def test_other_buttons_are_never_touched(self):
         deb = ClickDebounce(150)
-        out, dropped = run(deb, [(1.0, SIDE, 1), (1.01, SIDE, 0), (1.02, SIDE, 1), (1.03, SIDE, 0)])
-        self.assertEqual(out, [(SIDE, 1), (SIDE, 0), (SIDE, 1), (SIDE, 0)])
+        other = e.BTN_TASK
+        out, dropped = run(deb, [(1.0, other, 1), (1.01, other, 0), (1.02, other, 1), (1.03, other, 0)])
+        self.assertEqual(out, [(other, 1), (other, 0), (other, 1), (other, 0)])
         self.assertEqual(dropped, 0)
 
     def test_non_button_events_pass_and_scancode_goes_with_a_held_release(self):

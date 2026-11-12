@@ -33,7 +33,7 @@ DEFAULT_CONFIG = {"enabled": True, "lock_ms": 300, "pre_ms": 60, "hold_ms": 25,
                   "vendor": "3367", "product": "1970", "retry_s": 2,
                   "clicklock": False, "clicklock_ms": 5000, "clicklock_mode": "repeat", "clicklock_rate": 10,
                   "clicklock_max_s": 600, "clicklock_ignore_drag": True, "clicklock_drag_counts": 400,
-                  "debounce_ms": 0, "mouse": "auto"}
+                  "clicklock_button": "left", "debounce_ms": 0, "scroll_speed": 100, "mouse": "auto"}
 OVERRIDE_KEYS = ("enabled", "pre_ms", "hold_ms", "lock_ms", "clicklock")
 MICE = [   # what the mock reports as connected (mice with a scroll wheel), supported ones first
     {"name": "Endgame Gear XM2w 4k v2", "device": "Endgame Gear HS Dongle", "vendor": "3367", "product": "1970",
@@ -87,6 +87,11 @@ def validate(cfg, patch):
                 return None, 'clicklock_mode must be "repeat" or "hold"'
             merged[k] = v
             continue
+        elif k == "clicklock_button":
+            if v not in ("left", "right"):
+                return None, 'clicklock_button must be "left" or "right"'
+            merged[k] = v
+            continue
         elif k == "clicklock_drag_counts":
             if isinstance(v, bool) or not isinstance(v, (int, float)) or not 50 <= v <= 20000:
                 return None, "clicklock_drag_counts must be between 50 and 20000"
@@ -112,6 +117,8 @@ def validate(cfg, patch):
         return None, "clicklock_max_s must be 0 (never) or between 10 and 3600"
     if merged["debounce_ms"] != 0 and not 10 <= merged["debounce_ms"] <= 150:
         return None, "debounce_ms must be 0 (off) or between 10 and 150"
+    if not 50 <= merged["scroll_speed"] <= 300 or merged["scroll_speed"] != int(merged["scroll_speed"]):
+        return None, "scroll_speed must be a whole number between 50 and 300"
     if not 1 <= merged["clicklock_rate"] <= 30:
         return None, "clicklock_rate must be between 1 and 30"
     if not 0 < merged["hold_ms"] < merged["lock_ms"]:

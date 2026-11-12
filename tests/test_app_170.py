@@ -85,11 +85,14 @@ class DragAndStatsTests(unittest.TestCase):
     def test_per_button_counts(self):
         st = {"stats": {"ticks": 1, "dropped": 0, "debounced": 37,
                         "debounced_by": {"left": 34, "right": 3, "middle": 0}}}
-        self.assertEqual(protocol.status_stats(st)["debounced_by"], (34, 3, 0))
-        self.assertEqual(protocol.debounced_text((34, 3, 0)), "Left 34 · Right 3")
-        self.assertEqual(protocol.debounced_text((0, 0, 0)), "")
+        self.assertEqual(protocol.status_stats(st)["debounced_by"], (34, 3, 0, 0, 0))    # an older service: no thumb buttons
+        self.assertEqual(protocol.debounced_text((34, 3, 0, 0, 0)), "Left 34 · Right 3")
+        self.assertEqual(protocol.debounced_text((0, 0, 0, 0, 0)), "")
+        st["stats"]["debounced_by"].update(back=1200, forward=2)
+        self.assertEqual(protocol.debounced_text(protocol.status_stats(st)["debounced_by"]),
+                         "Left 34 · Right 3 · Back 1,200 · Forward 2")
         bad = {"stats": {"ticks": 1, "dropped": 0, "debounced_by": {"left": "x", "right": True, "middle": -4}}}
-        self.assertEqual(protocol.status_stats(bad)["debounced_by"], (0, 0, 0))
+        self.assertEqual(protocol.status_stats(bad)["debounced_by"], (0, 0, 0, 0, 0))
 
 
 class PausedTests(unittest.TestCase):

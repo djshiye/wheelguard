@@ -4,7 +4,7 @@ Pure like core.py and clicklock.py: evdev events (type, code, value) and timesta
 
 A switch that is wearing out can send press, release, press, release for a single physical click, or
 let go for a moment in the middle of a drag, a few milliseconds apart. So the debounce works on the
-RELEASE: with a window of N ms, a release of the left, right or middle button is held back. If the
+RELEASE: with a window of N ms, a release of the left, right, middle or a thumb (side) button is held back. If the
 same button is pressed again less than N ms later, that was a bounce: the held release and the new
 press are both dropped and the desktop simply sees the button stay down. Otherwise the release goes
 through when the window ends (flush(), driven by `deadline`), N ms late at most. Presses are never
@@ -20,7 +20,7 @@ from typing import List, Tuple
 
 from evdev import ecodes as e
 
-BUTTONS = (e.BTN_LEFT, e.BTN_RIGHT, e.BTN_MIDDLE)
+BUTTONS = (e.BTN_LEFT, e.BTN_RIGHT, e.BTN_MIDDLE, e.BTN_SIDE, e.BTN_EXTRA)      # the two thumb buttons since 1.10.0
 DEFAULT_ON_MS = 40
 
 Event = Tuple[int, int, int]
