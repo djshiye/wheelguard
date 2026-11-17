@@ -70,6 +70,8 @@ class KeyboardModel:
     vendor: int = VENDOR
     key_count: int = 120     # positions in the key assignment frame
     sleep: bool = False      # has the idle timer (GMMK 3)
+    polling_in_properties: bool = False   # GMMK 3 Pro Wireless: no 0x08 frame; the rate is byte 9 of 0x07
+    macros: bool = True      # False where CORE's macro frames can't be trusted (the Numpad)
 
 
 MODELS = {
@@ -98,6 +100,19 @@ for _pid, _size, _iso, _pro in ((0xE3C8, "100", False, False), (0xE3D1, "100", T
     _key = f"gmmk3{'-pro' if _pro else ''}-{_size}-{'iso' if _iso else 'ansi'}"
     _name = f"Glorious GMMK 3{' Pro' if _pro else ''} {_size}%{' (ISO)' if _iso else ''}"
     MODELS[_pid] = _gmmk3(_key, _name, _iso, _size, _pro)
+# GMMK 3 Pro Wireless, over its USB cable only (Wheelguard never writes through the 2.4 GHz receiver or
+# Bluetooth): same frames, 110 key positions, and the polling rate travels in the properties frame.
+for _pid, _size, _iso in ((0xE3CB, "100", False), (0xE3D4, "100", True), (0xE3CC, "75", False),
+                          (0xE3D5, "75", True), (0xE3CD, "65", False), (0xE3D6, "65", True)):
+    _lay = "iso" if _iso else "ansi"
+    MODELS[_pid] = KeyboardModel(
+        f"gmmk3-pro-wireless-{_size}-{_lay}", f"Glorious GMMK 3 Pro Wireless {_size}%{' (ISO)' if _iso else ''}",
+        _lay, f"g3w{'-65' if _size == '65' else ''}-{_lay}", f"g3-{_size}", False, vendor=VENDOR_GMMK3,
+        key_count=110, sleep=True, polling_in_properties=True)
+# GMMK Numpad (USB; its Bluetooth link is never used): 20 key positions. CORE's macro frames for it use
+# the lighting index instead of the key's, so Wheelguard leaves macros off on it.
+MODELS[0x5088] = KeyboardModel("gmmk-numpad", "Glorious GMMK Numpad", "ansi", "numpad", "numpad", True,
+                               key_count=20, macros=False)
 GMMK_PRO = MODELS            # the name before the GMMK 2 joined
 # Pro ANSI, ISO, Alt ANSI, Alt ISO; GMMK 2 65 ANSI, 65 ISO, 96 ANSI, 96 ISO. The GMMK 3's bootloader has a
 # vendor of its own (2442) that Wheelguard never matches.
@@ -164,10 +179,31 @@ _G3 = {"Escape": 0, **{f"F{n}": n + 1 for n in range(1, 13)}, "PrintScreen": 14,
        "ControlLeft": 105, "MetaLeft": 106, "AltLeft": 107, "Space": 110, "AltRight": 115, "Fn": 116,
        "ContextMenu": 117, "ControlRight": 118, "ArrowLeft": 119, "ArrowDown": 120, "ArrowRight": 121,
        "Numpad0": 122, "NumpadDecimal": 124}
+# GMMK 3 Pro Wireless: its own 110-position matrix (column by column). Read from its default assignment;
+# CORE's tables put Super on the Menu key and miss a few keys. On the 65% the top-left key (Esc) sits in
+# the backtick's place.
+_G3W_SEQ = ("Escape Backquote Tab CapsLock ShiftLeft F1 Digit1 KeyQ KeyA ControlLeft F2 Digit2 KeyW KeyS MetaLeft "
+            "F3 Digit3 KeyE KeyZ AltLeft F4 Digit4 KeyR KeyD KeyX F5 Digit5 KeyT KeyF KeyC F6 Digit6 KeyY KeyG KeyV "
+            "F7 Digit7 KeyH KeyB Space F8 Digit8 KeyU KeyJ KeyN F9 Digit9 KeyI KeyK KeyM Digit0 KeyO KeyL Comma "
+            "AltRight F10 KeyP Semicolon Period Fn Minus BracketLeft Quote Slash ContextMenu F11 Equal BracketRight "
+            "ShiftRight ControlRight F12 Backspace Backslash Enter ArrowLeft PrintScreen Insert Delete ArrowUp "
+            "ArrowDown Pause ScrollLock Home End ArrowRight PageUp PageDown Numpad4 Numpad1 Numpad0 NumLock Numpad7 "
+            "Numpad5 Numpad2 NumpadDecimal NumpadDivide Numpad8 Numpad6 Numpad3 NumpadEnter NumpadMultiply Numpad9 "
+            "NumpadSubtract NumpadAdd").split()
+_G3W = {k: i for i, k in enumerate(_G3W_SEQ) if k != "Escape"}
+_G3W.update(Escape=0, Knob=108)
+_G3W_65 = dict(_G3W, Escape=1)
+del _G3W_65["Backquote"]
+_NUMPAD = {"NumLock": 0, "NumpadDivide": 1, "NumpadMultiply": 2, "NumpadSubtract": 3, "Numpad7": 4, "Numpad8": 5,
+           "Numpad9": 6, "NumpadAdd": 7, "Numpad4": 8, "Numpad5": 9, "Numpad6": 10, "Knob": 11, "Numpad1": 12,
+           "Numpad2": 13, "Numpad3": 14, "NumpadEnter": 15, "Numpad0": 16, "NumpadDecimal": 19}
 KEY_INDEX = {"ansi": _ANSI, "iso": _ISO, "ansi-alt": _ANSI_ALT,
              "g3-ansi": dict(_G3, Backslash=55), "g3-iso": dict(_G3, Hashtag=75, Backslash=85),
              "65-ansi": {**_65, **_V2_ANSI}, "65-iso": {**_65, **_V2_ISO},
-             "96-ansi": {**_96, **_V2_ANSI}, "96-iso": {**_96, **_V2_ISO}}
+             "96-ansi": {**_96, **_V2_ANSI}, "96-iso": {**_96, **_V2_ISO},
+             "g3w-ansi": _G3W, "g3w-iso": dict(_G3W, Hashtag=72, Backslash=107),
+             "g3w-65-ansi": _G3W_65, "g3w-65-iso": dict(_G3W_65, Hashtag=72, Backslash=107),
+             "numpad": _NUMPAD}
 KEY_COUNT = 120                              # the Pro and GMMK 2; a model's own count is model.key_count
 LOCKED_KEYS = frozenset(("Fn", "Knob"))      # never remapped
 
@@ -213,7 +249,38 @@ _DEFAULT_G3 = bytes.fromhex(
     "ffe6a065e450514f62ff63ffffffffff")
 
 
+# GMMK 3 Pro Wireless: one assignment (110 types, 110 codes, 28 spare) for all six boards, as CORE sends it.
+_DEFAULT_G3W = bytes.fromhex(
+    "010101010201010101020101010102010101010201010101010101010101010101010101010101010101010101010101"
+    "0101010101010201010101ff010101010101010101010101010101010101010101010101010101010101010101010101"
+    "010101010101010101010101030129292b39e13a1e1404e03b1f1a16e33c20081de23d2115071b3e221709063f231c0a"
+    "1940240b052c4125180d1142260c0e1027120f36e643133337fe2d2f343865442e30e5e4452a31285046494c52514847"
+    "4a4d4f4b4e5c5962535f5d5a6354605e5b585561565704000000a2030000000000000000000000000000000000000000"
+    "0000000000000000")
+# GMMK Numpad: 20 types, 20 codes. Position 11 is the knob's press (media: mute); 17 and 18 are empty.
+_DEFAULT_NUMPAD = bytes.fromhex("0101010101010101010101030101010101000001535455565f6061575c5d5e02595a5b5862000063")
+
+
+def _default_g3w(model: KeyboardModel) -> bytes:
+    """CORE's assignment with three repairs CORE makes or needs: the knob's turn (positions 104 and 109,
+    which CORE always rewrites as media volume down / up), the backtick (CORE's default types Esc there,
+    which is right only for the 65%'s Esc in that place) and ISO's key left of Z (empty in CORE's)."""
+    km = bytearray(_DEFAULT_G3W)
+    n = model.key_count
+    km[104], km[n + 104] = T_MEDIA, 3
+    km[109], km[n + 109] = T_MEDIA, 4
+    if model.form != "g3-65":
+        km[n + 1] = 0x35
+    if model.layout == "iso":
+        km[107], km[n + 107] = T_KEY, 0x64
+    return bytes(km)
+
+
 def default_keymap(model: KeyboardModel) -> bytes:
+    if model.keymap == "numpad":
+        return _DEFAULT_NUMPAD
+    if model.keymap.startswith("g3w"):
+        return _default_g3w(model)
     if model.vendor == VENDOR_GMMK3:
         if model.key == "gmmk3-pro-100-ansi":
             km = bytearray(_DEFAULT_G3)
@@ -332,11 +399,14 @@ def polling_frame(hz: int, sleep: Optional[int] = None) -> bytes:
 
 
 def properties_frame(profile: int, layer: int, debounce_ms: int, lighting: Optional[dict] = None,
-                     sleep: Optional[int] = None) -> bytes:
-    """The properties frame: debounce plus the lighting fields it shares with RGBeast, and on the GMMK 3
-    the idle timer (`sleep`, minutes; 255 never)."""
+                     sleep: Optional[int] = None, polling: Optional[int] = None) -> bytes:
+    """The properties frame: debounce plus the lighting fields it shares with RGBeast, on the GMMK 3
+    the idle timer (`sleep`, minutes; 255 never) and on the GMMK 3 Pro Wireless the polling rate (Hz):
+    that board has no polling frame, and a properties frame without the rate would reset it."""
     _check_slot(profile, layer)
     _check_sleep(sleep)
+    if polling is not None and polling not in POLLING_HZ:
+        raise ValueError(f"polling rate {polling} Hz isn't supported")
     if debounce_ms not in DEBOUNCE_MS:
         raise ValueError(f"debounce {debounce_ms} ms isn't supported")
     light = dict(DEFAULT_LIGHTING, **(lighting or {}))
@@ -348,6 +418,8 @@ def properties_frame(profile: int, layer: int, debounce_ms: int, lighting: Optio
     f[5], f[6] = 0, 1
     f[7] = 0 if light["sidelights"] else 1
     f[8] = brightness
+    if polling is not None:
+        f[9] = POLLING_HZ.index(polling)
     f[10] = debounce_ms
     if sleep is not None:
         f[11] = sleep
@@ -367,6 +439,8 @@ def keymap_frame(model: KeyboardModel, profile: int, layer: int, bindings: Dict[
             raise ValueError(f"unknown key {key!r}")
         if b.get("kind") == "default":
             continue
+        if b.get("kind") == "macro" and not model.macros:
+            raise ValueError(f"{key}: macros aren't available on this keyboard")
         problem = binding_problem(b, macro_slots)
         if problem:
             raise ValueError(f"{key}: {problem}")
@@ -584,6 +658,13 @@ ROWS = {
                     _SHIFT_ISO + [("ArrowUp", 1), ("End", 1)], _BOTTOM_65],
     ("96", "ansi"): [_TOP_96, _NUM_96, _Q_ANSI + _PAD7, _A_ANSI + _PAD4, _SHIFT_ANSI + _PAD1, _BOTTOM_96],
     ("96", "iso"): [_TOP_96, _NUM_96, _Q_ISO + _PAD7, _A_ISO + _PAD4, _SHIFT_ISO + _PAD1, _BOTTOM_96],
+    # GMMK Numpad: the knob sits right of the top row; the slider below it is analog and not a key.
+    ("numpad", "ansi"): [[("NumLock", 1), ("NumpadDivide", 1), ("NumpadMultiply", 1), ("NumpadSubtract", 1),
+                          (None, .5), ("Knob", 1)],
+                         [("Numpad7", 1), ("Numpad8", 1), ("Numpad9", 1), ("NumpadAdd", 1, 2)],
+                         [("Numpad4", 1), ("Numpad5", 1), ("Numpad6", 1)],
+                         [("Numpad1", 1), ("Numpad2", 1), ("Numpad3", 1), ("NumpadEnter", 1, 2)],
+                         [("Numpad0", 2), ("NumpadDecimal", 1)]],
     ("g3-65", "ansi"): [[("Escape", 1)] + _NUM[1:-1] + [("Knob", 1)], _Q_ANSI + [(None, 1)],
                         _A_ANSI + [("PageUp", 1)], _SHIFT_ANSI + [("ArrowUp", 1), ("PageDown", 1)], _BOTTOM_G3],
     ("g3-65", "iso"): [[("Escape", 1)] + _NUM[1:-1] + [("Knob", 1)], _Q_ISO + [(None, 1)],
@@ -652,7 +733,7 @@ def layout_size(model: KeyboardModel) -> Tuple[float, int, bool]:
     """(width in key units, rows, whether the top row is an F-key row set apart from the rest)."""
     keys = layout(model)
     return (max(k["x"] + k["w"] for k in keys), len(ROWS[(model.form, model.layout)]),
-            model.form not in ("65", "g3-65"))
+            model.form not in ("65", "g3-65", "numpad"))
 
 
 # HID usages the key picker offers, grouped (the label is what the button shows).

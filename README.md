@@ -36,7 +36,8 @@ installs its own `/etc/yum.repos.d/wheelguard.repo`, so the repository stays con
   - More Logitech G mice, settings shown read-only until tested on each model: G Pro Wireless,
     G Pro Hero, G305, G102 / G203, G303 Shroud Edition, G403 Hero, G502 Hero, Lightspeed, X,
     X Lightspeed and X Plus, G604, G703 Hero, G705, G903 Hero (battery, DPI stages, polling rate)
-- **Glorious GMMK Pro, GMMK 2 (65% and 96%) and GMMK 3 / GMMK 3 Pro wired (100%, 75% and 65%) keyboards**
+- **Glorious GMMK Pro, GMMK 2 (65% and 96%), GMMK 3 / GMMK 3 Pro (100%, 75% and 65%; the Wireless by its
+  cable) keyboards and the GMMK Numpad**
   (stock firmware, ANSI and ISO): polling rate, debounce, profiles and layers, remapping any key (other keys,
   key combinations, media, mouse buttons, profile switching) and macros, stored on the keyboard, plus the
   standby timer on the GMMK 3. The GMMK Pro's lighting is controlled by RGBeast. The controls start off until you

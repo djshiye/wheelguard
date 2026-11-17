@@ -22,6 +22,10 @@ here touches the firmware: the bootloader IDs and firmware updates are out of sc
 | GMMK 3 Pro 100% ANSI / ISO | 342D:E3C5 / E3CE | GMMK 3 ANSI / ISO |
 | GMMK 3 Pro 75% ANSI / ISO | 342D:E3C6 / E3CF | GMMK 3 ANSI / ISO |
 | GMMK 3 Pro 65% ANSI / ISO | 342D:E3C7 / E3D0 | GMMK 3 ANSI / ISO |
+| GMMK 3 Pro Wireless 100% ANSI / ISO, by cable | 342D:E3CB / E3D4 | GMMK 3 Wireless |
+| GMMK 3 Pro Wireless 75% ANSI / ISO, by cable | 342D:E3CC / E3D5 | GMMK 3 Wireless |
+| GMMK 3 Pro Wireless 65% ANSI / ISO, by cable | 342D:E3CD / E3D6 | GMMK 3 Wireless (65%) |
+| GMMK Numpad, USB | 320F:5088 | Numpad |
 
 Bootloaders (never opened): B007, B009, B00F, B010 (Pro); B008, B00A, B00B, B00C (GMMK 2); the GMMK 3's
 are under vendor 2442, which Wheelguard never matches. Other GMMK 3 models (such as the HE and wireless
@@ -46,6 +50,28 @@ default assignment. That is one of the things to check on a real board.
   frame (0x08) and every properties frame (0x07). CORE repeats it in each, so Wheelguard does too: the
   timer is sent with every polling or debounce change, and a timer change writes the polling frame and
   all nine properties frames. Wheelguard offers 3, 7, 15 and 30 minutes and never.
+
+**GMMK 3 Pro Wireless, by its USB cable.** Same frames on the cable. Wheelguard never writes through
+the 2.4 GHz receiver (342D:E3E6-E3E8, E3FB-E3FD: each frame split into four 65-byte reports with a
+readiness poll) or Bluetooth (CORE writes nothing there either). Differences from the wired GMMK 3:
+
+- 110 key positions (types at byte 8, codes at byte 118), counted column by column. One default
+  assignment for all six boards. On the 65% the Esc key sits in the backtick's position (1). CORE's
+  default makes position 1 type Esc on every size and leaves ISO's key left of Z (107) empty;
+  Wheelguard sends a backtick at 1 on the 75% and 100% and IntlBackslash (0x64) at 107 on ISO boards.
+  The knob press is 108 (never remapped); its turn is 104 (down) and 109 (up), which CORE always sends
+  as media volume down / up and Wheelguard does too.
+- No polling frame (0x08): the rate is byte 9 of the properties frame (same codes). CORE leaves byte 9
+  at 0 in its other properties frames, which would reset the rate to 1000 Hz; Wheelguard always fills
+  it with the chosen rate. A rate change is one properties frame for the active profile and layer.
+- No commit after a key assignment.
+
+**GMMK Numpad.** Same frames and polling. 20 key positions (types at byte 8, codes at byte 28); the
+knob's press is 11 (mute, never remapped), 17 and 18 are empty, and the slider is analog and has no
+setting. No standby setting. CORE commits (0x01) after a key assignment, as on the Pro. CORE indexes
+the Numpad's macro-mode frame with its lighting positions rather than its key positions, so which is
+right can't be told without the board: Wheelguard offers no macros on it. Its Bluetooth link
+(093A:2860, a generic PixArt ID) is never matched.
 
 Two vendor HID interfaces matter:
 

@@ -145,10 +145,11 @@ SUBSYSTEM=="hidraw", ATTRS{idVendor}=="046d", ATTRS{idProduct}=="c09d", TAG+="ua
 # --- Glorious GMMK Pro keyboards (ANSI 5044, ISO 5046, later boards 5092 / 5093) and GMMK 2 keyboards
 # (65% ANSI 5045, ISO 504a; 96% ANSI 504b, ISO 505a), stock firmware; GMMK 3 and GMMK 3 Pro wired keyboards
 # (vendor 342d: 100% e3c8 / e3d1 and Pro e3c5 / e3ce, 75% e3c9 / e3d2 and Pro e3c6 / e3cf, 65% e3ca / e3d3 and
-# Pro e3c7 / e3d0, ANSI / ISO).
+# Pro e3c7 / e3d0, ANSI / ISO), the GMMK 3 Pro Wireless by its USB cable (100% e3cb / e3d4, 75% e3cc / e3d5,
+# 65% e3cd / e3d6; never its 2.4 GHz receiver or Bluetooth) and the GMMK Numpad (320f:5088, USB only).
 # Only the two vendor interfaces (settings and events) are granted, and only when the helper sees that the
 # interface carries nothing that reports keys: Wheelguard can never read what is typed. Never the
 # bootloaders (B007-B00C, B00F, B010; the GMMK 3's are under another vendor), and no input nodes.
-SUBSYSTEM=="hidraw", ATTRS{idVendor}=="320f", ATTRS{idProduct}=="5044|5046|5092|5093|5045|504a|504b|505a", IMPORT{program}="wheelguard-gmmk-check %S%p"
-SUBSYSTEM=="hidraw", ATTRS{idVendor}=="342d", ATTRS{idProduct}=="e3c5|e3c6|e3c7|e3c8|e3c9|e3ca|e3ce|e3cf|e3d0|e3d1|e3d2|e3d3", IMPORT{program}="wheelguard-gmmk-check %S%p"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="320f", ATTRS{idProduct}=="5044|5046|5092|5093|5045|504a|504b|505a|5088", IMPORT{program}="wheelguard-gmmk-check %S%p"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="342d", ATTRS{idProduct}=="e3c5|e3c6|e3c7|e3c8|e3c9|e3ca|e3cb|e3cc|e3cd|e3ce|e3cf|e3d0|e3d1|e3d2|e3d3|e3d4|e3d5|e3d6", IMPORT{program}="wheelguard-gmmk-check %S%p"
 SUBSYSTEM=="hidraw", ENV{WHEELGUARD_GMMK}=="1", TAG+="uaccess"

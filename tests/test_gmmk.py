@@ -252,7 +252,7 @@ class Gmmk2Tests(unittest.TestCase):
 
 class Gmmk3Tests(unittest.TestCase):
     """The GMMK 3 and GMMK 3 Pro (wired): same frames, another vendor, 126 key positions, a standby timer."""
-    BOARDS = {pid: m for pid, m in gmmk.MODELS.items() if m.vendor == gmmk.VENDOR_GMMK3}
+    BOARDS = {pid: m for pid, m in gmmk.MODELS.items() if m.vendor == gmmk.VENDOR_GMMK3 and m.key_count == 126}
 
     def test_twelve_boards_all_locked(self):
         self.assertEqual(len(self.BOARDS), 12)
@@ -326,6 +326,83 @@ class Gmmk3Tests(unittest.TestCase):
         for bad in (0, 256, -1):
             with self.assertRaises(ValueError):
                 gmmk.polling_frame(1000, bad)
+
+
+_USAGE = {code: key for key, code in gmmk.PICKER_KEYS}
+_USAGE.update({0x53: "NumLock", 0x54: "NumpadDivide", 0x55: "NumpadMultiply", 0x56: "NumpadSubtract",
+               0x57: "NumpadAdd", 0x58: "NumpadEnter", 0x62: "Numpad0", 0x63: "NumpadDecimal",
+               **{0x58 + i: f"Numpad{i}" for i in range(1, 10)}, 0xE4: "ControlRight", 0xE5: "ShiftRight",
+               0xE6: "AltRight"})
+
+
+class Gmmk3WirelessTests(unittest.TestCase):
+    """GMMK 3 Pro Wireless over its cable: 110 positions, polling inside the properties frame."""
+    BOARDS = {pid: m for pid, m in gmmk.MODELS.items() if m.polling_in_properties}
+
+    def test_six_boards_locked_cable_only(self):
+        self.assertEqual(sorted(self.BOARDS), [0xE3CB, 0xE3CC, 0xE3CD, 0xE3D4, 0xE3D5, 0xE3D6])
+        for m in self.BOARDS.values():
+            self.assertEqual((m.vendor, m.key_count, m.sleep, m.confirmed, m.commit_keys),
+                             (gmmk.VENDOR_GMMK3, 110, True, False, False))
+        for receiver in (0xE3E6, 0xE3E7, 0xE3E8, 0xE3FB, 0xE3FC, 0xE3FD, 0xE3E9, 0xE3EA, 0xE3EB):
+            self.assertNotIn(receiver, gmmk.MODELS)
+
+    def test_every_drawn_key_types_itself(self):
+        for m in self.BOARDS.values():
+            km, n, index = gmmk.default_keymap(m), m.key_count, gmmk.KEY_INDEX[m.keymap]
+            self.assertEqual(len(km), 248)
+            for key in {k["id"] for k in gmmk.layout(m)} - {"EnterLower", "Fn", "Knob"}:
+                with self.subTest(model=m.key, key=key):
+                    want = {"Hashtag": 0x31, "Backslash": 0x64 if m.layout == "iso" else 0x31}.get(key)
+                    if want is None:
+                        self.assertEqual(_USAGE.get(km[n + index[key]]), key)
+                    else:
+                        self.assertEqual(km[n + index[key]], want)
+            self.assertEqual((km[104], km[n + 104], km[109], km[n + 109]), (3, 3, 3, 4))   # knob turn: volume
+
+    def test_esc_on_the_65_is_where_the_backtick_is(self):
+        self.assertEqual(gmmk.KEY_INDEX["g3w-65-ansi"]["Escape"], 1)
+        self.assertEqual(gmmk.KEY_INDEX["g3w-ansi"]["Escape"], 0)
+        self.assertEqual(gmmk.default_keymap(gmmk.MODELS[0xE3CD])[110 + 1], 0x29)
+        self.assertEqual(gmmk.default_keymap(gmmk.MODELS[0xE3CC])[110 + 1], 0x35)
+
+    def test_drawings(self):
+        for m in self.BOARDS.values():
+            ids = {k["id"] for k in gmmk.layout(m)} - {"EnterLower"}
+            self.assertLessEqual(ids, set(gmmk.KEY_INDEX[m.keymap]), m.key)
+
+    def test_keymap_and_properties_frames(self):
+        m = gmmk.MODELS[0xE3CC]
+        f = gmmk.keymap_frame(m, 0, 0, {"KeyA": {"kind": "disabled"}})
+        self.assertEqual((f[8 + 8], f[8 + 110 + 8]), (1, 0))
+        self.assertEqual(f[8 + 110 + 13], 0x16)                 # S untouched, at its own place
+        p = gmmk.properties_frame(1, 2, 8, sleep=30, polling=250)
+        self.assertEqual((p[9], p[10], p[11]), (2, 8, 30))
+        with self.assertRaises(ValueError):
+            gmmk.properties_frame(0, 0, 8, polling=8000)
+
+
+class NumpadTests(unittest.TestCase):
+    M = gmmk.MODELS[0x5088]
+
+    def test_model(self):
+        self.assertEqual((self.M.key_count, self.M.macros, self.M.sleep, self.M.confirmed, self.M.commit_keys),
+                         (20, False, False, False, True))
+
+    def test_every_key_types_itself(self):
+        km, index = gmmk.default_keymap(self.M), gmmk.KEY_INDEX["numpad"]
+        self.assertEqual(len(km), 40)
+        for key in {k["id"] for k in gmmk.layout(self.M)} - {"Knob"}:
+            self.assertEqual(_USAGE.get(km[20 + index[key]]), key, key)
+        self.assertEqual((km[11], km[31]), (3, 2))              # knob press: mute
+        self.assertEqual(gmmk.layout_size(self.M), (5.5, 5, False))
+
+    def test_no_macros(self):
+        with self.assertRaises(ValueError):
+            gmmk.keymap_frame(self.M, 0, 0, {"Numpad1": {"kind": "macro", "slot": 1}}, [1])
+        f = gmmk.keymap_frame(self.M, 0, 0, {"Numpad1": {"kind": "media", "code": 1}})
+        self.assertEqual((f[8 + 12], f[8 + 20 + 12]), (3, 1))
+        self.assertEqual(f[8 + 40:], bytes(len(f) - 48))
 
 
 class DiscoveryTests(unittest.TestCase):
@@ -563,6 +640,35 @@ class ControllerTests(unittest.TestCase):
                          + [gmmk.properties_frame(0, layer, 2, sleep=15) for layer in range(3)])
         stored = json.loads(self.path.read_text())["boards"]["gmmk3-65-ansi"]
         self.assertEqual(stored["sleep"], 15)
+
+    def test_gmmk3_wireless_polling_rides_in_properties(self):
+        m = gmmk.MODELS[0xE3CB]
+        c = self.make(board=gmmk.Board("/dev/hidraw9", 0xE3CB, m, "0100", 264))
+        c.unlock()
+        c.setPolling(1)
+        self.settle(c)
+        self.assertEqual(FakeDev.log, [gmmk.properties_frame(0, 0, 16, sleep=7, polling=250)])
+        FakeDev.log = []
+        c.setDebounce(1)
+        self.settle(c)
+        c.setSleep(0)
+        self.settle(c)
+        self.assertEqual(FakeDev.log, [gmmk.properties_frame(0, layer, 8, sleep=7, polling=250) for layer in range(3)]
+                         + [gmmk.properties_frame(p, layer, 8 if p == 0 else 16, sleep=3, polling=250)
+                            for p in range(3) for layer in range(3)])
+        self.assertTrue(all(f[1] != gmmk.CMD_POLLING for f in FakeDev.log))
+
+    def test_numpad_has_no_macros(self):
+        c = self.make(board=gmmk.Board("/dev/hidraw9", 0x5088, gmmk.MODELS[0x5088], "0100", 264))
+        self.assertEqual((c.hasMacros, c.hasKnob, c.hasSleep), (False, True, False))
+        c.unlock()
+        c.bindKey("Numpad1", "macro", 1, "")
+        self.assertEqual(FakeDev.log, [])
+        c.bindKey("Numpad1", "disabled", 0, "")
+        self.settle(c)
+        f = gmmk.keymap_frame(gmmk.MODELS[0x5088], 0, 0, {"Numpad1": {"kind": "disabled"}})
+        self.assertEqual(FakeDev.log[0], f)
+        self.assertEqual(FakeDev.log[1][1], gmmk.CMD_PROFILE)    # the Numpad commits, like CORE
 
     def test_pro_has_no_standby_setting(self):
         c = self.make()

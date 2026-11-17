@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls.Basic as C
 
-// A Glorious GMMK Pro or GMMK 2: response, profiles and layers, what each key does, and macros (gui/keyboard.py).
+// A Glorious GMMK Pro, GMMK 2, GMMK 3 or GMMK Numpad: response, profiles and layers, what each key does, and macros (gui/keyboard.py).
 // Lighting lives in RGBeast.
 WgScrollPage {
     id: page
@@ -38,7 +38,8 @@ WgScrollPage {
         }
         Text {
             width: parent.width
-            text: "How fast your " + keyboard.shortName + " responds, its profiles, what each key does, and macros."
+            text: "How fast your " + keyboard.shortName + " responds, its profiles, what each key does"
+                  + (keyboard.hasMacros ? ", and macros." : ".")
             font.pixelSize: Theme.fsBody
             color: Theme.textMuted
             wrapMode: Text.WordWrap
@@ -113,7 +114,7 @@ WgScrollPage {
                     color: Theme.text
                 }
                 Text {
-                    text: keyboard.layoutName + " layout" + (keyboard.firmware !== "" ? "  ·  firmware " + keyboard.firmware : "") + "  ·  USB"
+                    text: (keyboard.layoutName !== "" ? keyboard.layoutName + " layout" + (keyboard.firmware !== "" ? "  ·  " : "") : "") + (keyboard.firmware !== "" ? "firmware " + keyboard.firmware : "") + "  ·  USB"
                     font.pixelSize: Theme.fsSmall
                     color: Theme.textMuted
                 }
@@ -327,12 +328,15 @@ WgScrollPage {
         Note {
             text: keyboard.remappedCount > 0
                   ? keyboard.remappedCount + (keyboard.remappedCount === 1 ? " key does" : " keys do") + " something else on this layer. Click a key to change it."
-                  : "Click a key to make it type something else, control media or the mouse, switch profiles, or play a macro."
+                  : "Click a key to make it type something else, control media or the mouse, switch profiles"
+                    + (keyboard.hasMacros ? ", or play a macro." : ".")
         }
 
         Item {
             id: art
-            Layout.fillWidth: true
+            // A small board (the Numpad) is drawn at a full keyboard's key size, centred, not stretched.
+            Layout.preferredWidth: Math.min(parent.width, keyboard.layoutSize[0] * Theme.px(46))
+            Layout.alignment: Qt.AlignHCenter
             Layout.topMargin: 4
             readonly property real unit: width / keyboard.layoutSize[0]
             readonly property real rowGap: keyboard.layoutSize[2] ? 6 : 0     // sets the F-key row apart
@@ -421,7 +425,7 @@ WgScrollPage {
     // Macros
     WgCard {
         width: parent.width
-        visible: page.ready
+        visible: page.ready && keyboard.hasMacros
         spacing: 10
         RowLayout {
             Layout.fillWidth: true
@@ -597,7 +601,8 @@ WgScrollPage {
         property int kindIndex: 0
         property int code: -1
         property var mods: []
-        readonly property var kinds: ["default", "key", "media", "mouse", "function", "macro", "disabled"]
+        readonly property var kinds: keyboard.hasMacros ? ["default", "key", "media", "mouse", "function", "macro", "disabled"]
+                                                        : ["default", "key", "media", "mouse", "function", "disabled"]
         readonly property var macroChoices: keyboard.macros.map(m => ({ code: m.slot, name: m.name }))
         width: Math.min(page.width - 40, Theme.px(520))
 
@@ -633,7 +638,8 @@ WgScrollPage {
             WgSegmented {
                 Layout.fillWidth: true
                 accessibleName: "What the key does"
-                model: ["Normal", "Key", "Media", "Mouse", "Profile", "Macro", "Off"]
+                model: keyboard.hasMacros ? ["Normal", "Key", "Media", "Mouse", "Profile", "Macro", "Off"]
+                                          : ["Normal", "Key", "Media", "Mouse", "Profile", "Off"]
                 currentIndex: keyEditor.kindIndex
                 onActivated: (i) => { keyEditor.kindIndex = i; keyEditor.code = -1; keyEditor.mods = [] }
             }

@@ -444,7 +444,9 @@ class KeyboardController(QObject):
 
     @Property(str, notify=changed)
     def layoutName(self):
-        return (self._model.layout.upper() if self._model else "")
+        if self._model is None or self._model.form == "numpad":
+            return ""
+        return self._model.layout.upper()
 
     @Property(str, notify=changed)
     def firmware(self):
@@ -477,6 +479,10 @@ class KeyboardController(QObject):
     @Property(int, notify=changed)
     def pollingIndex(self):
         return POLLING_CHOICES.index(self._b["polling"])
+
+    @Property(bool, notify=changed)
+    def hasMacros(self):
+        return self._model is None or self._model.macros
 
     @Property(bool, notify=changed)
     def hasSleep(self):
@@ -634,11 +640,21 @@ class KeyboardController(QObject):
 
         def ok():
             self._b["polling"] = hz
+        if self._model is not None and self._model.polling_in_properties:
+            # GMMK 3 Pro Wireless: the rate rides in the active profile and layer's properties frame.
+            p, layer = self._b["profile"], self._b["layer"]
+            frame = gmmk.properties_frame(p, layer, self._b["debounce"][p], sleep=self._sleep_byte(), polling=hz)
+            self._send([(frame, gmmk.DELAY_LONG)], ok)
+            return
         self._send([(gmmk.polling_frame(hz, self._sleep_byte()), gmmk.DELAY_LONG)], ok)
 
     def _sleep_byte(self) -> Optional[int]:
         """The GMMK 3 repeats its lights-off timer in the polling and properties frames."""
         return self._b["sleep"] if self._model is not None and self._model.sleep else None
+
+    def _polling_byte(self) -> Optional[int]:
+        """The GMMK 3 Pro Wireless keeps its polling rate in the properties frame: always send it there."""
+        return self._b["polling"] if self._model is not None and self._model.polling_in_properties else None
 
     @Slot(int)
     def setSleep(self, index: int):
@@ -649,9 +665,10 @@ class KeyboardController(QObject):
         minutes = gmmk.SLEEP_MINUTES[index]
         if minutes == self._b["sleep"]:
             return
-        job: Job = [(gmmk.polling_frame(self._b["polling"], minutes), gmmk.DELAY_LONG)]
-        job += [(gmmk.properties_frame(p, layer, self._b["debounce"][p], sleep=minutes), gmmk.DELAY_LONG)
-                for p in range(gmmk.PROFILES) for layer in range(gmmk.LAYERS)]
+        polling = self._polling_byte()
+        job: Job = [] if polling else [(gmmk.polling_frame(self._b["polling"], minutes), gmmk.DELAY_LONG)]
+        job += [(gmmk.properties_frame(p, layer, self._b["debounce"][p], sleep=minutes, polling=polling),
+                 gmmk.DELAY_LONG) for p in range(gmmk.PROFILES) for layer in range(gmmk.LAYERS)]
 
         def ok():
             self._b["sleep"] = minutes
@@ -666,7 +683,8 @@ class KeyboardController(QObject):
             return
         rgb, pid, active_layer = self._rgbeast, self._board_hw.pid, self._b["layer"]
         vid, sleep = self._board_hw.model.vendor, self._sleep_byte()
-        frames = [gmmk.properties_frame(p, layer, ms, sleep=sleep) for layer in range(gmmk.LAYERS)]
+        frames = [gmmk.properties_frame(p, layer, ms, sleep=sleep, polling=self._polling_byte())
+                  for layer in range(gmmk.LAYERS)]
 
         def step(send):
             # While RGBeast manages the keyboard it writes this frame, with the lighting it shows.
@@ -747,6 +765,8 @@ class KeyboardController(QObject):
         if kind == "default":
             b = None
         elif kind == "macro":
+            if not self._model.macros:
+                return
             b = {"kind": "macro", "slot": code}
         elif kind == "key":
             b = {"kind": "key", "code": code}
