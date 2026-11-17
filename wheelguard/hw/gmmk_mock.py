@@ -15,7 +15,9 @@ from . import gmmk
 from .hidraw import AccessDenied
 
 MOCK_ENV = "WHEELGUARD_KB_MOCK"
-MODES = ("gmmk-pro", "gmmk-pro-iso", "qmk", "denied", "odd")
+MODES = ("gmmk-pro", "gmmk-pro-iso", "gmmk2-65", "gmmk2-65-iso", "gmmk2-96", "gmmk2-96-iso", "qmk", "denied", "odd")
+_PIDS = {"gmmk-pro-iso": 0x5046, "gmmk2-65": 0x5045, "gmmk2-65-iso": 0x504A, "gmmk2-96": 0x504B,
+         "gmmk2-96-iso": 0x505A}
 MOCK_PATH = "/dev/hidraw-gmmk-mock"
 
 
@@ -25,8 +27,8 @@ def mock_mode() -> Optional[str]:
 
 
 def boards(mode: str) -> List[gmmk.Board]:
-    pid = 0x5046 if mode == "gmmk-pro-iso" else 0x5044
-    model = gmmk.GMMK_PRO[pid]
+    pid = _PIDS.get(mode, 0x5044)
+    model = gmmk.MODELS[pid]
     if mode == "qmk":
         return [gmmk.Board("", pid, model, "0045", 0, qmk=True)]
     size = 33 if mode == "odd" else 265

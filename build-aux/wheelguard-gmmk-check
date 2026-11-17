@@ -1,5 +1,5 @@
 #!/usr/bin/python3 -IsP
-"""udev helper: is this GMMK Pro hidraw node one of its two vendor interfaces (settings or events)?
+"""udev helper: is this GMMK Pro / GMMK 2 hidraw node one of its two vendor interfaces (settings or events)?
 
 Called by 70-wheelguard.rules as `wheelguard-gmmk-check %S%p` for the keyboard's hidraw nodes. Reads
 the node's HID report descriptor from sysfs and prints WHEELGUARD_GMMK=1 only when the interface holds

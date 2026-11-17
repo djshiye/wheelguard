@@ -185,7 +185,7 @@ Window {
             width: Math.round(204 + (Theme.textScale - 1) * 170)     // wider with Large Text so labels keep their margin
             height: parent.height - header.height - 12
 
-            // Page numbers stay fixed (app.PAGES); the Keyboard entry only shows once a GMMK Pro has been seen.
+            // Page numbers stay fixed (app.PAGES); the Keyboard entry only shows once a supported keyboard has been seen.
             readonly property var entries: [
                 { label: "Scroll", icon: "shield", page: 0 },
                 { label: "Clicks", icon: "hand", page: 1 },

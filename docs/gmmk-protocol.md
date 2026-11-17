@@ -1,6 +1,6 @@
-# Glorious GMMK Pro: settings protocol (stock firmware)
+# Glorious GMMK Pro and GMMK 2: settings protocol (stock firmware)
 
-How Wheelguard talks to a Glorious GMMK Pro on its original firmware. Learned by reading the keyboard
+How Wheelguard talks to a Glorious GMMK Pro or GMMK 2 on its original firmware. Learned by reading the keyboard
 code of Glorious CORE 2.1.23 (the Windows app) without running it; no Glorious code is used. Nothing
 here touches the firmware: the bootloader IDs and firmware updates are out of scope.
 
@@ -12,8 +12,19 @@ here touches the firmware: the bootloader IDs and firmware updates are out of sc
 | GMMK Pro ISO | 320F:5046 | ISO |
 | GMMK Pro ANSI, later boards | 320F:5092 | ANSI with `/` and `\` swapped in the map |
 | GMMK Pro ISO, later boards | 320F:5093 | ISO |
+| GMMK 2 65% ANSI | 320F:5045 | 65% ANSI |
+| GMMK 2 65% ISO | 320F:504A | 65% ISO |
+| GMMK 2 96% ANSI | 320F:504B | 96% ANSI |
+| GMMK 2 96% ISO | 320F:505A | 96% ISO |
 
-Bootloaders (never opened): B007, B009, B00F, B010.
+Bootloaders (never opened): B007, B009, B00F, B010 (Pro); B008, B00A, B00B, B00C (GMMK 2).
+
+**GMMK 2.** Glorious CORE drives it with the same code as the Pro, so every frame below is the same. The
+differences are the key positions, its default key assignment (one for both 65% boards, one for both
+96% boards), no knob, and that CORE sends no profile commit (0x01) after a key assignment. The key
+positions come from the default assignment, which says what each position types. CORE's own position
+tables agree except for `/` and `\`, which they name the other way round; Wheelguard follows the
+default assignment. That is one of the things to check on a real board.
 
 Two vendor HID interfaces matter:
 

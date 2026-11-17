@@ -7,10 +7,10 @@
 %global __brp_python_bytecompile %{nil}
 
 Name:           wheelguard
-Version:        1.11.0
+Version:        1.12.0
 # CI appends .<commit count> so every build from main is a newer release.
 Release:        1%{?release_suffix}%{?dist}
-Summary:        Scroll bounce filter, advanced mouse settings and GMMK Pro keyboard controls
+Summary:        Scroll bounce filter, advanced mouse settings and Glorious keyboard controls
 
 License:        MIT
 URL:            https://github.com/djshiye/wheelguard
@@ -142,6 +142,11 @@ fi
 %{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-djshiye-%{name}
 
 %changelog
+* Tue Nov 17 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.12.0-1
+- New: the Keyboard page also works with the Glorious GMMK 2 (65% and 96%, ANSI and ISO), drawn as each board looks; controls start off until turned on
+- udev: the GMMK 2's two vendor interfaces are granted the same way as the Pro's, checked by wheelguard-gmmk-check
+- Long key names shrink to fit on narrow keys
+
 * Tue Nov 17 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.11.0-1
 - New: a Keyboard page for the Glorious GMMK Pro (stock firmware, ANSI and ISO): polling rate, debounce, profiles and layers, key remapping and macros, stored on the keyboard; lighting stays with RGBeast
 - The keyboard's controls start off until turned on; the Fn key and the knob are never remapped

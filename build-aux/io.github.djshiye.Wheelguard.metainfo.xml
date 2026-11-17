@@ -38,6 +38,13 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.12.0" date="2026-11-17">
+      <description>
+        <ul>
+          <li>New: the Keyboard page also works with the Glorious GMMK 2 (65% and 96%, ANSI and ISO), drawn as each board looks. Its controls start off until you turn them on, because they haven't been tried on a real board yet</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.11.0" date="2026-11-17">
       <description>
         <ul>

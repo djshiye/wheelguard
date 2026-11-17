@@ -181,6 +181,72 @@ class TransportTests(unittest.TestCase):
                 gmmk.Transport(b, lambda s: None, FakeDev)
 
 
+class Gmmk2Tests(unittest.TestCase):
+    """The GMMK 2 (65% and 96%): same protocol as the Pro, its own key positions, drawing and defaults."""
+    BOARDS = {pid: gmmk.MODELS[pid] for pid in (0x5045, 0x504A, 0x504B, 0x505A)}
+
+    def test_every_key_types_itself_by_default(self):
+        usage = {code: key for key, code in gmmk.PICKER_KEYS}
+        usage.update({0x32: "Hashtag", 0x64: "Backslash"})        # ISO's two extra keys
+        for model in self.BOARDS.values():
+            km = gmmk.default_keymap(model)
+            self.assertEqual(len(km), 2 * gmmk.KEY_COUNT)
+            for key, i in gmmk.KEY_INDEX[model.keymap].items():
+                with self.subTest(model=model.key, key=key):
+                    if key == "Fn":
+                        self.assertEqual(km[gmmk.KEY_COUNT + i], 0xA0)
+                    else:
+                        self.assertEqual(usage.get(km[gmmk.KEY_COUNT + i]), key)
+
+    def test_slash_and_backslash_where_they_type(self):
+        # CORE's own tables name these two the other way round; the default assignment decides.
+        ansi = gmmk.KEY_INDEX["65-ansi"]
+        self.assertEqual((ansi["Backslash"], ansi["Slash"]), (53, 91))
+        iso = gmmk.KEY_INDEX["96-iso"]
+        self.assertEqual((iso["Backslash"], iso["Hashtag"], iso["Slash"]), (81, 72, 91))
+
+    def test_drawings_match_the_keys(self):
+        for model in self.BOARDS.values():
+            keys = gmmk.layout(model)
+            ids = {k["id"] for k in keys} - {"EnterLower"}
+            self.assertEqual(ids, set(gmmk.KEY_INDEX[model.keymap]), model.key)
+            boxes = [(k["x"], k["y"], k["w"], k["h"]) for k in keys]
+            for i, a in enumerate(boxes):           # nothing overlaps
+                for b in boxes[i + 1:]:
+                    overlap = (a[0] < b[0] + b[2] and b[0] < a[0] + a[2] and a[1] < b[1] + b[3] and b[1] < a[1] + a[3])
+                    self.assertFalse(overlap, (model.key, a, b))
+        self.assertEqual(gmmk.layout_size(gmmk.MODELS[0x5045]), (16.0, 5, False))
+        self.assertEqual(gmmk.layout_size(gmmk.MODELS[0x505A]), (19.0, 6, True))
+        tall = {k["id"]: k["h"] for k in gmmk.layout(gmmk.MODELS[0x504B]) if k["h"] > 1}
+        self.assertEqual(tall, {"NumpadAdd": 2.0, "NumpadEnter": 2.0})
+
+    def test_keymap_frame(self):
+        m = gmmk.MODELS[0x504B]
+        f = gmmk.keymap_frame(m, 1, 2, {"Numpad5": {"kind": "media", "code": 1}})
+        self.assertEqual(f[:4], bytes([7, gmmk.CMD_KEYMAP, 2, 3]))
+        self.assertEqual((f[8 + 75], f[8 + 120 + 75]), (3, 1))
+        rest = bytearray(f[8:8 + 240])
+        rest[75], rest[120 + 75] = gmmk.default_keymap(m)[75], gmmk.default_keymap(m)[195]
+        self.assertEqual(bytes(rest), gmmk.default_keymap(m))
+        with self.assertRaises(ValueError):
+            gmmk.keymap_frame(gmmk.MODELS[0x5045], 0, 0, {"F1": {"kind": "disabled"}})   # no F-row on a 65%
+
+    def test_boards_are_locked_and_never_the_bootloader(self):
+        for pid, model in self.BOARDS.items():
+            self.assertFalse(model.confirmed)
+            self.assertFalse(model.commit_keys)
+            self.assertNotIn(pid, gmmk.BOOTLOADER_PIDS)
+        self.assertTrue({0xB008, 0xB00A, 0xB00B, 0xB00C} <= gmmk.BOOTLOADER_PIDS)
+
+    def test_udev_rule_grants_them_through_the_helper(self):
+        rules = (Path(__file__).resolve().parent.parent / "build-aux" / "70-wheelguard.rules").read_text()
+        line = next(x for x in rules.splitlines() if 'idVendor}=="320f"' in x)
+        pids = line.split('idProduct}=="')[1].split('"')[0].split("|")
+        self.assertEqual({int(p, 16) for p in pids}, set(gmmk.MODELS))
+        self.assertIn("wheelguard-gmmk-check", line)
+        self.assertNotIn("uaccess", line)
+
+
 class DiscoveryTests(unittest.TestCase):
     def make_node(self, root, name, pid, desc, iface, bcd="0045"):
         usb = Path(root) / "usb" / f"1-1:{pid:04x}"
@@ -203,6 +269,14 @@ class DiscoveryTests(unittest.TestCase):
         b = boards[0]
         self.assertEqual((b.path, b.event_path, b.report_len, b.firmware, b.qmk, b.model.key),
                          ("/dev/hidraw4", "/dev/hidraw5", 264, "0045", False, "gmmk-pro-ansi"))
+
+    def test_finds_a_gmmk2(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.make_node(root, "hidraw4", 0x505A, SETTINGS_DESC, 1)
+            self.make_node(root, "hidraw5", 0x505A, EVENTS_DESC, 2)
+            self.make_node(root, "hidraw6", 0xB00C, SETTINGS_DESC, 1)          # a board in its bootloader
+            boards = gmmk.discover(os.path.join(root, "class"), "/dev")
+        self.assertEqual([b.model.key for b in boards], ["gmmk2-96-iso"])
 
     def test_qmk_board(self):
         qmk = bytes.fromhex("0660ff0961a101" "0962" "8102" "c0")
@@ -365,6 +439,18 @@ class ControllerTests(unittest.TestCase):
         self.settle(c)
         self.assertEqual(c.remappedCount, 0)
         self.assertEqual(c.message, "Every key on this layer is back to normal.")
+
+    def test_gmmk2_key_change_has_no_commit(self):
+        c = self.make(board=gmmk.Board("/dev/hidraw9", 0x5045, gmmk.MODELS[0x5045], "0101", 264))
+        self.assertEqual((c.shortName, c.hasKnob, c.layoutSize), ("GMMK 2 65%", False, [16.0, 5, False]))
+        self.assertTrue(c.locked)
+        c.unlock()
+        c.bindKey("Delete", "key", 74, "")              # Delete types Home
+        self.settle(c)
+        self.assertEqual(FakeDev.log, [gmmk.keymap_frame(gmmk.MODELS[0x5045], 0, 0,
+                                                         {"Delete": {"kind": "key", "code": 74}})])
+        c.bindKey("F1", "disabled", 0, "")              # not on this board: ignored
+        self.assertEqual(len(FakeDev.log), 1)
 
     def test_never_remaps_fn(self):
         c = self.make()
