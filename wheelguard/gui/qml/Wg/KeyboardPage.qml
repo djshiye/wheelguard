@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls.Basic as C
 
-// A Glorious GMMK Pro: response, profiles and layers, what each key does, and macros (gui/keyboard.py).
+// A Glorious GMMK Pro or GMMK 2: response, profiles and layers, what each key does, and macros (gui/keyboard.py).
 // Lighting lives in RGBeast.
 WgScrollPage {
     id: page
@@ -38,7 +38,7 @@ WgScrollPage {
         }
         Text {
             width: parent.width
-            text: "How fast your " + keyboard.name.replace("Glorious ", "") + " responds, its profiles, what each key does, and macros."
+            text: "How fast your " + keyboard.shortName + " responds, its profiles, what each key does, and macros."
             font.pixelSize: Theme.fsBody
             color: Theme.textMuted
             wrapMode: Text.WordWrap
@@ -67,8 +67,8 @@ WgScrollPage {
                 spacing: 4
                 Text {
                     Layout.fillWidth: true
-                    text: page.kbState === "none" ? "Plug in your GMMK Pro"
-                          : page.kbState === "qmk" ? "This GMMK Pro runs QMK firmware"
+                    text: page.kbState === "none" ? (keyboard.known ? "Plug in your " + keyboard.shortName : "Plug in your Glorious keyboard")
+                          : page.kbState === "qmk" ? "This " + keyboard.shortName + " runs QMK firmware"
                           : page.kbState === "noaccess" ? "Wheelguard can't reach the keyboard's settings yet"
                           : "This keyboard answered in a way Wheelguard doesn't expect"
                     font.pixelSize: Theme.fsBody + 1
@@ -180,14 +180,16 @@ WgScrollPage {
                 spacing: 6
                 Text {
                     Layout.fillWidth: true
-                    text: "Not tried on a real GMMK Pro yet"
+                    text: "Not tried on a real " + keyboard.shortName + " yet"
                     font.pixelSize: Theme.fsBody + 1
                     font.weight: Font.DemiBold
                     color: Theme.text
                     wrapMode: Text.WordWrap
                 }
                 Note {
-                    text: "Wheelguard sends the same settings Glorious CORE does, and never touches the keyboard's firmware. The Fn key and the knob always keep working, so the keyboard's own shortcuts stay within reach. Controls stay off until you turn them on."
+                    text: "Wheelguard sends the same settings Glorious CORE does, and never touches the keyboard's firmware. "
+                          + (keyboard.hasKnob ? "The Fn key and the knob always keep working" : "The Fn key always keeps working")
+                          + ", so the keyboard's own shortcuts stay within reach. Controls stay off until you turn them on."
                 }
                 WgButton {
                     Layout.topMargin: 4
@@ -309,8 +311,9 @@ WgScrollPage {
             id: art
             Layout.fillWidth: true
             Layout.topMargin: 4
-            readonly property real unit: width / 16
-            implicitHeight: unit * 6 + 12
+            readonly property real unit: width / keyboard.layoutSize[0]
+            readonly property real rowGap: keyboard.layoutSize[2] ? 6 : 0     // sets the F-key row apart
+            implicitHeight: unit * keyboard.layoutSize[1] + 2 * rowGap
             enabled: page.editable
 
             Rectangle {     // the case
@@ -330,9 +333,9 @@ WgScrollPage {
                     readonly property bool lower: modelData.piece === "EnterLower"
                     readonly property bool hot: keyMa.containsMouse && !modelData.locked && art.enabled
                     x: modelData.x * art.unit + 2
-                    y: modelData.y * art.unit + 2 + (modelData.y > 0 ? 6 : 0) - (lower ? 6 : 0)
+                    y: modelData.y * art.unit + 2 + (modelData.y > 0 ? art.rowGap : 0) - (lower ? art.rowGap : 0)
                     width: modelData.w * art.unit - 4
-                    height: modelData.h * art.unit - 4 + (lower ? 6 : 0)
+                    height: modelData.h * art.unit - 4 + (lower ? art.rowGap : 0)
                     activeFocusOnTab: art.enabled && !modelData.locked && !lower
                     Accessible.role: Accessible.Button
                     Accessible.name: modelData.name + (modelData.action !== "" ? ", does " + modelData.action : "")
@@ -369,6 +372,9 @@ WgScrollPage {
                         elide: Text.ElideRight
                         wrapMode: key.modelData.remapped ? Text.Wrap : Text.NoWrap
                         maximumLineCount: 2
+                        // a long name on a narrow key (PgUp on a 96% board) shrinks a little before it's cut
+                        fontSizeMode: key.modelData.remapped ? Text.FixedSize : Text.HorizontalFit
+                        minimumPixelSize: 8
                         font.pixelSize: Math.max(8, Math.min(Theme.px(12), art.unit * (key.modelData.remapped ? 0.24 : 0.3)))
                         font.weight: key.modelData.remapped ? Font.DemiBold : Font.Medium
                         color: key.modelData.remapped ? (Theme.dark ? "#E5DBFF" : Theme.accentA) : Theme.textMuted

@@ -1,4 +1,4 @@
-"""QObject backend for the Keyboard page: a Glorious GMMK Pro's performance settings, profiles, key
+"""QObject backend for the Keyboard page: a Glorious GMMK Pro's or GMMK 2's performance settings, profiles, key
 remapping and macros (wheelguard/hw/gmmk.py). Lighting lives in RGBeast; while RGBeast manages the
 keyboard, debounce (which shares a report with the lighting) goes through RGBeast (rgbeast.py).
 
@@ -419,7 +419,24 @@ class KeyboardController(QObject):
 
     @Property(str, notify=changed)
     def name(self):
-        return self._model.name if self._model else "Glorious GMMK Pro"
+        return self._model.name if self._model else "Glorious keyboard"
+
+    @Property(str, notify=changed)
+    def shortName(self):
+        """"GMMK Pro", "GMMK 2 65%": for sentences."""
+        if self._model is None:
+            return "keyboard"
+        return self._model.name.replace("Glorious ", "").replace(" (ISO)", "")
+
+    @Property(bool, notify=changed)
+    def hasKnob(self):
+        return self._model is not None and "Knob" in gmmk.KEY_INDEX[self._model.keymap]
+
+    @Property("QVariantList", notify=changed)
+    def layoutSize(self):
+        """[width in key units, rows, F-key row set apart] for drawing the board."""
+        w, rows, gap = gmmk.layout_size(self._model) if self._model else (16.0, 6, True)
+        return [w, rows, gap]
 
     @Property(str, notify=changed)
     def layoutName(self):
@@ -641,6 +658,9 @@ class KeyboardController(QObject):
         return job
 
     def _commit(self) -> Job:
+        """After key or macro changes the Pro re-selects the active layer, as CORE does; the GMMK 2 doesn't."""
+        if self._model is not None and not self._model.commit_keys:
+            return []
         f = gmmk.profile_frame(self._b["profile"], self._b["layer"])
         return [(f, gmmk.DELAY_LONG), (f, gmmk.DELAY_LONG)]
 

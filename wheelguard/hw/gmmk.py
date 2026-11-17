@@ -1,12 +1,12 @@
-"""Glorious GMMK Pro keyboards on their stock (Glorious CORE) firmware: discovery, the frames, and the
-transport. Lighting is not here: RGBeast owns it (see docs/gmmk-protocol.md, "Sharing the board").
+"""Glorious GMMK Pro and GMMK 2 (65% and 96%) keyboards on their stock (Glorious CORE) firmware: discovery,
+the frames, and the transport. Lighting is not here: RGBeast owns it (see docs/gmmk-protocol.md, "Sharing the board").
 
 The board takes vendor Feature reports, report ID 7, on the HID interface with usage page 0xFF01,
 usage 0x01. It can't report its settings back, so the caller keeps them (gui/keyboard.py) and sends
 whole frames, the way Glorious CORE does. Every frame builder here is a pure function, so the bytes are
 unit-tested without hardware.
 
-Never touched: the bootloader IDs (B007/B009/B00F/B010) and anything to do with firmware updates. The
+Never touched: the bootloader IDs (BOOTLOADER_PIDS) and anything to do with firmware updates. The
 Fn key and the knob are never remapped, so the board's own shortcuts always stay reachable.
 """
 import os
@@ -58,16 +58,24 @@ class KeyboardModel:
     name: str
     layout: str              # "ansi" | "iso"
     keymap: str              # which index map (the "Alt" ANSI board has / and \ swapped)
+    form: str = "pro"        # "pro" (75% with a knob) | "65" | "96": which drawing and default keys
+    commit_keys: bool = True  # CORE re-selects the profile after a key assignment on the Pro, not on the GMMK 2
     confirmed: bool = False  # nobody has tried Wheelguard on this board yet: controls start locked
 
 
-GMMK_PRO = {
+MODELS = {
     0x5044: KeyboardModel("gmmk-pro-ansi", "Glorious GMMK Pro", "ansi", "ansi"),
     0x5046: KeyboardModel("gmmk-pro-iso", "Glorious GMMK Pro (ISO)", "iso", "iso"),
     0x5092: KeyboardModel("gmmk-pro-ansi-alt", "Glorious GMMK Pro", "ansi", "ansi-alt"),
     0x5093: KeyboardModel("gmmk-pro-iso-alt", "Glorious GMMK Pro (ISO)", "iso", "iso"),
+    0x5045: KeyboardModel("gmmk2-65-ansi", "Glorious GMMK 2 65%", "ansi", "65-ansi", "65", False),
+    0x504A: KeyboardModel("gmmk2-65-iso", "Glorious GMMK 2 65% (ISO)", "iso", "65-iso", "65", False),
+    0x504B: KeyboardModel("gmmk2-96-ansi", "Glorious GMMK 2 96%", "ansi", "96-ansi", "96", False),
+    0x505A: KeyboardModel("gmmk2-96-iso", "Glorious GMMK 2 96% (ISO)", "iso", "96-iso", "96", False),
 }
-BOOTLOADER_PIDS = frozenset((0xB007, 0xB009, 0xB00F, 0xB010))
+GMMK_PRO = MODELS            # the name before the GMMK 2 joined
+# Pro ANSI, ISO, Alt ANSI, Alt ISO; GMMK 2 65 ANSI, 65 ISO, 96 ANSI, 96 ISO
+BOOTLOADER_PIDS = frozenset((0xB007, 0xB009, 0xB00F, 0xB010, 0xB008, 0xB00A, 0xB00B, 0xB00C))
 
 # ---------------------------------------------------------------- key positions in the keymap frame
 _ANSI = {
@@ -88,7 +96,33 @@ _ANSI = {
 _ISO = dict(_ANSI, Hashtag=72, Backslash=81, KeyZ=82, KeyX=83, KeyC=84, KeyV=85, KeyB=86, KeyN=87,
             KeyM=88, Comma=89, Period=90, Slash=91, ShiftRight=92)
 _ANSI_ALT = dict(_ANSI, Backslash=90, Slash=53)
-KEY_INDEX = {"ansi": _ANSI, "iso": _ISO, "ansi-alt": _ANSI_ALT}
+
+# GMMK 2. Read from the board's default key assignment (what each position types), which is also where
+# CORE's own tables put every key except / and \: those two are named the other way round there.
+_ROW_NUM = {"Digit1": 21, "Digit2": 22, "Digit3": 23, "Digit4": 24, "Digit5": 25, "Digit6": 26, "Digit7": 27,
+            "Digit8": 28, "Digit9": 29, "Digit0": 30, "Minus": 31, "Equal": 32, "Backspace": 33}
+_ROW_Q = {"Tab": 40, "KeyQ": 41, "KeyW": 42, "KeyE": 43, "KeyR": 44, "KeyT": 45, "KeyY": 46, "KeyU": 47,
+          "KeyI": 48, "KeyO": 49, "KeyP": 50, "BracketLeft": 51, "BracketRight": 52}
+_ROW_A = {"CapsLock": 60, "KeyA": 61, "KeyS": 62, "KeyD": 63, "KeyF": 64, "KeyG": 65, "KeyH": 66, "KeyJ": 67,
+          "KeyK": 68, "KeyL": 69, "Semicolon": 70, "Quote": 71, "Enter": 73}
+_ROW_Z = {"ShiftLeft": 80, "KeyZ": 82, "KeyX": 83, "KeyC": 84, "KeyV": 85, "KeyB": 86, "KeyN": 87, "KeyM": 88,
+          "Comma": 89, "Period": 90, "Slash": 91, "ShiftRight": 92, "ArrowUp": 93}
+_V2_ANSI = dict(Backslash=53)
+_V2_ISO = dict(Hashtag=72, Backslash=81)
+_65 = {"Escape": 20, **_ROW_NUM, "Delete": 34, **_ROW_Q, "PageUp": 54, **_ROW_A, "PageDown": 74, **_ROW_Z,
+       "End": 94, "ControlLeft": 100, "MetaLeft": 101, "AltLeft": 102, "Space": 105, "AltRight": 108,
+       "Fn": 109, "ArrowLeft": 112, "ArrowDown": 113, "ArrowRight": 114}
+_96 = {"Escape": 0, "F1": 1, "F2": 2, "F3": 3, "F4": 4, "F5": 5, "F6": 6, "F7": 7, "F8": 8, "F9": 9, "F10": 10,
+       "F11": 11, "F12": 12, "PrintScreen": 13, "Delete": 14, "Insert": 15, "PageUp": 16, "PageDown": 17,
+       "Backquote": 20, **_ROW_NUM, "NumLock": 34, "NumpadDivide": 35, "NumpadMultiply": 36,
+       "NumpadSubtract": 37, **_ROW_Q, "Numpad7": 54, "Numpad8": 55, "Numpad9": 56, **_ROW_A, "Numpad4": 74,
+       "Numpad5": 75, "Numpad6": 76, "NumpadAdd": 77, **_ROW_Z, "Numpad1": 94, "Numpad2": 95, "Numpad3": 96,
+       "ControlLeft": 100, "MetaLeft": 101, "AltLeft": 102, "Space": 105, "AltRight": 109, "Fn": 110,
+       "ControlRight": 111, "ArrowLeft": 112, "ArrowDown": 113, "ArrowRight": 114, "Numpad0": 115,
+       "NumpadDecimal": 116, "NumpadEnter": 117}
+KEY_INDEX = {"ansi": _ANSI, "iso": _ISO, "ansi-alt": _ANSI_ALT,
+             "65-ansi": {**_65, **_V2_ANSI}, "65-iso": {**_65, **_V2_ISO},
+             "96-ansi": {**_96, **_V2_ANSI}, "96-iso": {**_96, **_V2_ISO}}
 KEY_COUNT = 120
 LOCKED_KEYS = frozenset(("Fn", "Knob"))      # never remapped
 
@@ -108,7 +142,26 @@ _DEFAULT_ISO = bytes.fromhex(
     "32284effffffffffe1641d1b0619051110363738e5524dffffffffffe0e3e2ffff2cffffe6a0e4ff50514fffffffffff")
 
 
+# GMMK 2: one assignment for both 65% boards and one for both 96% boards.
+_DEFAULT_65 = bytes.fromhex(
+    "010101010101010101010101010103ffffffffff010101010101010101010101010101ffffffffff0101010101010101"
+    "01010101010101ffffffffff010101010101010101010101010101ffffffffff020101010101010101010101020101ff"
+    "ffffffff020202ffff01ffff020102ff010101ffffffffff353a3b3c3d3e3f4041424344454602ffffffffff291e1f20"
+    "212223242526272d2e2a4cffffffffff2b141a0815171c180c12132f30314bffffffffff39041607090a0b0d0e0f3334"
+    "32284effffffffffe1641d1b0619051110363738e5524dffffffffffe0e3e2ffff2cffffe6a0e4ff50514fffffffffff")
+_DEFAULT_96 = bytes.fromhex(
+    "010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101"
+    "010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101"
+    "010101010101010101010101010101010101010101010101293a3b3c3d3e3f404142434445464c494b4effff351e1f20"
+    "212223242526272d2e2a53545556ffff2b141a0815171c180c12132f30315f6061ffffff39041607090a0b0d0e0f3334"
+    "32285c5d5e57ffffe1641d1b0619051110363738e552595a5bffffffe0e3e2ffff2cffffffe6a0e450514f626358ffff")
+
+
 def default_keymap(model: KeyboardModel) -> bytes:
+    if model.form == "65":
+        return _DEFAULT_65
+    if model.form == "96":
+        return _DEFAULT_96
     return _DEFAULT_ISO if model.layout == "iso" else _DEFAULT_ANSI
 
 
@@ -357,10 +410,10 @@ def _firmware(sysfs: str, name: str) -> str:
 
 
 def discover(sysfs: str = SYSFS_HIDRAW, dev_dir: str = DEV_DIR) -> List[Board]:
-    """GMMK Pro boards that are plugged in. sysfs reads only: nothing is opened."""
+    """Supported boards that are plugged in. sysfs reads only: nothing is opened."""
     seen: Dict[int, dict] = {}
     for name, vid, pid, desc in _nodes(sysfs):
-        if vid != VENDOR or pid not in GMMK_PRO:
+        if vid != VENDOR or pid not in MODELS:
             continue
         b = seen.setdefault(pid, {"path": "", "event": "", "len": 0, "qmk": False, "fw": ""})
         if COMMAND_COLLECTION in desc and not b["path"]:
@@ -371,7 +424,7 @@ def discover(sysfs: str = SYSFS_HIDRAW, dev_dir: str = DEV_DIR) -> List[Board]:
         if QMK_PAGE in desc:
             b["qmk"] = True
             b["fw"] = b["fw"] or _firmware(sysfs, name)
-    return [Board(b["path"], pid, GMMK_PRO[pid], b["fw"], b["len"], b["event"], b["qmk"] and not b["path"])
+    return [Board(b["path"], pid, MODELS[pid], b["fw"], b["len"], b["event"], b["qmk"] and not b["path"])
             for pid, b in sorted(seen.items())]
 
 
@@ -412,14 +465,32 @@ _A = [("CapsLock", 1.75)] + [(f"Key{c}", 1) for c in "ASDFGHJKL"] + [("Semicolon
 _Z = [(f"Key{c}", 1) for c in "ZXCVBNM"] + [("Comma", 1), ("Period", 1), ("Slash", 1)]
 _BOTTOM = [("ControlLeft", 1.25), ("MetaLeft", 1.25), ("AltLeft", 1.25), ("Space", 6.25), ("AltRight", 1),
            ("Fn", 1), ("ControlRight", 1), ("ArrowLeft", 1), ("ArrowDown", 1), ("ArrowRight", 1)]
+_BOTTOM_65 = _BOTTOM[:5] + [("Fn", 1), (None, 1), ("ArrowLeft", 1), ("ArrowDown", 1), ("ArrowRight", 1)]
+_TOP_96 = ([("Escape", 1), (None, .25)] + [(f"F{n}", 1) for n in range(1, 5)] + [(None, .25)]
+           + [(f"F{n}", 1) for n in range(5, 9)] + [(None, .25)] + [(f"F{n}", 1) for n in range(9, 13)]
+           + [(None, .25), ("PrintScreen", 1), ("Delete", 1), ("Insert", 1), ("PageUp", 1), ("PageDown", 1)])
+_NUM_96 = _NUM[:-1] + [("NumLock", 1), ("NumpadDivide", 1), ("NumpadMultiply", 1), ("NumpadSubtract", 1)]
+_PAD7 = [("Numpad7", 1), ("Numpad8", 1), ("Numpad9", 1), ("NumpadAdd", 1, 2)]
+_PAD4 = [("Numpad4", 1), ("Numpad5", 1), ("Numpad6", 1)]
+_PAD1 = [("ArrowUp", 1), ("Numpad1", 1), ("Numpad2", 1), ("Numpad3", 1), ("NumpadEnter", 1, 2)]
+_BOTTOM_96 = _BOTTOM[:-3] + [("ArrowLeft", 1), ("ArrowDown", 1), ("ArrowRight", 1), ("Numpad0", 1),
+                             ("NumpadDecimal", 1)]
+_SHIFT_ANSI = [("ShiftLeft", 2.25)] + _Z + [("ShiftRight", 1.75)]
+_SHIFT_ISO = [("ShiftLeft", 1.25), ("Backslash", 1)] + _Z + [("ShiftRight", 1.75)]
+_Q_ANSI, _Q_ISO = _Q + [("Backslash", 1.5)], _Q + [("Enter", 1.5)]
+_A_ANSI, _A_ISO = _A + [("Enter", 2.25)], _A + [("Hashtag", 1), ("EnterLower", 1.25)]
+# Each key is (id, width) or (id, width, height) in key units; None is a gap.
 ROWS = {
-    "ansi": [_TOP, _NUM, _Q + [("Backslash", 1.5), ("PageUp", 1)],
-             _A + [("Enter", 2.25), ("PageDown", 1)],
-             [("ShiftLeft", 2.25)] + _Z + [("ShiftRight", 1.75), ("ArrowUp", 1), ("End", 1)], _BOTTOM],
-    "iso": [_TOP, _NUM, _Q + [("Enter", 1.5), ("PageUp", 1)],
-            _A + [("Hashtag", 1), ("EnterLower", 1.25), ("PageDown", 1)],
-            [("ShiftLeft", 1.25), ("Backslash", 1)] + _Z + [("ShiftRight", 1.75), ("ArrowUp", 1), ("End", 1)],
-            _BOTTOM],
+    ("pro", "ansi"): [_TOP, _NUM, _Q_ANSI + [("PageUp", 1)], _A_ANSI + [("PageDown", 1)],
+                      _SHIFT_ANSI + [("ArrowUp", 1), ("End", 1)], _BOTTOM],
+    ("pro", "iso"): [_TOP, _NUM, _Q_ISO + [("PageUp", 1)], _A_ISO + [("PageDown", 1)],
+                     _SHIFT_ISO + [("ArrowUp", 1), ("End", 1)], _BOTTOM],
+    ("65", "ansi"): [[("Escape", 1)] + _NUM[1:], _Q_ANSI + [("PageUp", 1)], _A_ANSI + [("PageDown", 1)],
+                     _SHIFT_ANSI + [("ArrowUp", 1), ("End", 1)], _BOTTOM_65],
+    ("65", "iso"): [[("Escape", 1)] + _NUM[1:], _Q_ISO + [("PageUp", 1)], _A_ISO + [("PageDown", 1)],
+                    _SHIFT_ISO + [("ArrowUp", 1), ("End", 1)], _BOTTOM_65],
+    ("96", "ansi"): [_TOP_96, _NUM_96, _Q_ANSI + _PAD7, _A_ANSI + _PAD4, _SHIFT_ANSI + _PAD1, _BOTTOM_96],
+    ("96", "iso"): [_TOP_96, _NUM_96, _Q_ISO + _PAD7, _A_ISO + _PAD4, _SHIFT_ISO + _PAD1, _BOTTOM_96],
 }
 LABELS = {
     "Escape": "Esc", "PrintScreen": "PrtSc", "Knob": "Knob", "Backquote": "`", "Minus": "-", "Equal": "=",
@@ -428,7 +499,9 @@ LABELS = {
     "EnterLower": "", "Hashtag": "#", "PageDown": "PgDn", "ShiftLeft": "Shift", "Comma": ",", "Period": ".",
     "Slash": "/", "ShiftRight": "Shift", "ArrowUp": "↑", "End": "End", "ControlLeft": "Ctrl",
     "MetaLeft": "Super", "AltLeft": "Alt", "Space": "", "AltRight": "Alt", "Fn": "Fn", "ControlRight": "Ctrl",
-    "ArrowLeft": "←", "ArrowDown": "↓", "ArrowRight": "→",
+    "ArrowLeft": "←", "ArrowDown": "↓", "ArrowRight": "→", "Insert": "Ins", "NumLock": "Num",
+    "NumpadDivide": "/", "NumpadMultiply": "*", "NumpadSubtract": "-", "NumpadAdd": "+", "NumpadEnter": "Enter",
+    "NumpadDecimal": ".",
 }
 NAMES = dict(LABELS, Backquote="Backtick", Minus="Minus", Equal="Equals", BracketLeft="Left bracket",
              BracketRight="Right bracket", Backslash="Backslash", Semicolon="Semicolon", Quote="Quote",
@@ -437,13 +510,14 @@ NAMES = dict(LABELS, Backquote="Backtick", Minus="Minus", Equal="Equals", Bracke
              ShiftLeft="Left Shift", ShiftRight="Right Shift", ControlLeft="Left Ctrl", ControlRight="Right Ctrl",
              AltLeft="Left Alt", AltRight="Right Alt", MetaLeft="Super", PrintScreen="Print Screen",
              Delete="Delete", PageUp="Page Up", PageDown="Page Down", CapsLock="Caps Lock", Escape="Escape",
-             Knob="Knob")
+             Knob="Knob", Insert="Insert", NumLock="Num Lock", NumpadDivide="Num /", NumpadMultiply="Num *",
+             NumpadSubtract="Num -", NumpadAdd="Num +", NumpadEnter="Num Enter", NumpadDecimal="Num .")
 
 
 def key_label(key: str) -> str:
     if key in LABELS:
         return LABELS[key]
-    if key.startswith("Key") or key.startswith("Digit"):
+    if key.startswith("Key") or key.startswith("Digit") or key.startswith("Numpad"):
         return key[-1]
     return key
 
@@ -459,13 +533,19 @@ def layout(model: KeyboardModel) -> List[dict]:
     """Every key with its position in key units: {"id", "x", "y", "w", "h"}. ISO's tall Enter is one key
     drawn as two pieces; the lower piece has id "EnterLower" and selects "Enter"."""
     out = []
-    for y, row in enumerate(ROWS[model.layout]):
+    for y, row in enumerate(ROWS[(model.form, model.layout)]):
         x = 0.0
-        for key, w in row:
+        for key, w, *h in row:
             if key is not None:
-                out.append({"id": key, "x": x, "y": float(y), "w": float(w), "h": 1.0})
+                out.append({"id": key, "x": x, "y": float(y), "w": float(w), "h": float(h[0] if h else 1)})
             x += w
     return out
+
+
+def layout_size(model: KeyboardModel) -> Tuple[float, int, bool]:
+    """(width in key units, rows, whether the top row is an F-key row set apart from the rest)."""
+    keys = layout(model)
+    return (max(k["x"] + k["w"] for k in keys), len(ROWS[(model.form, model.layout)]), model.form != "65")
 
 
 # HID usages the key picker offers, grouped (the label is what the button shows).
