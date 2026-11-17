@@ -46,7 +46,8 @@ WgScrollPage {
         Item { width: 1; height: 2 }
         WgScope {
             icon: "keyboard"
-            text: "Saved on the keyboard itself, so it works on any computer. Lighting is in RGBeast"
+            text: "Saved on the keyboard itself, so it works on any computer."
+                  + (keyboard.rgbeastSupports ? " Lighting is in RGBeast" : "")
         }
     }
 
@@ -233,7 +234,29 @@ WgScrollPage {
             text: "How long a key must settle before it counts. Lower is quicker; go higher if a key types twice. "
                   + (keyboard.rgbeastLighting
                      ? "RGBeast looks after the keyboard's lighting, so it saves this for you and your colours stay as they are."
-                     : "The keyboard stores this with its lighting, so changing it puts the lighting back to Glorious mode. Turn on lighting control in RGBeast to keep your colours.")
+                     : keyboard.rgbeastSupports
+                       ? "The keyboard stores this with its lighting, so changing it puts the lighting back to Glorious mode. Turn on lighting control in RGBeast to keep your colours."
+                       : "The keyboard stores this with its lighting, so changing it puts the lighting back to its default.")
+        }
+        Item { visible: keyboard.hasSleep; Layout.preferredHeight: 4; Layout.fillWidth: true }
+        Text {
+            visible: keyboard.hasSleep
+            text: "Standby"
+            font.pixelSize: Theme.fsBody; font.weight: Font.Medium; color: Theme.text
+        }
+        WgSegmented {
+            visible: keyboard.hasSleep
+            accessibleName: "Standby"
+            Layout.fillWidth: true
+            model: ["3 min", "7 min", "15 min", "30 min", "Never"]
+            subLabels: ["soonest", "default", "", "", "stays lit"]
+            currentIndex: keyboard.sleepIndex
+            onActivated: (i) => keyboard.setSleep(i)
+        }
+        Note {
+            visible: keyboard.hasSleep
+            text: "How long the keyboard waits with no typing before it goes into standby and turns its lights off. "
+                  + "Any key wakes it. This is stored with the lighting too, so changing it puts the lighting back to its default."
         }
     }
 
@@ -364,7 +387,7 @@ WgScrollPage {
                     }
                     Text {
                         anchors.fill: parent
-                        anchors.margins: 3
+                        anchors.margins: key.modelData.remapped ? 3 : 1
                         visible: !key.lower
                         text: key.modelData.remapped ? key.modelData.action : key.modelData.label
                         horizontalAlignment: Text.AlignHCenter
@@ -372,9 +395,9 @@ WgScrollPage {
                         elide: Text.ElideRight
                         wrapMode: key.modelData.remapped ? Text.Wrap : Text.NoWrap
                         maximumLineCount: 2
-                        // a long name on a narrow key (PgUp on a 96% board) shrinks a little before it's cut
+                        // a long name on a narrow key (PgUp on a 96% or 100% board) shrinks a little before it's cut
                         fontSizeMode: key.modelData.remapped ? Text.FixedSize : Text.HorizontalFit
-                        minimumPixelSize: 8
+                        minimumPixelSize: 7
                         font.pixelSize: Math.max(8, Math.min(Theme.px(12), art.unit * (key.modelData.remapped ? 0.24 : 0.3)))
                         font.weight: key.modelData.remapped ? Font.DemiBold : Font.Medium
                         color: key.modelData.remapped ? (Theme.dark ? "#E5DBFF" : Theme.accentA) : Theme.textMuted

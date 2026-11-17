@@ -240,20 +240,101 @@ class Gmmk2Tests(unittest.TestCase):
 
     def test_udev_rule_grants_them_through_the_helper(self):
         rules = (Path(__file__).resolve().parent.parent / "build-aux" / "70-wheelguard.rules").read_text()
-        line = next(x for x in rules.splitlines() if 'idVendor}=="320f"' in x)
-        pids = line.split('idProduct}=="')[1].split('"')[0].split("|")
-        self.assertEqual({int(p, 16) for p in pids}, set(gmmk.MODELS))
-        self.assertIn("wheelguard-gmmk-check", line)
-        self.assertNotIn("uaccess", line)
+        granted = set()
+        for vid in (gmmk.VENDOR, gmmk.VENDOR_GMMK3):
+            line = next(x for x in rules.splitlines() if f'idVendor}}=="{vid:04x}"' in x and "gmmk-check" in x)
+            pids = {int(p, 16) for p in line.split('idProduct}=="')[1].split('"')[0].split("|")}
+            self.assertEqual(pids, {pid for pid, m in gmmk.MODELS.items() if m.vendor == vid})
+            self.assertNotIn("uaccess", line)
+            granted |= pids
+        self.assertEqual(granted, set(gmmk.MODELS))
+
+
+class Gmmk3Tests(unittest.TestCase):
+    """The GMMK 3 and GMMK 3 Pro (wired): same frames, another vendor, 126 key positions, a standby timer."""
+    BOARDS = {pid: m for pid, m in gmmk.MODELS.items() if m.vendor == gmmk.VENDOR_GMMK3}
+
+    def test_twelve_boards_all_locked(self):
+        self.assertEqual(len(self.BOARDS), 12)
+        self.assertEqual(len({m.key for m in self.BOARDS.values()}), 12)
+        for m in self.BOARDS.values():
+            self.assertFalse(m.confirmed)
+            self.assertFalse(m.commit_keys)
+            self.assertTrue(m.sleep)
+            self.assertEqual(m.key_count, 126)
+        self.assertEqual(gmmk.MODELS[0xE3C5].name, "Glorious GMMK 3 Pro 100%")
+        self.assertEqual(gmmk.MODELS[0xE3D3].name, "Glorious GMMK 3 65% (ISO)")
+
+    def test_every_key_types_itself_by_default(self):
+        usage = {code: key for key, code in gmmk.PICKER_KEYS}
+        usage.update({0x32: "Hashtag", 0x64: "Backslash"})
+        for model in self.BOARDS.values():
+            km = gmmk.default_keymap(model)
+            self.assertEqual(len(km), 256)
+            for key in {k["id"] for k in gmmk.layout(model)} - {"EnterLower"}:
+                i = gmmk.KEY_INDEX[model.keymap][key]
+                with self.subTest(model=model.key, key=key):
+                    if key == "Fn":
+                        self.assertEqual(km[126 + i], 0xA0)
+                    elif key == "Knob":
+                        self.assertEqual((km[i], km[126 + i]), (3, 2))       # media: play / pause
+                    else:
+                        self.assertEqual(usage.get(km[126 + i]), key)
+
+    def test_pro_100_ansi_has_no_knob_turn_in_its_default(self):
+        a = gmmk.default_keymap(gmmk.MODELS[0xE3C8])
+        b = gmmk.default_keymap(gmmk.MODELS[0xE3C5])
+        self.assertEqual([i for i in range(256) if a[i] != b[i]], [17, 18, 143, 144])
+        self.assertEqual({b[i] for i in (17, 18, 143, 144)}, {0xFF})
+
+    def test_drawings_match_the_keys(self):
+        for model in self.BOARDS.values():
+            keys = gmmk.layout(model)
+            ids = {k["id"] for k in keys} - {"EnterLower"}
+            self.assertLessEqual(ids, set(gmmk.KEY_INDEX[model.keymap]), model.key)
+            boxes = [(k["x"], k["y"], k["w"], k["h"]) for k in keys]
+            for i, a in enumerate(boxes):
+                for b in boxes[i + 1:]:
+                    overlap = (a[0] < b[0] + b[2] and b[0] < a[0] + a[2] and a[1] < b[1] + b[3] and b[1] < a[1] + a[3])
+                    self.assertFalse(overlap, (model.key, a, b))
+        sizes = {m.key: (gmmk.layout_size(m), len(gmmk.layout(m))) for m in self.BOARDS.values()}
+        self.assertEqual(sizes["gmmk3-100-ansi"], ((22.5, 6, True), 105))
+        self.assertEqual(sizes["gmmk3-pro-100-iso"], ((22.5, 6, True), 107))     # tall Enter drawn in two
+        self.assertEqual(sizes["gmmk3-75-ansi"], ((16.0, 6, True), 81))
+        self.assertEqual(sizes["gmmk3-65-ansi"], ((16.0, 5, False), 66))
+        sixty = {k["id"] for k in gmmk.layout(gmmk.MODELS[0xE3CA])}
+        self.assertNotIn("Delete", sixty)
+        self.assertNotIn("ControlRight", sixty)
+        self.assertIn("ContextMenu", {k["id"] for k in gmmk.layout(gmmk.MODELS[0xE3C8])})
+
+    def test_keymap_frame_has_126_positions(self):
+        m = gmmk.MODELS[0xE3C9]
+        f = gmmk.keymap_frame(m, 0, 1, {"End": {"kind": "disabled"}, "Pause": {"kind": "key", "code": 4}})
+        self.assertEqual(f[:4], bytes([7, gmmk.CMD_KEYMAP, 1, 2]))
+        self.assertEqual(f[8 + 126 + 57], 0)                    # End: disabled
+        self.assertEqual((f[8 + 16], f[8 + 126 + 16]), (1, 4))  # Pause isn't drawn on a 75%, but has a place
+        rest = bytearray(f[8:8 + 252])
+        d = gmmk.default_keymap(m)
+        for i in (57, 16):
+            rest[i], rest[126 + i] = d[i], d[126 + i]
+        self.assertEqual(bytes(rest), d[:252])
+
+    def test_standby_timer_in_both_frames(self):
+        self.assertEqual(gmmk.polling_frame(1000, 15)[11], 15)
+        self.assertEqual(gmmk.properties_frame(2, 1, 8, sleep=gmmk.SLEEP_NEVER)[11], 255)
+        self.assertEqual(gmmk.polling_frame(1000), gmmk.polling_frame(1000, None))
+        for bad in (0, 256, -1):
+            with self.assertRaises(ValueError):
+                gmmk.polling_frame(1000, bad)
 
 
 class DiscoveryTests(unittest.TestCase):
-    def make_node(self, root, name, pid, desc, iface, bcd="0045"):
+    def make_node(self, root, name, pid, desc, iface, bcd="0045", vid=0x320F):
         usb = Path(root) / "usb" / f"1-1:{pid:04x}"
-        hid = usb / f"1-1:1.{iface}" / f"0003:320F:{pid:04X}.000{iface}"
+        hid = usb / f"1-1:1.{iface}" / f"0003:{vid:04X}:{pid:04X}.000{iface}"
         hid.mkdir(parents=True, exist_ok=True)
         (usb / "bcdDevice").write_text(bcd + "\n")
-        (hid / "uevent").write_text(f"HID_ID=0003:0000320F:0000{pid:04X}\n")
+        (hid / "uevent").write_text(f"HID_ID=0003:0000{vid:04X}:0000{pid:04X}\n")
         (hid / "report_descriptor").write_bytes(desc)
         node = Path(root) / "class" / name
         node.mkdir(parents=True)
@@ -277,6 +358,14 @@ class DiscoveryTests(unittest.TestCase):
             self.make_node(root, "hidraw6", 0xB00C, SETTINGS_DESC, 1)          # a board in its bootloader
             boards = gmmk.discover(os.path.join(root, "class"), "/dev")
         self.assertEqual([b.model.key for b in boards], ["gmmk2-96-iso"])
+
+    def test_finds_a_gmmk3_only_under_its_own_vendor(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.make_node(root, "hidraw4", 0xE3C6, SETTINGS_DESC, 1, vid=0x342D)
+            self.make_node(root, "hidraw5", 0xE3C6, EVENTS_DESC, 2, vid=0x342D)
+            self.make_node(root, "hidraw7", 0xE3C8, SETTINGS_DESC, 1)             # right number, wrong vendor
+            boards = gmmk.discover(os.path.join(root, "class"), "/dev")
+        self.assertEqual([(b.model.key, b.path) for b in boards], [("gmmk3-pro-75-ansi", "/dev/hidraw4")])
 
     def test_qmk_board(self):
         qmk = bytes.fromhex("0660ff0961a101" "0962" "8102" "c0")
@@ -451,6 +540,37 @@ class ControllerTests(unittest.TestCase):
                                                          {"Delete": {"kind": "key", "code": 74}})])
         c.bindKey("F1", "disabled", 0, "")              # not on this board: ignored
         self.assertEqual(len(FakeDev.log), 1)
+
+    def test_gmmk3_standby(self):
+        m = gmmk.MODELS[0xE3CA]
+        c = self.make(board=gmmk.Board("/dev/hidraw9", 0xE3CA, m, "0100", 264))
+        self.assertEqual((c.shortName, c.hasKnob, c.hasSleep, c.sleepIndex, c.rgbeastSupports),
+                         ("GMMK 3 65%", True, True, 1, False))
+        c.setSleep(2)
+        self.assertEqual(FakeDev.log, [], "locked")
+        c.unlock()
+        c.setSleep(2)
+        self.settle(c)
+        self.assertEqual(FakeDev.log, [gmmk.polling_frame(1000, 15)]
+                         + [gmmk.properties_frame(p, layer, gmmk.DEFAULT_DEBOUNCE, sleep=15)
+                            for p in range(3) for layer in range(3)])
+        self.assertEqual(c.sleepIndex, 2)
+        FakeDev.log = []
+        c.setPolling(0)
+        c.setDebounce(0)
+        self.settle(c)
+        self.assertEqual(FakeDev.log, [gmmk.polling_frame(125, 15)]
+                         + [gmmk.properties_frame(0, layer, 2, sleep=15) for layer in range(3)])
+        stored = json.loads(self.path.read_text())["boards"]["gmmk3-65-ansi"]
+        self.assertEqual(stored["sleep"], 15)
+
+    def test_pro_has_no_standby_setting(self):
+        c = self.make()
+        self.assertFalse(c.hasSleep)
+        self.assertTrue(c.rgbeastSupports)
+        c.unlock()
+        c.setSleep(0)
+        self.assertEqual(FakeDev.log, [])
 
     def test_never_remaps_fn(self):
         c = self.make()

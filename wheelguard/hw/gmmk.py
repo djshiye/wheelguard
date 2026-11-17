@@ -1,5 +1,5 @@
-"""Glorious GMMK Pro and GMMK 2 (65% and 96%) keyboards on their stock (Glorious CORE) firmware: discovery,
-the frames, and the transport. Lighting is not here: RGBeast owns it (see docs/gmmk-protocol.md, "Sharing the board").
+"""Glorious GMMK Pro, GMMK 2 (65%, 96%) and wired GMMK 3 / GMMK 3 Pro (65%, 75%, 100%) keyboards on their
+stock (Glorious CORE) firmware: discovery, the frames, and the transport. Lighting is not here: RGBeast owns it (see docs/gmmk-protocol.md, "Sharing the board").
 
 The board takes vendor Feature reports, report ID 7, on the HID interface with usage page 0xFF01,
 usage 0x01. It can't report its settings back, so the caller keeps them (gui/keyboard.py) and sends
@@ -15,7 +15,8 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from .hidraw import DEV_DIR, SYSFS_HIDRAW, HidrawDevice, _nodes
 
-VENDOR = 0x320F
+VENDOR = 0x320F          # GMMK Pro and GMMK 2
+VENDOR_GMMK3 = 0x342D    # GMMK 3 / GMMK 3 Pro, wired
 REPORT_ID = 7
 FRAME_LEN = 264          # what Glorious CORE builds (report ID included); padded to the descriptor's size
 SHORT_LEN = 64           # the profile commit frame
@@ -37,6 +38,11 @@ POLLING_HZ = (1000, 500, 250, 125)          # firmware codes 0, 1, 2, 3
 DEBOUNCE_MS = (2, 8, 16)
 DEFAULT_POLLING = 1000
 DEFAULT_DEBOUNCE = 16
+# GMMK 3: minutes without a key press before the lights go out; 255 = never. Sent in byte 11 of the
+# properties and polling frames, as CORE does.
+SLEEP_MINUTES = (3, 7, 15, 30, 255)
+SLEEP_NEVER = 255
+DEFAULT_SLEEP = 7
 MAX_MACROS = 10
 MAX_MACRO_EVENTS = 82                        # 248 data bytes / 3 bytes per event
 MACRO_MODES = {"once": 1, "repeat": 0xFFFF, "toggle": 0}
@@ -58,9 +64,12 @@ class KeyboardModel:
     name: str
     layout: str              # "ansi" | "iso"
     keymap: str              # which index map (the "Alt" ANSI board has / and \ swapped)
-    form: str = "pro"        # "pro" (75% with a knob) | "65" | "96": which drawing and default keys
-    commit_keys: bool = True  # CORE re-selects the profile after a key assignment on the Pro, not on the GMMK 2
+    form: str = "pro"        # "pro" (75% with a knob) | "65" | "96" | "g3-65" | "g3-75" | "g3-100": drawing, defaults
+    commit_keys: bool = True  # CORE re-selects the profile after a key assignment on the Pro only
     confirmed: bool = False  # nobody has tried Wheelguard on this board yet: controls start locked
+    vendor: int = VENDOR
+    key_count: int = 120     # positions in the key assignment frame
+    sleep: bool = False      # has the idle timer (GMMK 3)
 
 
 MODELS = {
@@ -73,8 +82,25 @@ MODELS = {
     0x504B: KeyboardModel("gmmk2-96-ansi", "Glorious GMMK 2 96%", "ansi", "96-ansi", "96", False),
     0x505A: KeyboardModel("gmmk2-96-iso", "Glorious GMMK 2 96% (ISO)", "iso", "96-iso", "96", False),
 }
+
+
+def _gmmk3(key: str, name: str, iso: bool, size: str, pro: bool) -> KeyboardModel:
+    return KeyboardModel(key, name, "iso" if iso else "ansi", "g3-iso" if iso else "g3-ansi", f"g3-{size}", False,
+                         vendor=VENDOR_GMMK3, key_count=126, sleep=True)
+
+
+for _pid, _size, _iso, _pro in ((0xE3C8, "100", False, False), (0xE3D1, "100", True, False),
+                               (0xE3C9, "75", False, False), (0xE3D2, "75", True, False),
+                               (0xE3CA, "65", False, False), (0xE3D3, "65", True, False),
+                               (0xE3C5, "100", False, True), (0xE3CE, "100", True, True),
+                               (0xE3C6, "75", False, True), (0xE3CF, "75", True, True),
+                               (0xE3C7, "65", False, True), (0xE3D0, "65", True, True)):
+    _key = f"gmmk3{'-pro' if _pro else ''}-{_size}-{'iso' if _iso else 'ansi'}"
+    _name = f"Glorious GMMK 3{' Pro' if _pro else ''} {_size}%{' (ISO)' if _iso else ''}"
+    MODELS[_pid] = _gmmk3(_key, _name, _iso, _size, _pro)
 GMMK_PRO = MODELS            # the name before the GMMK 2 joined
-# Pro ANSI, ISO, Alt ANSI, Alt ISO; GMMK 2 65 ANSI, 65 ISO, 96 ANSI, 96 ISO
+# Pro ANSI, ISO, Alt ANSI, Alt ISO; GMMK 2 65 ANSI, 65 ISO, 96 ANSI, 96 ISO. The GMMK 3's bootloader has a
+# vendor of its own (2442) that Wheelguard never matches.
 BOOTLOADER_PIDS = frozenset((0xB007, 0xB009, 0xB00F, 0xB010, 0xB008, 0xB00A, 0xB00B, 0xB00C))
 
 # ---------------------------------------------------------------- key positions in the keymap frame
@@ -120,10 +146,29 @@ _96 = {"Escape": 0, "F1": 1, "F2": 2, "F3": 3, "F4": 4, "F5": 5, "F6": 6, "F7": 
        "ControlLeft": 100, "MetaLeft": 101, "AltLeft": 102, "Space": 105, "AltRight": 109, "Fn": 110,
        "ControlRight": 111, "ArrowLeft": 112, "ArrowDown": 113, "ArrowRight": 114, "Numpad0": 115,
        "NumpadDecimal": 116, "NumpadEnter": 117}
+# GMMK 3 (wired): every size shares one 126-position matrix in which a key keeps its place whatever the
+# board's size (the 65%'s Page Up is where a 100%'s is). Read from the default key assignment; CORE's own
+# tables agree apart from a few typos. The knob press is position 20.
+_G3 = {"Escape": 0, **{f"F{n}": n + 1 for n in range(1, 13)}, "PrintScreen": 14, "ScrollLock": 15, "Pause": 16,
+       "Knob": 20, "Backquote": 21, **{f"Digit{d}": 22 + i for i, d in enumerate("1234567890")}, "Minus": 32,
+       "Equal": 33, "Backspace": 34, "Insert": 35, "Home": 36, "PageUp": 37, "NumLock": 38, "NumpadDivide": 39,
+       "NumpadMultiply": 40, "NumpadSubtract": 41,
+       "Tab": 42, **{f"Key{c}": 43 + i for i, c in enumerate("QWERTYUIOP")}, "BracketLeft": 53,
+       "BracketRight": 54, "Delete": 56, "End": 57, "PageDown": 58, "Numpad7": 59, "Numpad8": 60, "Numpad9": 61,
+       "NumpadAdd": 62,
+       "CapsLock": 63, **{f"Key{c}": 64 + i for i, c in enumerate("ASDFGHJKL")}, "Semicolon": 73, "Quote": 74,
+       "Enter": 76, "Numpad4": 80, "Numpad5": 81, "Numpad6": 82,
+       "ShiftLeft": 84, **{f"Key{c}": 86 + i for i, c in enumerate("ZXCVBNM")}, "Comma": 93, "Period": 94,
+       "Slash": 95, "ShiftRight": 97, "ArrowUp": 99, "Numpad1": 101, "Numpad2": 102, "Numpad3": 103,
+       "NumpadEnter": 104,
+       "ControlLeft": 105, "MetaLeft": 106, "AltLeft": 107, "Space": 110, "AltRight": 115, "Fn": 116,
+       "ContextMenu": 117, "ControlRight": 118, "ArrowLeft": 119, "ArrowDown": 120, "ArrowRight": 121,
+       "Numpad0": 122, "NumpadDecimal": 124}
 KEY_INDEX = {"ansi": _ANSI, "iso": _ISO, "ansi-alt": _ANSI_ALT,
+             "g3-ansi": dict(_G3, Backslash=55), "g3-iso": dict(_G3, Hashtag=75, Backslash=85),
              "65-ansi": {**_65, **_V2_ANSI}, "65-iso": {**_65, **_V2_ISO},
              "96-ansi": {**_96, **_V2_ANSI}, "96-iso": {**_96, **_V2_ISO}}
-KEY_COUNT = 120
+KEY_COUNT = 120                              # the Pro and GMMK 2; a model's own count is model.key_count
 LOCKED_KEYS = frozenset(("Fn", "Knob"))      # never remapped
 
 # The board's own key assignment, as Glorious CORE sends it: 120 type bytes then 120 code bytes (0xFF = no
@@ -157,7 +202,25 @@ _DEFAULT_96 = bytes.fromhex(
     "32285c5d5e57ffffe1641d1b0619051110363738e552595a5bffffffe0e3e2ffff2cffffffe6a0e450514f626358ffff")
 
 
+# GMMK 3 (wired): one assignment (126 types, 126 codes, 4 spare) for every size; the GMMK 3 Pro 100% ANSI's
+# differs only in leaving out the knob's turn (positions 17 and 18).
+_DEFAULT_G3 = bytes.fromhex(
+    "01ff0101010101010101010101010101010303ff03010101010101010101010101010101010101010101010101010101"
+    "0101010101010101010101010101010101010101010101010101010101ffffff010101ff020101010101010101010101"
+    "ff02ff01ff01010101020202ffff01ffffffff0201010201010101ff01ff29ff3a3b3c3d3e3f40414243444546474804"
+    "03ff02351e1f20212223242526272d2e2a494a4b535455562b141a0815171c180c12132f30314c4d4e5f606157390416"
+    "07090a0b0d0e0f33343228ffffff5c5d5effe1641d1b0619051110363738ffe5ff525b595a5b58e0e3e2ffff2cffffff"
+    "ffe6a065e450514f62ff63ffffffffff")
+
+
 def default_keymap(model: KeyboardModel) -> bytes:
+    if model.vendor == VENDOR_GMMK3:
+        if model.key == "gmmk3-pro-100-ansi":
+            km = bytearray(_DEFAULT_G3)
+            for i in (17, 18):
+                km[i] = km[126 + i] = 0xFF
+            return bytes(km)
+        return _DEFAULT_G3
     if model.form == "65":
         return _DEFAULT_65
     if model.form == "96":
@@ -251,17 +314,29 @@ def profile_frame(profile: int, layer: int) -> bytes:
     return bytes(f)
 
 
-def polling_frame(hz: int) -> bytes:
+def _check_sleep(sleep: Optional[int]) -> None:
+    if sleep is not None and not 1 <= sleep <= SLEEP_NEVER:
+        raise ValueError(f"sleep timer {sleep} isn't supported")
+
+
+def polling_frame(hz: int, sleep: Optional[int] = None) -> bytes:
+    """`sleep`: the GMMK 3's idle timer in minutes (255 never), which CORE repeats in this frame."""
     if hz not in POLLING_HZ:
         raise ValueError(f"polling rate {hz} Hz isn't supported")
+    _check_sleep(sleep)
     f = _frame(CMD_POLLING)
     f[8], f[9], f[10] = POLLING_HZ.index(hz), 1, 0
+    if sleep is not None:
+        f[11] = sleep
     return bytes(f)
 
 
-def properties_frame(profile: int, layer: int, debounce_ms: int, lighting: Optional[dict] = None) -> bytes:
-    """The properties frame: debounce plus the lighting fields it shares with RGBeast."""
+def properties_frame(profile: int, layer: int, debounce_ms: int, lighting: Optional[dict] = None,
+                     sleep: Optional[int] = None) -> bytes:
+    """The properties frame: debounce plus the lighting fields it shares with RGBeast, and on the GMMK 3
+    the idle timer (`sleep`, minutes; 255 never)."""
     _check_slot(profile, layer)
+    _check_sleep(sleep)
     if debounce_ms not in DEBOUNCE_MS:
         raise ValueError(f"debounce {debounce_ms} ms isn't supported")
     light = dict(DEFAULT_LIGHTING, **(lighting or {}))
@@ -274,6 +349,8 @@ def properties_frame(profile: int, layer: int, debounce_ms: int, lighting: Optio
     f[7] = 0 if light["sidelights"] else 1
     f[8] = brightness
     f[10] = debounce_ms
+    if sleep is not None:
+        f[11] = sleep
     return bytes(f)
 
 
@@ -294,7 +371,7 @@ def keymap_frame(model: KeyboardModel, profile: int, layer: int, bindings: Dict[
         if problem:
             raise ValueError(f"{key}: {problem}")
         i = index[key]
-        data[i], data[KEY_COUNT + i] = encode_binding(b)
+        data[i], data[model.key_count + i] = encode_binding(b)
     f = _frame(CMD_KEYMAP)
     f[2], f[3] = profile + 1, layer + 1
     f[8:8 + len(data)] = data
@@ -413,7 +490,7 @@ def discover(sysfs: str = SYSFS_HIDRAW, dev_dir: str = DEV_DIR) -> List[Board]:
     """Supported boards that are plugged in. sysfs reads only: nothing is opened."""
     seen: Dict[int, dict] = {}
     for name, vid, pid, desc in _nodes(sysfs):
-        if vid != VENDOR or pid not in MODELS:
+        if pid not in MODELS or vid != MODELS[pid].vendor:
             continue
         b = seen.setdefault(pid, {"path": "", "event": "", "len": 0, "qmk": False, "fw": ""})
         if COMMAND_COLLECTION in desc and not b["path"]:
@@ -479,6 +556,22 @@ _SHIFT_ANSI = [("ShiftLeft", 2.25)] + _Z + [("ShiftRight", 1.75)]
 _SHIFT_ISO = [("ShiftLeft", 1.25), ("Backslash", 1)] + _Z + [("ShiftRight", 1.75)]
 _Q_ANSI, _Q_ISO = _Q + [("Backslash", 1.5)], _Q + [("Enter", 1.5)]
 _A_ANSI, _A_ISO = _A + [("Enter", 2.25)], _A + [("Hashtag", 1), ("EnterLower", 1.25)]
+# GMMK 3: the 75% and 65% have a 1.5-wide right Alt and Fn and no right Ctrl; the badge is a light, drawn as a gap.
+_BOTTOM_G3 = _BOTTOM[:4] + [("AltRight", 1.5), ("Fn", 1.5), ("ArrowLeft", 1), ("ArrowDown", 1), ("ArrowRight", 1)]
+_TOP_G3_75 = _TOP[:-2] + [(None, 1), ("Knob", 1)]
+_TOP_G3_100 = (_TOP[:1] + [(None, 1)] + [(f"F{n}", 1) for n in range(1, 5)] + [(None, .5)]
+               + [(f"F{n}", 1) for n in range(5, 9)] + [(None, .5)] + [(f"F{n}", 1) for n in range(9, 13)]
+               + [(None, .25), ("PrintScreen", 1), ("ScrollLock", 1), ("Pause", 1), (None, 3.25), ("Knob", 1)])
+_NAV_G3 = [(None, .25), ("Insert", 1), ("Home", 1), ("PageUp", 1), (None, .25), ("NumLock", 1),
+           ("NumpadDivide", 1), ("NumpadMultiply", 1), ("NumpadSubtract", 1)]
+_DEL_G3 = [(None, .25), ("Delete", 1), ("End", 1), ("PageDown", 1), (None, .25)] + _PAD7
+_PAD1_G3 = [(None, 1.25), ("ArrowUp", 1), (None, 1.25)] + _PAD1[1:]
+_BOTTOM_G3_100 = (_BOTTOM[:5] + [("AltRight", 1.25), ("Fn", 1.25), ("ContextMenu", 1.25), ("ControlRight", 1.25),
+                                 (None, .25), ("ArrowLeft", 1), ("ArrowDown", 1), ("ArrowRight", 1), (None, .25),
+                                 ("Numpad0", 2), ("NumpadDecimal", 1)])
+_BOTTOM_G3_100[3:5] = [("Space", 6.25)]
+_SHIFT_G3_ANSI = _SHIFT_ANSI[:-1] + [("ShiftRight", 2.75)]
+_SHIFT_G3_ISO = _SHIFT_ISO[:-1] + [("ShiftRight", 2.75)]
 # Each key is (id, width) or (id, width, height) in key units; None is a gap.
 ROWS = {
     ("pro", "ansi"): [_TOP, _NUM, _Q_ANSI + [("PageUp", 1)], _A_ANSI + [("PageDown", 1)],
@@ -491,6 +584,18 @@ ROWS = {
                     _SHIFT_ISO + [("ArrowUp", 1), ("End", 1)], _BOTTOM_65],
     ("96", "ansi"): [_TOP_96, _NUM_96, _Q_ANSI + _PAD7, _A_ANSI + _PAD4, _SHIFT_ANSI + _PAD1, _BOTTOM_96],
     ("96", "iso"): [_TOP_96, _NUM_96, _Q_ISO + _PAD7, _A_ISO + _PAD4, _SHIFT_ISO + _PAD1, _BOTTOM_96],
+    ("g3-65", "ansi"): [[("Escape", 1)] + _NUM[1:-1] + [("Knob", 1)], _Q_ANSI + [(None, 1)],
+                        _A_ANSI + [("PageUp", 1)], _SHIFT_ANSI + [("ArrowUp", 1), ("PageDown", 1)], _BOTTOM_G3],
+    ("g3-65", "iso"): [[("Escape", 1)] + _NUM[1:-1] + [("Knob", 1)], _Q_ISO + [(None, 1)],
+                       _A_ISO + [("PageUp", 1)], _SHIFT_ISO + [("ArrowUp", 1), ("PageDown", 1)], _BOTTOM_G3],
+    ("g3-75", "ansi"): [_TOP_G3_75, _NUM, _Q_ANSI + [("PageUp", 1)], _A_ANSI + [("PageDown", 1)],
+                        _SHIFT_ANSI + [("ArrowUp", 1), ("End", 1)], _BOTTOM_G3],
+    ("g3-75", "iso"): [_TOP_G3_75, _NUM, _Q_ISO + [("PageUp", 1)], _A_ISO + [("PageDown", 1)],
+                       _SHIFT_ISO + [("ArrowUp", 1), ("End", 1)], _BOTTOM_G3],
+    ("g3-100", "ansi"): [_TOP_G3_100, _NUM[:-1] + _NAV_G3, _Q_ANSI + _DEL_G3, _A_ANSI + [(None, 3.5)] + _PAD4,
+                         _SHIFT_G3_ANSI + _PAD1_G3, _BOTTOM_G3_100],
+    ("g3-100", "iso"): [_TOP_G3_100, _NUM[:-1] + _NAV_G3, _Q_ISO + _DEL_G3, _A_ISO + [(None, 3.5)] + _PAD4,
+                        _SHIFT_G3_ISO + _PAD1_G3, _BOTTOM_G3_100],
 }
 LABELS = {
     "Escape": "Esc", "PrintScreen": "PrtSc", "Knob": "Knob", "Backquote": "`", "Minus": "-", "Equal": "=",
@@ -501,7 +606,7 @@ LABELS = {
     "MetaLeft": "Super", "AltLeft": "Alt", "Space": "", "AltRight": "Alt", "Fn": "Fn", "ControlRight": "Ctrl",
     "ArrowLeft": "←", "ArrowDown": "↓", "ArrowRight": "→", "Insert": "Ins", "NumLock": "Num",
     "NumpadDivide": "/", "NumpadMultiply": "*", "NumpadSubtract": "-", "NumpadAdd": "+", "NumpadEnter": "Enter",
-    "NumpadDecimal": ".",
+    "NumpadDecimal": ".", "ScrollLock": "ScrLk", "Pause": "Pause", "Home": "Home", "ContextMenu": "Menu",
 }
 NAMES = dict(LABELS, Backquote="Backtick", Minus="Minus", Equal="Equals", BracketLeft="Left bracket",
              BracketRight="Right bracket", Backslash="Backslash", Semicolon="Semicolon", Quote="Quote",
@@ -511,7 +616,8 @@ NAMES = dict(LABELS, Backquote="Backtick", Minus="Minus", Equal="Equals", Bracke
              AltLeft="Left Alt", AltRight="Right Alt", MetaLeft="Super", PrintScreen="Print Screen",
              Delete="Delete", PageUp="Page Up", PageDown="Page Down", CapsLock="Caps Lock", Escape="Escape",
              Knob="Knob", Insert="Insert", NumLock="Num Lock", NumpadDivide="Num /", NumpadMultiply="Num *",
-             NumpadSubtract="Num -", NumpadAdd="Num +", NumpadEnter="Num Enter", NumpadDecimal="Num .")
+             NumpadSubtract="Num -", NumpadAdd="Num +", NumpadEnter="Num Enter", NumpadDecimal="Num .",
+             ScrollLock="Scroll Lock")
 
 
 def key_label(key: str) -> str:
@@ -545,7 +651,8 @@ def layout(model: KeyboardModel) -> List[dict]:
 def layout_size(model: KeyboardModel) -> Tuple[float, int, bool]:
     """(width in key units, rows, whether the top row is an F-key row set apart from the rest)."""
     keys = layout(model)
-    return (max(k["x"] + k["w"] for k in keys), len(ROWS[(model.form, model.layout)]), model.form != "65")
+    return (max(k["x"] + k["w"] for k in keys), len(ROWS[(model.form, model.layout)]),
+            model.form not in ("65", "g3-65"))
 
 
 # HID usages the key picker offers, grouped (the label is what the button shows).

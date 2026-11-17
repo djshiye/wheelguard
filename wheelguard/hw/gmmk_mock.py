@@ -1,6 +1,8 @@
-"""A pretend GMMK Pro for development and screenshots, chosen with WHEELGUARD_KB_MOCK:
+"""A pretend Glorious keyboard for development and screenshots, chosen with WHEELGUARD_KB_MOCK:
 
     gmmk-pro | gmmk-pro-iso    a stock board (ANSI / ISO)
+    gmmk2-65[-iso] | gmmk2-96[-iso]
+    gmmk3-{65,75,100}[-iso] | gmmk3-pro-{65,75,100}[-iso]
     qmk                        a board flashed with QMK/VIA
     denied                     the board is there but its settings channel isn't accessible
     odd                        the descriptor reports an unexpected settings report size
@@ -15,9 +17,10 @@ from . import gmmk
 from .hidraw import AccessDenied
 
 MOCK_ENV = "WHEELGUARD_KB_MOCK"
-MODES = ("gmmk-pro", "gmmk-pro-iso", "gmmk2-65", "gmmk2-65-iso", "gmmk2-96", "gmmk2-96-iso", "qmk", "denied", "odd")
 _PIDS = {"gmmk-pro-iso": 0x5046, "gmmk2-65": 0x5045, "gmmk2-65-iso": 0x504A, "gmmk2-96": 0x504B,
          "gmmk2-96-iso": 0x505A}
+_PIDS.update({m.key.replace("-ansi", ""): pid for pid, m in gmmk.MODELS.items() if m.key.startswith("gmmk3")})
+MODES = ("gmmk-pro", *_PIDS, "qmk", "denied", "odd")
 MOCK_PATH = "/dev/hidraw-gmmk-mock"
 
 

@@ -1,6 +1,6 @@
-# Glorious GMMK Pro and GMMK 2: settings protocol (stock firmware)
+# Glorious GMMK Pro, GMMK 2 and GMMK 3: settings protocol (stock firmware)
 
-How Wheelguard talks to a Glorious GMMK Pro or GMMK 2 on its original firmware. Learned by reading the keyboard
+How Wheelguard talks to a Glorious GMMK Pro, GMMK 2 or wired GMMK 3 / 3 Pro on its original firmware. Learned by reading the keyboard
 code of Glorious CORE 2.1.23 (the Windows app) without running it; no Glorious code is used. Nothing
 here touches the firmware: the bootloader IDs and firmware updates are out of scope.
 
@@ -16,8 +16,16 @@ here touches the firmware: the bootloader IDs and firmware updates are out of sc
 | GMMK 2 65% ISO | 320F:504A | 65% ISO |
 | GMMK 2 96% ANSI | 320F:504B | 96% ANSI |
 | GMMK 2 96% ISO | 320F:505A | 96% ISO |
+| GMMK 3 100% ANSI / ISO | 342D:E3C8 / E3D1 | GMMK 3 ANSI / ISO |
+| GMMK 3 75% ANSI / ISO | 342D:E3C9 / E3D2 | GMMK 3 ANSI / ISO |
+| GMMK 3 65% ANSI / ISO | 342D:E3CA / E3D3 | GMMK 3 ANSI / ISO |
+| GMMK 3 Pro 100% ANSI / ISO | 342D:E3C5 / E3CE | GMMK 3 ANSI / ISO |
+| GMMK 3 Pro 75% ANSI / ISO | 342D:E3C6 / E3CF | GMMK 3 ANSI / ISO |
+| GMMK 3 Pro 65% ANSI / ISO | 342D:E3C7 / E3D0 | GMMK 3 ANSI / ISO |
 
-Bootloaders (never opened): B007, B009, B00F, B010 (Pro); B008, B00A, B00B, B00C (GMMK 2).
+Bootloaders (never opened): B007, B009, B00F, B010 (Pro); B008, B00A, B00B, B00C (GMMK 2); the GMMK 3's
+are under vendor 2442, which Wheelguard never matches. Other GMMK 3 models (such as the HE and wireless
+ones) aren't covered yet.
 
 **GMMK 2.** Glorious CORE drives it with the same code as the Pro, so every frame below is the same. The
 differences are the key positions, its default key assignment (one for both 65% boards, one for both
@@ -25,6 +33,19 @@ differences are the key positions, its default key assignment (one for both 65% 
 positions come from the default assignment, which says what each position types. CORE's own position
 tables agree except for `/` and `\`, which they name the other way round; Wheelguard follows the
 default assignment. That is one of the things to check on a real board.
+
+**GMMK 3 and GMMK 3 Pro (wired).** Same code in CORE again, under vendor 342D, with these differences:
+
+- The key assignment frame has 126 positions (types at byte 8, codes at byte 8 + 126), not 120. Every
+  size shares one matrix: a key keeps its position whatever the board's size. The knob press is
+  position 20 (media, play / pause) and is never remapped; 17 and 18 are the knob's turn. The default
+  assignment is the same for all twelve boards, except that the GMMK 3 Pro 100% ANSI's leaves 17 and 18
+  empty. The badge on the board is a light, not a key.
+- No profile commit after a key assignment, as on the GMMK 2.
+- A standby timer in minutes (1 to 254, 255 = never; CORE's default 7) at byte 11 of both the polling
+  frame (0x08) and every properties frame (0x07). CORE repeats it in each, so Wheelguard does too: the
+  timer is sent with every polling or debounce change, and a timer change writes the polling frame and
+  all nine properties frames. Wheelguard offers 3, 7, 15 and 30 minutes and never.
 
 Two vendor HID interfaces matter:
 

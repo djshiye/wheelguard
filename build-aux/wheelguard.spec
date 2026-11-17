@@ -7,7 +7,7 @@
 %global __brp_python_bytecompile %{nil}
 
 Name:           wheelguard
-Version:        1.12.0
+Version:        1.13.0
 # CI appends .<commit count> so every build from main is a newer release.
 Release:        1%{?release_suffix}%{?dist}
 Summary:        Scroll bounce filter, advanced mouse settings and Glorious keyboard controls
@@ -142,6 +142,11 @@ fi
 %{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-djshiye-%{name}
 
 %changelog
+* Tue Nov 17 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.13.0-1
+- New: the Keyboard page also works with the Glorious GMMK 3 and GMMK 3 Pro, wired (100%, 75% and 65%, ANSI and ISO), with a Standby timer; controls start off until turned on
+- udev: the GMMK 3's two vendor interfaces (vendor 342d) are granted the same way as the Pro's, checked by wheelguard-gmmk-check
+- The Keyboard page only points to RGBeast for boards RGBeast can light (the GMMK Pro so far)
+
 * Tue Nov 17 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.12.0-1
 - New: the Keyboard page also works with the Glorious GMMK 2 (65% and 96%, ANSI and ISO), drawn as each board looks; controls start off until turned on
 - udev: the GMMK 2's two vendor interfaces are granted the same way as the Pro's, checked by wheelguard-gmmk-check

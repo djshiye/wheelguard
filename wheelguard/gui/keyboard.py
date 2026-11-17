@@ -48,6 +48,7 @@ def _empty_board() -> dict:
         "profile": 0,
         "layer": 0,
         "debounce": [gmmk.DEFAULT_DEBOUNCE] * gmmk.PROFILES,
+        "sleep": gmmk.DEFAULT_SLEEP,            # GMMK 3 only: lights-off timer in minutes (255 never)
         "keys": [[{} for _ in range(gmmk.LAYERS)] for _ in range(gmmk.PROFILES)],
     }
 
@@ -65,6 +66,8 @@ def _clean_board(raw, model: gmmk.KeyboardModel) -> dict:
     deb = raw.get("debounce")
     if isinstance(deb, list) and len(deb) == gmmk.PROFILES and all(d in gmmk.DEBOUNCE_MS for d in deb):
         b["debounce"] = list(deb)
+    if raw.get("sleep") in gmmk.SLEEP_MINUTES:
+        b["sleep"] = raw["sleep"]
     keys = raw.get("keys")
     index = gmmk.KEY_INDEX[model.keymap]
     if isinstance(keys, list) and len(keys) == gmmk.PROFILES:
@@ -351,7 +354,7 @@ class KeyboardController(QObject):
         if hw is None or hw.qmk or self._rgbeast is None:
             self._rgbeast_answer(None)
             return
-        self._rgbeast.check(gmmk.VENDOR, hw.pid, self._rgbeast_answer)
+        self._rgbeast.check(hw.model.vendor, hw.pid, self._rgbeast_answer)
 
     def _rgbeast_answer(self, dev_id: Optional[str]):
         if dev_id != self._rgb_id:
@@ -366,9 +369,10 @@ class KeyboardController(QObject):
         """A job step: RGBeast notes the profile and layer Wheelguard switched to (and that profile's
         debounce). Never fails the job: the board has already switched."""
         rgb, pid, ms = self._rgbeast, self._board_hw.pid, self._b["debounce"][profile]
+        vid = self._board_hw.model.vendor
 
         def step(_send):
-            dev = rgb.managed(gmmk.VENDOR, pid) if rgb is not None else None
+            dev = rgb.managed(vid, pid) if rgb is not None else None
             if dev:
                 rgb.set_options(dev, profile, layer, ms)
             return ""
@@ -474,6 +478,14 @@ class KeyboardController(QObject):
     def pollingIndex(self):
         return POLLING_CHOICES.index(self._b["polling"])
 
+    @Property(bool, notify=changed)
+    def hasSleep(self):
+        return bool(self._model and self._model.sleep)
+
+    @Property(int, notify=changed)
+    def sleepIndex(self):
+        return gmmk.SLEEP_MINUTES.index(self._b["sleep"])
+
     @Property(int, notify=changed)
     def debounceIndex(self):
         return gmmk.DEBOUNCE_MS.index(self._b["debounce"][self._b["profile"]])
@@ -485,6 +497,11 @@ class KeyboardController(QObject):
     @Property(int, notify=changed)
     def layer(self):
         return self._b["layer"]
+
+    @Property(bool, notify=changed)
+    def rgbeastSupports(self):
+        """RGBeast can drive this board's lighting (so far the GMMK Pro only)."""
+        return bool(self._model and self._model.form == "pro")
 
     @Property(bool, notify=changed)
     def rgbeastLighting(self):
@@ -617,7 +634,28 @@ class KeyboardController(QObject):
 
         def ok():
             self._b["polling"] = hz
-        self._send([(gmmk.polling_frame(hz), gmmk.DELAY_LONG)], ok)
+        self._send([(gmmk.polling_frame(hz, self._sleep_byte()), gmmk.DELAY_LONG)], ok)
+
+    def _sleep_byte(self) -> Optional[int]:
+        """The GMMK 3 repeats its lights-off timer in the polling and properties frames."""
+        return self._b["sleep"] if self._model is not None and self._model.sleep else None
+
+    @Slot(int)
+    def setSleep(self, index: int):
+        """GMMK 3: lights-off timer. Written the way CORE writes it: in the polling frame and in every
+        profile and layer's properties frame (each with that profile's debounce)."""
+        if not self.hasSleep or not 0 <= index < len(gmmk.SLEEP_MINUTES):
+            return
+        minutes = gmmk.SLEEP_MINUTES[index]
+        if minutes == self._b["sleep"]:
+            return
+        job: Job = [(gmmk.polling_frame(self._b["polling"], minutes), gmmk.DELAY_LONG)]
+        job += [(gmmk.properties_frame(p, layer, self._b["debounce"][p], sleep=minutes), gmmk.DELAY_LONG)
+                for p in range(gmmk.PROFILES) for layer in range(gmmk.LAYERS)]
+
+        def ok():
+            self._b["sleep"] = minutes
+        self._send(job, ok)
 
     @Slot(int)
     def setDebounce(self, index: int):
@@ -627,11 +665,12 @@ class KeyboardController(QObject):
         if ms == self._b["debounce"][p]:
             return
         rgb, pid, active_layer = self._rgbeast, self._board_hw.pid, self._b["layer"]
-        frames = [gmmk.properties_frame(p, layer, ms) for layer in range(gmmk.LAYERS)]
+        vid, sleep = self._board_hw.model.vendor, self._sleep_byte()
+        frames = [gmmk.properties_frame(p, layer, ms, sleep=sleep) for layer in range(gmmk.LAYERS)]
 
         def step(send):
             # While RGBeast manages the keyboard it writes this frame, with the lighting it shows.
-            dev = rgb.managed(gmmk.VENDOR, pid) if rgb is not None else None
+            dev = rgb.managed(vid, pid) if rgb is not None else None
             if dev:
                 return rgb.set_options(dev, p, active_layer, ms)
             for f in frames:            # otherwise with the board's default lighting
