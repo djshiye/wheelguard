@@ -53,9 +53,16 @@ three layers (550 ms). Polling sends 0x08 (550 ms).
 
 ## Sharing the board with RGBeast
 
-Lighting is RGBeast's job, but the 0x07 frame carries both lighting and debounce. Wheelguard asks
-RGBeast for the lighting fields when it writes 0x07; without RGBeast it sends the board's defaults
-(Glorious mode, full brightness, side lights on) and the Keyboard page says so.
+Lighting is RGBeast's job, but the 0x07 frame carries both lighting and debounce, so only one
+program writes it at a time:
+
+- While RGBeast manages the board (installed, and lighting control turned on for it), Wheelguard
+  hands it the debounce and the profile and layer it switched to, over the system D-Bus:
+  `io.github.djshiye.RGBeast1.Manager.SetKeyboardOptions(id, '{"profile":1,"layer":1,"debounce_ms":8}')`
+  (1-based). RGBeast writes the three 0x07 frames with the lighting it shows. Wheelguard never
+  starts RGBeast just to ask, and tells it the current settings once when it first sees it.
+- Otherwise Wheelguard writes 0x07 itself with the board's defaults (Glorious mode, full
+  brightness, side lights on), and the Keyboard page says so.
 
 ## Safety
 

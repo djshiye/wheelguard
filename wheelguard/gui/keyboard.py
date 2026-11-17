@@ -1,5 +1,6 @@
 """QObject backend for the Keyboard page: a Glorious GMMK Pro's performance settings, profiles, key
-remapping and macros (wheelguard/hw/gmmk.py). Lighting lives in RGBeast.
+remapping and macros (wheelguard/hw/gmmk.py). Lighting lives in RGBeast; while RGBeast manages the
+keyboard, debounce (which shares a report with the lighting) goes through RGBeast (rgbeast.py).
 
 The board can't report its settings, so Wheelguard keeps what it last sent in
 ~/.config/wheelguard/keyboard.json and shows that. Every change is written at once, on one worker
@@ -24,12 +25,19 @@ from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
 from ..hw import gmmk, gmmk_mock
 from ..hw.hidraw import AccessDenied, HidrawDevice
 from .appsettings import config_dir
+from .rgbeast import RGBeastClient
 
 FILE = "keyboard.json"
 POLL_MS = 4000
 POLLING_CHOICES = (125, 250, 500, 1000)         # the order the page shows them in
 
-Job = List[Tuple[bytes, float]]
+# A job is a list of (frame, pause). An item may also be (step, 0): `step(send)` runs on the worker
+# thread, may send frames with `send(frame, pause)`, and returns "" or why it failed.
+Job = List[Tuple[object, float]]
+
+
+class _StepFailed(Exception):
+    pass
 
 
 # ---------------------------------------------------------------- stored state
@@ -159,13 +167,27 @@ class _Worker:
                 return
             board, job, done = item
             error = ""
+            opened: List[gmmk.Transport] = []
+
+            def send(frame, delay, opened=opened, board=board):   # bound now: one job per loop
+                if not opened:
+                    opened.append(gmmk.Transport(board, self._sleep, self._opener))
+                opened[0].send(frame, delay)
+
             try:
-                t = gmmk.Transport(board, self._sleep, self._opener)
                 try:
                     for frame, delay in job:
-                        t.send(frame, delay)
+                        if callable(frame):
+                            why = frame(send)
+                            if why:
+                                raise _StepFailed(why)
+                        else:
+                            send(frame, delay)
                 finally:
-                    t.close()
+                    if opened:
+                        opened[0].close()
+            except _StepFailed as e:
+                error = str(e)
             except AccessDenied:
                 error = "Wheelguard isn't allowed to change this keyboard's settings."
             except ValueError as e:
@@ -259,7 +281,7 @@ class KeyboardController(QObject):
     _event = Signal(int, int)
 
     def __init__(self, parent=None, store_path: Optional[Path] = None, discover=None, opener=None,
-                 sleep=None, lighting: Optional[Callable[[], Optional[dict]]] = None, poll: bool = True,
+                 sleep=None, rgbeast=None, poll: bool = True,
                  can_open: Optional[Callable[[str], bool]] = None):
         super().__init__(parent)
         mock = gmmk_mock.mock_mode()
@@ -268,7 +290,14 @@ class KeyboardController(QObject):
         self._discover = discover or ((lambda: gmmk_mock.boards(mock)) if mock else gmmk.discover)
         opener = opener or (gmmk_mock.FakeBoardDevice if mock else HidrawDevice)
         self._worker = _Worker(sleep or ((lambda s: time.sleep(s * 0.1)) if mock else time.sleep), opener)
-        self._lighting = lighting or (lambda: None)
+        # RGBeast's daemon: None in mock runs and when Qt has no D-Bus.
+        if rgbeast is None and not mock:
+            try:
+                rgbeast = RGBeastClient()
+            except ImportError:
+                rgbeast = None
+        self._rgbeast = rgbeast
+        self._rgb_id: Optional[str] = None        # RGBeast's id for the board while it manages it
         self._store = Store(store_path or config_dir() / FILE)
         self._board_hw: Optional[gmmk.Board] = None
         self._model: Optional[gmmk.KeyboardModel] = None
@@ -299,6 +328,7 @@ class KeyboardController(QObject):
         except OSError:
             boards = []
         hw = boards[0] if boards else None
+        self._check_rgbeast(hw)
         if hw == self._board_hw:
             return
         self._board_hw = hw
@@ -316,6 +346,33 @@ class KeyboardController(QObject):
         self._set_message("")
         self.changed.emit()
         self.keysChanged.emit()
+
+    def _check_rgbeast(self, hw: Optional[gmmk.Board]):
+        if hw is None or hw.qmk or self._rgbeast is None:
+            self._rgbeast_answer(None)
+            return
+        self._rgbeast.check(gmmk.VENDOR, hw.pid, self._rgbeast_answer)
+
+    def _rgbeast_answer(self, dev_id: Optional[str]):
+        if dev_id != self._rgb_id:
+            self._rgb_id = dev_id
+            if dev_id and self._board_hw is not None and self._b is not None and not self.locked:
+                # RGBeast just took the keyboard on: give it the debounce, profile and layer we set,
+                # so its lighting frames keep them.
+                self._send([(self._tell_rgbeast(self._b["profile"], self._b["layer"]), 0)], lambda: None)
+            self.changed.emit()
+
+    def _tell_rgbeast(self, profile: int, layer: int) -> Callable:
+        """A job step: RGBeast notes the profile and layer Wheelguard switched to (and that profile's
+        debounce). Never fails the job: the board has already switched."""
+        rgb, pid, ms = self._rgbeast, self._board_hw.pid, self._b["debounce"][profile]
+
+        def step(_send):
+            dev = rgb.managed(gmmk.VENDOR, pid) if rgb is not None else None
+            if dev:
+                rgb.set_options(dev, profile, layer, ms)
+            return ""
+        return step
 
     @Slot(int, int)
     def _board_switched(self, profile: int, layer: int):
@@ -414,8 +471,8 @@ class KeyboardController(QObject):
 
     @Property(bool, notify=changed)
     def rgbeastLighting(self):
-        """RGBeast supplies the lighting that travels with the debounce setting."""
-        return self._lighting() is not None
+        """RGBeast manages the keyboard's lighting, so debounce goes through it."""
+        return self._rgb_id is not None
 
     def _layer_keys(self) -> Dict[str, dict]:
         return self._b["keys"][self._b["profile"]][self._b["layer"]]
@@ -552,8 +609,19 @@ class KeyboardController(QObject):
         ms, p = gmmk.DEBOUNCE_MS[index], self._b["profile"]
         if ms == self._b["debounce"][p]:
             return
-        light = self._lighting()
-        job = [(gmmk.properties_frame(p, layer, ms, light), gmmk.DELAY_LONG) for layer in range(gmmk.LAYERS)]
+        rgb, pid, active_layer = self._rgbeast, self._board_hw.pid, self._b["layer"]
+        frames = [gmmk.properties_frame(p, layer, ms) for layer in range(gmmk.LAYERS)]
+
+        def step(send):
+            # While RGBeast manages the keyboard it writes this frame, with the lighting it shows.
+            dev = rgb.managed(gmmk.VENDOR, pid) if rgb is not None else None
+            if dev:
+                return rgb.set_options(dev, p, active_layer, ms)
+            for f in frames:            # otherwise with the board's default lighting
+                send(f, gmmk.DELAY_LONG)
+            return ""
+
+        job: Job = [(step, 0)]
 
         def ok():
             self._b["debounce"][p] = ms
@@ -583,7 +651,8 @@ class KeyboardController(QObject):
 
         def ok():
             self._b["profile"] = index
-        self._send([(gmmk.profile_frame(index, self._b["layer"]), gmmk.DELAY_LONG)], ok)
+        self._send([(gmmk.profile_frame(index, self._b["layer"]), gmmk.DELAY_LONG),
+                    (self._tell_rgbeast(index, self._b["layer"]), 0)], ok)
 
     @Slot(int)
     def setLayer(self, index: int):
@@ -593,6 +662,7 @@ class KeyboardController(QObject):
         keys = self._b["keys"][p][index]
         f = gmmk.profile_frame(p, index)
         job = [(f, gmmk.DELAY_LONG)] + self._layer_job(p, index, keys, self._store.macros) + [(f, gmmk.DELAY_LONG)]
+        job.append((self._tell_rgbeast(p, index), 0))
 
         def ok():
             self._b["layer"] = index

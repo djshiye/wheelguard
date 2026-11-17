@@ -230,8 +230,8 @@ WgScrollPage {
         Note {
             text: "How long a key must settle before it counts. Lower is quicker; go higher if a key types twice. "
                   + (keyboard.rgbeastLighting
-                     ? "The keyboard keeps this with its lighting, which RGBeast supplies, so your colours stay as they are."
-                     : "The keyboard keeps this with its lighting, so changing it puts the lighting back to Glorious mode until RGBeast is set up.")
+                     ? "RGBeast looks after the keyboard's lighting, so it saves this for you and your colours stay as they are."
+                     : "The keyboard stores this with its lighting, so changing it puts the lighting back to Glorious mode. Turn on lighting control in RGBeast to keep your colours.")
         }
     }
 

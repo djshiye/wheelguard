@@ -230,20 +230,37 @@ except ImportError:
     HAVE_QT = False
 
 
+class FakeRGBeast:
+    """Stands in for RGBeast's daemon: `dev` is its id for the board, None when it doesn't manage it."""
+
+    def __init__(self, dev):
+        self.dev, self.error, self.calls = dev, "", []
+
+    def check(self, vendor, product, done):
+        done(self.dev)
+
+    def managed(self, vendor, product):
+        return self.dev
+
+    def set_options(self, dev_id, profile, layer, debounce_ms):
+        self.calls.append((dev_id, profile, layer, debounce_ms))
+        return self.error
+
+
 @unittest.skipUnless(HAVE_QT, "PySide6 not installed")
 class ControllerTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QCoreApplication.instance() or QCoreApplication([])
 
-    def make(self, board=None, lighting=None):
+    def make(self, board=None, rgbeast=None):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.path = Path(tmp.name) / "keyboard.json"
         FakeDev.log = []
         self.board = board or gmmk.Board("/dev/hidraw9", 0x5044, ANSI, "0045", 264)
         c = KeyboardController(store_path=self.path, discover=lambda: [self.board], opener=FakeDev,
-                               sleep=lambda s: None, lighting=lighting, poll=False, can_open=lambda p: True)
+                               sleep=lambda s: None, rgbeast=rgbeast or FakeRGBeast(None), poll=False, can_open=lambda p: True)
         self.addCleanup(c.shutdown)
         return c
 
@@ -269,14 +286,51 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(c.pollingIndex, 0)
         self.assertEqual(json.loads(self.path.read_text())["boards"]["gmmk-pro-ansi"]["polling"], 125)
 
-    def test_debounce_uses_lighting(self):
-        c = self.make(lighting=lambda: {"effect": 7, "brightness": 12, "sidelights": False})
+    def test_debounce_without_rgbeast_keeps_the_default_lighting(self):
+        c = self.make()
         c.unlock()
+        c.setDebounce(1)
+        self.settle(c)
+        self.assertEqual(FakeDev.log, [gmmk.properties_frame(0, layer, 8) for layer in range(3)])
+        self.assertFalse(c.rgbeastLighting)
+
+    def test_debounce_goes_through_rgbeast_while_it_manages_the_board(self):
+        rgb = FakeRGBeast("gmmk:320f:5044:x")
+        c = self.make(rgbeast=rgb)
+        self.assertTrue(c.rgbeastLighting)
+        self.assertEqual(rgb.calls, [], "nothing is sent while Wheelguard is locked")
+        c.unlock()
+        c.rescan()              # RGBeast seen again after unlocking: nothing new to tell it
+        self.settle(c)
+        c.setDebounce(1)
+        self.settle(c)
+        self.assertEqual(FakeDev.log, [], "RGBeast writes the frame, with its lighting")
+        self.assertEqual(rgb.calls[-1], ("gmmk:320f:5044:x", 0, 0, 8))
+        self.assertEqual(c.debounceIndex, 1)
+
+        rgb.error = "RGBeast couldn't change the keyboard: denied"
         c.setDebounce(0)
         self.settle(c)
-        self.assertEqual(FakeDev.log, [gmmk.properties_frame(0, layer, 2, {"effect": 7, "brightness": 12,
-                                                                            "sidelights": False}) for layer in range(3)])
+        self.assertEqual(c.debounceIndex, 1, "a refused change isn't remembered")
+        self.assertIn("denied", c.message)
+
+        rgb.error = ""
+        c.setLayer(2)
+        self.settle(c)
+        self.assertEqual(rgb.calls[-1], ("gmmk:320f:5044:x", 0, 2, 8))
+
+    def test_rgbeast_turned_on_later_is_told_the_settings(self):
+        rgb = FakeRGBeast(None)
+        c = self.make(rgbeast=rgb)
+        c.unlock()
+        rgb.dev = "gmmk:320f:5044:x"
+        c.rescan()
+        self.settle(c)
         self.assertTrue(c.rgbeastLighting)
+        self.assertEqual(rgb.calls, [("gmmk:320f:5044:x", 0, 0, gmmk.DEFAULT_DEBOUNCE)])
+        rgb.dev = None
+        c.rescan()
+        self.assertFalse(c.rgbeastLighting)
 
     def test_keys_and_macros(self):
         c = self.make()
