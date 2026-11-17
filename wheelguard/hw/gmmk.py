@@ -13,10 +13,12 @@ import os
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
+from . import gmmk_he
 from .hidraw import DEV_DIR, SYSFS_HIDRAW, HidrawDevice, _nodes
 
 VENDOR = 0x320F          # GMMK Pro and GMMK 2
-VENDOR_GMMK3 = 0x342D    # GMMK 3 / GMMK 3 Pro, wired
+VENDOR_GMMK3 = 0x342D
+VENDOR_3794 = 0x3794          # Glorious's newer vendor ID (GMMK 3 HE revisions, GMBK, Eternal)    # GMMK 3 / GMMK 3 Pro, wired
 REPORT_ID = 7
 FRAME_LEN = 264          # what Glorious CORE builds (report ID included); padded to the descriptor's size
 SHORT_LEN = 64           # the profile commit frame
@@ -72,6 +74,22 @@ class KeyboardModel:
     sleep: bool = False      # has the idle timer (GMMK 3)
     polling_in_properties: bool = False   # GMMK 3 Pro Wireless: no 0x08 frame; the rate is byte 9 of 0x07
     macros: bool = True      # False where CORE's macro frames can't be trusted (the Numpad)
+    protocol: str = "gmmk"   # "gmmk" (these frames) | "he" (gmmk_he.py)
+    wireless: bool = False   # has 2.4 GHz / Bluetooth links (Wheelguard still only talks over the cable)
+
+
+@dataclass(frozen=True)
+class Protocol:
+    report_id: int
+    command: bytes           # the command collection in the HID report descriptor
+    event: bytes             # the event collection
+    polling: Tuple[int, ...]  # rates the board takes, fastest first
+
+
+PROTOCOLS = {
+    "gmmk": Protocol(REPORT_ID, COMMAND_COLLECTION, EVENT_COLLECTION, POLLING_HZ),
+    "he": Protocol(gmmk_he.REPORT_ID, gmmk_he.COMMAND_COLLECTION, gmmk_he.EVENT_COLLECTION, gmmk_he.POLLING_HZ),
+}
 
 
 MODELS = {
@@ -109,6 +127,28 @@ for _pid, _size, _iso in ((0xE3CB, "100", False), (0xE3D4, "100", True), (0xE3CC
         f"gmmk3-pro-wireless-{_size}-{_lay}", f"Glorious GMMK 3 Pro Wireless {_size}%{' (ISO)' if _iso else ''}",
         _lay, f"g3w{'-65' if _size == '65' else ''}-{_lay}", f"g3-{_size}", False, vendor=VENDOR_GMMK3,
         key_count=110, sleep=True, polling_in_properties=True)
+# GMMK 3 HE and GMMK 3 Pro HE, wired and wireless, over USB. Each board also has two USB IDs under vendor
+# 3794 (later revisions, per CORE: the same board). Wheelguard never writes through their receivers or Bluetooth.
+for _ids, _line, _size, _iso, _wl in (
+        ((0xE3DF, 0xB31B, 0xB308), "he", "100", False, False), ((0xE3F4, 0xB33B, 0xB328), "he", "100", True, False),
+        ((0xE3DE, 0xB31A, 0xB307), "he", "75", False, False), ((0xE3F3, 0xB33A, 0xB327), "he", "75", True, False),
+        ((0xE3DD, 0xB319, 0xB306), "he", "65", False, False), ((0xE3F2, 0xB339, 0xB326), "he", "65", True, False),
+        ((0xE3DC, 0xB312, 0xB302), "pro-he", "100", False, False),
+        ((0xE3F1, 0xB332, 0xB322), "pro-he", "100", True, False),
+        ((0xE3DB, 0xB311, 0xB301), "pro-he", "75", False, False),
+        ((0xE3F0, 0xB331, 0xB321), "pro-he", "75", True, False),
+        ((0xE3DA, 0xB310, 0xB300), "pro-he", "65", False, False),
+        ((0xE3EF, 0xB330, 0xB320), "pro-he", "65", True, False),
+        ((0xE3D9, 0xB317, 0xB305), "pro-he", "100", False, True), ((0xE3EE, 0xB337, 0xB325), "pro-he", "100", True, True),
+        ((0xE3D8, 0xB315, 0xB304), "pro-he", "75", False, True), ((0xE3ED, 0xB335, 0xB324), "pro-he", "75", True, True),
+        ((0xE3D7, 0xB313, 0xB303), "pro-he", "65", False, True), ((0xE3EC, 0xB333, 0xB323), "pro-he", "65", True, True)):
+    _lay = "iso" if _iso else "ansi"
+    _key = f"gmmk3-{_line}{'-wireless' if _wl else ''}-{_size}-{_lay}"
+    _name = (f"Glorious GMMK 3 {'Pro HE' if _line == 'pro-he' else 'HE'}{' Wireless' if _wl else ''} {_size}%"
+             f"{' (ISO)' if _iso else ''}")
+    for _vid, _pid in zip((VENDOR_GMMK3, VENDOR_3794, VENDOR_3794), _ids, strict=True):
+        MODELS[_pid] = KeyboardModel(_key, _name, _lay, f"he-{_size}-{_lay}", f"g3-{_size}", False, vendor=_vid,
+                                     sleep=True, macros=False, protocol="he", wireless=_wl)
 # GMMK Numpad (USB; its Bluetooth link is never used): 20 key positions. CORE's macro frames for it use
 # the lighting index instead of the key's, so Wheelguard leaves macros off on it.
 MODELS[0x5088] = KeyboardModel("gmmk-numpad", "Glorious GMMK Numpad", "ansi", "numpad", "numpad", True,
@@ -203,7 +243,8 @@ KEY_INDEX = {"ansi": _ANSI, "iso": _ISO, "ansi-alt": _ANSI_ALT,
              "96-ansi": {**_96, **_V2_ANSI}, "96-iso": {**_96, **_V2_ISO},
              "g3w-ansi": _G3W, "g3w-iso": dict(_G3W, Hashtag=72, Backslash=107),
              "g3w-65-ansi": _G3W_65, "g3w-65-iso": dict(_G3W_65, Hashtag=72, Backslash=107),
-             "numpad": _NUMPAD}
+             "numpad": _NUMPAD,
+             **{f"he-{k}": v for k, v in gmmk_he.KEY_NUMBERS.items()}}
 KEY_COUNT = 120                              # the Pro and GMMK 2; a model's own count is model.key_count
 LOCKED_KEYS = frozenset(("Fn", "Knob"))      # never remapped
 
@@ -566,11 +607,12 @@ def discover(sysfs: str = SYSFS_HIDRAW, dev_dir: str = DEV_DIR) -> List[Board]:
     for name, vid, pid, desc in _nodes(sysfs):
         if pid not in MODELS or vid != MODELS[pid].vendor:
             continue
+        proto = PROTOCOLS[MODELS[pid].protocol]
         b = seen.setdefault(pid, {"path": "", "event": "", "len": 0, "qmk": False, "fw": ""})
-        if COMMAND_COLLECTION in desc and not b["path"]:
-            b["path"], b["len"] = os.path.join(dev_dir, name), feature_report_length(desc, REPORT_ID)
+        if proto.command in desc and not b["path"]:
+            b["path"], b["len"] = os.path.join(dev_dir, name), feature_report_length(desc, proto.report_id)
             b["fw"] = _firmware(sysfs, name)
-        elif EVENT_COLLECTION in desc and not b["event"]:
+        elif proto.event in desc and not b["event"]:
             b["event"] = os.path.join(dev_dir, name)
         if QMK_PAGE in desc:
             b["qmk"] = True
@@ -593,7 +635,9 @@ class Transport:
         self._dev = opener(board.path)
 
     def send(self, frame: bytes, delay: float = DELAY_LONG) -> None:
-        if not frame or frame[0] != REPORT_ID:
+        if not frame or frame[0] != PROTOCOLS[self.board.model.protocol].report_id:
+            raise ValueError("not a settings frame")
+        if self.board.model.protocol == "he" and frame[1] not in gmmk_he.ALLOWED:
             raise ValueError("not a settings frame")
         n = self.board.report_len
         if len(frame) > n and any(frame[n:]):
@@ -761,6 +805,15 @@ _EXTRA_NAMES = {"Insert": "Insert", "ScrollLock": "Scroll Lock", "Pause": "Pause
 USAGE_NAMES = {code: _EXTRA_NAMES.get(k) or (f"Num {k[-1]}" if k.startswith("Numpad") else key_name(k))
                for k, code in PICKER_KEYS}
 USAGE_NAMES[44] = "Space"
+
+
+def default_usage(model: KeyboardModel, key: str) -> int:
+    """The HID usage a key types by default (for boards written key by key, like the GMMK 3 HE)."""
+    if key == "Hashtag":
+        return 0x32
+    if key == "Backslash" and model.layout == "iso":
+        return 0x64
+    return dict(PICKER_KEYS)[key]
 
 
 def binding_text(b: Optional[dict], macro_names: Optional[Dict[int, str]] = None) -> str:

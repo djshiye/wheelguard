@@ -215,15 +215,20 @@ WgScrollPage {
         WgSegmented {
             accessibleName: "Polling rate"
             Layout.fillWidth: true
-            model: ["125 Hz", "250 Hz", "500 Hz", "1000 Hz"]
-            subLabels: ["8 ms", "4 ms", "2 ms", "1 ms, fastest"]
+            model: keyboard.pollingChoices.map(c => c.label)
+            subLabels: keyboard.pollingChoices.map(c => c.sub)
             currentIndex: keyboard.pollingIndex
             onActivated: (i) => keyboard.setPolling(i)
         }
-        Note { text: "How often the keyboard reports to the computer. 1000 Hz is the default and the quickest." }
-        Item { Layout.preferredHeight: 4; Layout.fillWidth: true }
-        Text { text: "Debounce"; font.pixelSize: Theme.fsBody; font.weight: Font.Medium; color: Theme.text }
+        Note {
+            text: keyboard.pollingChoices.length > 4
+                  ? "How often the keyboard reports to the computer. 1000 Hz is the default; the faster rates use more of the computer's time."
+                  : "How often the keyboard reports to the computer. 1000 Hz is the default and the quickest."
+        }
+        Item { visible: keyboard.hasDebounce; Layout.preferredHeight: 4; Layout.fillWidth: true }
+        Text { visible: keyboard.hasDebounce; text: "Debounce"; font.pixelSize: Theme.fsBody; font.weight: Font.Medium; color: Theme.text }
         WgSegmented {
+            visible: keyboard.hasDebounce
             accessibleName: "Debounce"
             Layout.fillWidth: true
             model: ["2 ms", "8 ms", "16 ms"]
@@ -232,6 +237,7 @@ WgScrollPage {
             onActivated: (i) => keyboard.setDebounce(i)
         }
         Note {
+            visible: keyboard.hasDebounce
             text: "How long a key must settle before it counts. Lower is quicker; go higher if a key types twice. "
                   + (keyboard.rgbeastLighting
                      ? "RGBeast looks after the keyboard's lighting, so it saves this for you and your colours stay as they are."
@@ -256,8 +262,85 @@ WgScrollPage {
         }
         Note {
             visible: keyboard.hasSleep
-            text: "How long the keyboard waits with no typing before it goes into standby and turns its lights off. "
-                  + "Any key wakes it. This is stored with the lighting too, so changing it puts the lighting back to its default."
+            text: "How long the keyboard waits with no typing before it goes into standby and turns its lights off. Any key wakes it."
+                  + (keyboard.hasAnalog ? "" : " This is stored with the lighting too, so changing it puts the lighting back to its default.")
+        }
+    }
+
+    // Hall-effect keys
+    WgCard {
+        id: analogCard
+        width: parent.width
+        visible: page.ready && keyboard.hasAnalog
+        enabled: page.editable
+        spacing: 12
+        // what the sliders show while dragged; sent once when let go
+        property real act: keyboard.actuation
+        property real sens: keyboard.sensitivity
+        function mm(v) { return v.toFixed(1) + " mm" }
+        function apply() { keyboard.setAnalog(act, keyboard.rapidTrigger, sens) }
+        Connections {
+            target: keyboard
+            function onChanged() { analogCard.act = keyboard.actuation; analogCard.sens = keyboard.sensitivity }
+        }
+        SectionTitle { text: "Key press" }
+        RowLayout {
+            Layout.fillWidth: true
+            Text { text: "Actuation point"; font.pixelSize: Theme.fsBody; font.weight: Font.Medium; color: Theme.text }
+            Item { Layout.fillWidth: true }
+            Text { text: analogCard.mm(analogCard.act); font.pixelSize: Theme.fsBody; font.weight: Font.DemiBold; color: Theme.text }
+        }
+        WgSlider {
+            Accessible.name: "Actuation point"
+            Layout.fillWidth: true
+            from: 0.1
+            to: 3.6
+            stepSize: 0.1
+            snapMode: WgSlider.SnapAlways
+            value: analogCard.act
+            valueText: analogCard.mm(value)
+            onMoved: analogCard.act = Math.round(value * 10) / 10
+            onPressedChanged: if (!pressed) analogCard.apply()
+        }
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.leftMargin: 4
+            Layout.rightMargin: 4
+            Text { text: "0.1 mm, lightest touch"; font.pixelSize: Theme.fsSmall; color: Theme.textFaint }
+            Item { Layout.fillWidth: true }
+            Text { text: "3.6 mm, deepest"; font.pixelSize: Theme.fsSmall; color: Theme.textFaint }
+        }
+        Note { text: "How far a key goes down before it counts, for every key. 2.0 mm is the default." }
+        WgToggleRow {
+            Layout.topMargin: 6
+            title: "Rapid trigger"
+            description: "A key lets go as soon as it starts to rise, and presses again as soon as it goes down, instead of waiting for the actuation point. Quicker repeated presses in games."
+            checked: keyboard.rapidTrigger
+            onToggled: (v) => keyboard.setAnalog(analogCard.act, v, analogCard.sens)
+        }
+        ColumnLayout {
+            visible: keyboard.rapidTrigger
+            Layout.fillWidth: true
+            spacing: 8
+            RowLayout {
+                Layout.fillWidth: true
+                Text { text: "Sensitivity"; font.pixelSize: Theme.fsBody; font.weight: Font.Medium; color: Theme.text }
+                Item { Layout.fillWidth: true }
+                Text { text: analogCard.mm(analogCard.sens); font.pixelSize: Theme.fsBody; font.weight: Font.DemiBold; color: Theme.text }
+            }
+            WgSlider {
+                Accessible.name: "Rapid trigger sensitivity"
+                Layout.fillWidth: true
+                from: 0.1
+                to: 2.0
+                stepSize: 0.1
+                snapMode: WgSlider.SnapAlways
+                value: analogCard.sens
+                valueText: analogCard.mm(value)
+                onMoved: analogCard.sens = Math.round(value * 10) / 10
+                onPressedChanged: if (!pressed) analogCard.apply()
+            }
+            Note { text: "How far a key must rise or fall to let go or press again. 0.2 mm is the default; smaller reacts sooner." }
         }
     }
 

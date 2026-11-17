@@ -3,6 +3,7 @@
     gmmk-pro | gmmk-pro-iso    a stock board (ANSI / ISO)
     gmmk2-65[-iso] | gmmk2-96[-iso]
     gmmk3-{65,75,100}[-iso] | gmmk3-pro-{65,75,100}[-iso] | gmmk3-pro-wireless-{65,75,100}[-iso]
+    gmmk3-he-{65,75,100}[-iso] | gmmk3-pro-he[-wireless]-{65,75,100}[-iso]
     gmmk-numpad
     qmk                        a board flashed with QMK/VIA
     denied                     the board is there but its settings channel isn't accessible
@@ -20,7 +21,9 @@ from .hidraw import AccessDenied
 MOCK_ENV = "WHEELGUARD_KB_MOCK"
 _PIDS = {"gmmk-pro-iso": 0x5046, "gmmk2-65": 0x5045, "gmmk2-65-iso": 0x504A, "gmmk2-96": 0x504B,
          "gmmk2-96-iso": 0x505A}
-_PIDS.update({m.key.replace("-ansi", ""): pid for pid, m in gmmk.MODELS.items() if m.key.startswith("gmmk3")})
+for _pid, _m in gmmk.MODELS.items():
+    if _m.key.startswith("gmmk3") and _m.vendor == gmmk.VENDOR_GMMK3:
+        _PIDS.setdefault(_m.key.replace("-ansi", ""), _pid)
 _PIDS["gmmk-numpad"] = 0x5088
 MODES = ("gmmk-pro", *_PIDS, "qmk", "denied", "odd")
 MOCK_PATH = "/dev/hidraw-gmmk-mock"
@@ -36,7 +39,7 @@ def boards(mode: str) -> List[gmmk.Board]:
     model = gmmk.MODELS[pid]
     if mode == "qmk":
         return [gmmk.Board("", pid, model, "0045", 0, qmk=True)]
-    size = 33 if mode == "odd" else 265
+    size = 33 if mode == "odd" else (65 if model.protocol == "he" else 265)
     return [gmmk.Board(MOCK_PATH, pid, model, "0045", size, event_path="")]
 
 

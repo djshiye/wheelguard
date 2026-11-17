@@ -145,6 +145,7 @@ fi
 * Tue Nov 17 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.13.0-1
 - New: the Keyboard page also works with the Glorious GMMK 3 and GMMK 3 Pro, wired (100%, 75% and 65%, ANSI and ISO), with a Standby timer; controls start off until turned on
 - New: the GMMK 3 Pro Wireless (by its USB cable) and the GMMK Numpad on the Keyboard page, controls off until turned on
+- New: GMMK 3 HE and GMMK 3 Pro HE: polling up to 8000 Hz, standby, key remapping, actuation point and rapid trigger, controls off until turned on
 - udev: the GMMK 3's two vendor interfaces (vendor 342d) are granted the same way as the Pro's, checked by wheelguard-gmmk-check
 - The Keyboard page only points to RGBeast for boards RGBeast can light (the GMMK Pro so far)
 

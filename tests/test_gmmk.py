@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from wheelguard.hw import gmmk
+from wheelguard.hw import gmmk, gmmk_he
 
 ROOT = Path(__file__).resolve().parent.parent
 ANSI = gmmk.GMMK_PRO[0x5044]
@@ -241,7 +241,7 @@ class Gmmk2Tests(unittest.TestCase):
     def test_udev_rule_grants_them_through_the_helper(self):
         rules = (Path(__file__).resolve().parent.parent / "build-aux" / "70-wheelguard.rules").read_text()
         granted = set()
-        for vid in (gmmk.VENDOR, gmmk.VENDOR_GMMK3):
+        for vid in (gmmk.VENDOR, gmmk.VENDOR_GMMK3, gmmk.VENDOR_3794):
             line = next(x for x in rules.splitlines() if f'idVendor}}=="{vid:04x}"' in x and "gmmk-check" in x)
             pids = {int(p, 16) for p in line.split('idProduct}=="')[1].split('"')[0].split("|")}
             self.assertEqual(pids, {pid for pid, m in gmmk.MODELS.items() if m.vendor == vid})
@@ -252,7 +252,8 @@ class Gmmk2Tests(unittest.TestCase):
 
 class Gmmk3Tests(unittest.TestCase):
     """The GMMK 3 and GMMK 3 Pro (wired): same frames, another vendor, 126 key positions, a standby timer."""
-    BOARDS = {pid: m for pid, m in gmmk.MODELS.items() if m.vendor == gmmk.VENDOR_GMMK3 and m.key_count == 126}
+    BOARDS = {pid: m for pid, m in gmmk.MODELS.items()
+              if m.vendor == gmmk.VENDOR_GMMK3 and m.key_count == 126 and m.protocol == "gmmk"}
 
     def test_twelve_boards_all_locked(self):
         self.assertEqual(len(self.BOARDS), 12)
@@ -382,6 +383,94 @@ class Gmmk3WirelessTests(unittest.TestCase):
             gmmk.properties_frame(0, 0, 8, polling=8000)
 
 
+class HeTests(unittest.TestCase):
+    """GMMK 3 HE / Pro HE: their own 64-byte commands, written key by key."""
+    BOARDS = {pid: m for pid, m in gmmk.MODELS.items() if m.protocol == "he"}
+
+    def test_eighteen_boards_three_ids_each_locked(self):
+        self.assertEqual(len(self.BOARDS), 54)
+        self.assertEqual(len({m.key for m in self.BOARDS.values()}), 18)
+        for m in self.BOARDS.values():
+            self.assertEqual((m.confirmed, m.macros, m.sleep), (False, False, True))
+        self.assertEqual(gmmk.MODELS[0xE3D9].name, "Glorious GMMK 3 Pro HE Wireless 100%")
+        self.assertEqual(gmmk.MODELS[0xB319].key, gmmk.MODELS[0xE3DD].key)
+        self.assertEqual(gmmk.MODELS[0xB319].vendor, 0x3794)
+        for receiver in (0xE3E0, 0xE3E1, 0xE3E2, 0xE3F5, 0xE3F6, 0xE3F7, 0xB314, 0xB316, 0xB318, 0xB31C):
+            self.assertNotIn(receiver, gmmk.MODELS)
+
+    def test_every_drawn_key_has_a_number_and_a_default(self):
+        for m in self.BOARDS.values():
+            numbers = gmmk.KEY_INDEX[m.keymap]
+            ids = {k["id"] for k in gmmk.layout(m)} - {"EnterLower"}
+            self.assertLessEqual(ids, set(numbers), m.key)
+            used = [numbers[k] for k in ids]
+            self.assertEqual(len(used), len(set(used)), m.key)      # no two keys share a number
+            for k in ids - {"Fn", "Knob"}:
+                gmmk.default_usage(m, k)
+
+    def test_frames_and_checksum(self):
+        f = gmmk_he.polling_frame(2, 8000)
+        self.assertEqual(len(f), 65)
+        self.assertEqual(f[:4], bytes([0, 0x04, 2, 0]))
+        self.assertEqual(f[8], 255 - (0x04 + 2))
+        self.assertEqual(gmmk_he.polling_frame(0, 125)[3], 6)
+        p = gmmk_he.profile_frame(1, 2)
+        self.assertEqual((p[1], p[2], p[3], p[8]), (0x05, 1, 2, 255 - 8))
+
+    def test_sleep_frame(self):
+        wired = gmmk_he.sleep_frame(7, False)
+        c = wired[1:]
+        self.assertEqual(int.from_bytes(c[16:18], "little"), 420)
+        self.assertEqual(int.from_bytes(c[8:10], "little"), 0)
+        self.assertEqual({int.from_bytes(c[i:i + 2], "little") for i in (12, 14, 18)}, {0xFFFF})
+        c = gmmk_he.sleep_frame(255, True)[1:]
+        self.assertEqual([int.from_bytes(c[i:i + 2], "little") for i in (8, 10, 16)], [0, 0, 0])
+        c = gmmk_he.sleep_frame(15, True)[1:]
+        self.assertEqual([int.from_bytes(c[i:i + 2], "little") for i in (8, 10, 16)], [900] * 3)
+
+    def test_actuation(self):
+        c = gmmk_he.actuation_frame(1, 2, {"actuation": 2.0, "rapid": False, "sensitivity": 0.2})[1:]
+        self.assertEqual(list(c[:7]), [0x1A, 0x21, 0, 0, 19, 1, 0])
+        self.assertEqual((c[8], c[9], c[10], c[25]), (19, 0, 0, 36))
+        c = gmmk_he.actuation_frame(0, 0, {"actuation": 0.1, "rapid": True, "sensitivity": 0.3})[1:]
+        self.assertEqual((c[3], c[4], c[8], c[9], c[10]), (0x80, 1, 1, 2, 2))
+        for bad in ({"actuation": 4.0, "rapid": False, "sensitivity": 0.2},
+                    {"actuation": 1.25, "rapid": False, "sensitivity": 0.2},
+                    {"actuation": 1.0, "rapid": "yes", "sensitivity": 0.2}):
+            with self.assertRaises(ValueError):
+                gmmk_he.actuation_frame(0, 0, bad)
+        job = gmmk_he.analog_job(0, 1, gmmk_he.DEFAULT_ANALOG)
+        self.assertEqual([f[1] for f, _d in job], [0x05, 0x1D, 0x1A])
+
+    def test_keycodes(self):
+        self.assertEqual(gmmk_he.keycode({"kind": "key", "code": 4, "mods": ["ctrl"]}), (0, 0xE0, 4, 0))
+        self.assertEqual(gmmk_he.keycode({"kind": "key", "code": 0xE1}), (0, 0xE1, 0, 0))
+        self.assertEqual(gmmk_he.keycode({"kind": "media", "code": 3}), (3, 0, 0xE9, 0))
+        self.assertEqual(gmmk_he.keycode({"kind": "disabled"}), (0, 0, 0, 0))
+        with self.assertRaises(ValueError):
+            gmmk_he.keycode({"kind": "key", "code": 4, "mods": ["ctrl", "shift"]})
+        f = gmmk_he.key_frame(0, 1, 9, (0, 0, 5, 0))[1:]
+        self.assertEqual(list(f[:5]), [0x13, 0, 9, 1, 0])
+        self.assertEqual(list(f[8:12]), [0, 0, 5, 0])
+
+    def test_dangerous_commands_cannot_be_built_or_sent(self):
+        for cmd in (0x02, 0x1C, 0x1E, 0x07, 0x0C):
+            with self.assertRaises(ValueError):
+                gmmk_he._frame(cmd)
+        FakeDev.log = []
+        board = gmmk.Board("/dev/x", 0xE3DD, gmmk.MODELS[0xE3DD], "0100", 65)
+        t = gmmk.Transport(board, lambda s: None, FakeDev)
+        t.send(gmmk_he.profile_frame(0, 0))
+        self.assertEqual(len(FakeDev.log[0]), 65)
+        for frame in (bytes([0, 0x02]) + bytes(63), gmmk.profile_frame(0, 0)):
+            with self.assertRaises(ValueError):
+                t.send(frame)
+
+    def test_events(self):
+        self.assertEqual(gmmk_he.parse_event(bytes([5, 1, 2, 0])), (2, 0))
+        self.assertIsNone(gmmk_he.parse_event(bytes([4, 0xF1, 1, 1])))
+
+
 class NumpadTests(unittest.TestCase):
     M = gmmk.MODELS[0x5088]
 
@@ -443,6 +532,17 @@ class DiscoveryTests(unittest.TestCase):
             self.make_node(root, "hidraw7", 0xE3C8, SETTINGS_DESC, 1)             # right number, wrong vendor
             boards = gmmk.discover(os.path.join(root, "class"), "/dev")
         self.assertEqual([(b.model.key, b.path) for b in boards], [("gmmk3-pro-75-ansi", "/dev/hidraw4")])
+
+    def test_finds_a_gmmk3_he_by_its_own_collections(self):
+        he_set = bytes.fromhex("06ffff0902a101" "7508" "9540" "0900" "b102" "c0")      # no report IDs: 64 bytes
+        he_events = bytes.fromhex("06ffff0901a101" "7508" "9540" "0900" "8102" "c0")
+        with tempfile.TemporaryDirectory() as root:
+            self.make_node(root, "hidraw2", 0xB319, he_set, 1, vid=0x3794)
+            self.make_node(root, "hidraw3", 0xB319, he_events, 2, vid=0x3794)
+            self.make_node(root, "hidraw4", 0xB319, SETTINGS_DESC, 3, vid=0x3794)     # the GMMK page: not this board's
+            boards = gmmk.discover(os.path.join(root, "class"), "/dev")
+        self.assertEqual([(b.model.key, b.path, b.event_path, b.report_len) for b in boards],
+                         [("gmmk3-he-65-ansi", "/dev/hidraw2", "/dev/hidraw3", 65)])
 
     def test_qmk_board(self):
         qmk = bytes.fromhex("0660ff0961a101" "0962" "8102" "c0")
@@ -657,6 +757,46 @@ class ControllerTests(unittest.TestCase):
                          + [gmmk.properties_frame(p, layer, 8 if p == 0 else 16, sleep=3, polling=250)
                             for p in range(3) for layer in range(3)])
         self.assertTrue(all(f[1] != gmmk.CMD_POLLING for f in FakeDev.log))
+
+    def test_he_board(self):
+        m = gmmk.MODELS[0xE3DE]
+        c = self.make(board=gmmk.Board("/dev/hidraw9", 0xE3DE, m, "0100", 65))
+        self.assertEqual((c.hasAnalog, c.hasDebounce, c.hasMacros, c.hasSleep), (True, False, False, True))
+        self.assertEqual([x["label"] for x in c.pollingChoices],
+                         ["125 Hz", "250 Hz", "500 Hz", "1000 Hz", "2K Hz", "4K Hz", "8K Hz"])
+        self.assertEqual(c.pollingIndex, 3)
+        c.unlock()
+        c.setPolling(6)
+        self.settle(c)
+        self.assertEqual(FakeDev.log, [gmmk_he.polling_frame(p, 8000) for p in range(3)])
+        FakeDev.log = []
+        c.setAnalog(1.2, True, 0.1)
+        self.settle(c)
+        a = {"actuation": 1.2, "rapid": True, "sensitivity": 0.1}
+        self.assertEqual(FakeDev.log, [f for f, _d in gmmk_he.analog_job(0, 0, a)])
+        self.assertEqual((c.actuation, c.rapidTrigger, c.sensitivity), (1.2, True, 0.1))
+        FakeDev.log = []
+        c.setLayer(1)
+        self.settle(c)
+        self.assertEqual(FakeDev.log, [f for f, _d in gmmk_he.analog_job(0, 1, a)])
+        FakeDev.log = []
+        c.bindKey("KeyA", "key", 5, "")
+        self.settle(c)
+        number = gmmk.KEY_INDEX[m.keymap]["KeyA"]
+        self.assertEqual(FakeDev.log, [gmmk_he.key_frame(0, 1, number, (0, 0, 5, 0))])
+        FakeDev.log = []
+        c.resetLayer()
+        self.settle(c)
+        self.assertEqual(FakeDev.log, [gmmk_he.key_frame(0, 1, number, (0, 0, 4, 0))])
+        FakeDev.log = []
+        c.setSleep(4)
+        self.settle(c)
+        self.assertEqual(FakeDev.log, [gmmk_he.sleep_frame(255, False)])
+        FakeDev.log = []
+        c.setDebounce(0)
+        self.assertEqual(FakeDev.log, [])
+        stored = json.loads(self.path.read_text())["boards"]["gmmk3-he-75-ansi"]
+        self.assertEqual((stored["polling"], stored["analog"]["actuation"]), (8000, 1.2))
 
     def test_numpad_has_no_macros(self):
         c = self.make(board=gmmk.Board("/dev/hidraw9", 0x5088, gmmk.MODELS[0x5088], "0100", 264))

@@ -3,7 +3,8 @@
 
 Called by 70-wheelguard.rules as `wheelguard-gmmk-check %S%p` for the keyboard's hidraw nodes. Reads
 the node's HID report descriptor from sysfs and prints WHEELGUARD_GMMK=1 only when the interface holds
-the vendor settings collection (usage page 0xFF01, usage 1) or event collection (0xFF00 / 0xFF00) and
+the vendor settings collection (usage page 0xFF01, usage 1; GMMK 3 HE 0xFFFF, usage 2) or event collection
+(0xFF00 / 0xFF00; GMMK 3 HE 0xFFFF, usage 1) and
 every top-level collection on it is a vendor one: a node that also carries the keyboard, media keys or
 anything else that reports input is never granted, so no user process can read what is typed. Reads
 only; writes nothing.
@@ -13,6 +14,8 @@ import sys
 
 SETTINGS = bytes.fromhex("0601ff0901")
 EVENTS = bytes.fromhex("0600ff0a00ff")
+HE_SETTINGS = bytes.fromhex("06ffff0902")    # GMMK 3 HE: usage page 0xFFFF, usage 2
+HE_EVENTS = bytes.fromhex("06ffff0901")      # and usage 1
 
 
 def application_pages(desc: bytes):
@@ -47,7 +50,7 @@ def application_pages(desc: bytes):
 
 def vendor_only(desc: bytes) -> bool:
     """The settings or event collection is here, and every collection on this node is a vendor one."""
-    if SETTINGS not in desc and EVENTS not in desc:
+    if not any(c in desc for c in (SETTINGS, EVENTS, HE_SETTINGS, HE_EVENTS)):
         return False
     pages = application_pages(desc)
     return bool(pages) and all(p >= 0xFF00 for p in pages)

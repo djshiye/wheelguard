@@ -26,10 +26,11 @@ here touches the firmware: the bootloader IDs and firmware updates are out of sc
 | GMMK 3 Pro Wireless 75% ANSI / ISO, by cable | 342D:E3CC / E3D5 | GMMK 3 Wireless |
 | GMMK 3 Pro Wireless 65% ANSI / ISO, by cable | 342D:E3CD / E3D6 | GMMK 3 Wireless (65%) |
 | GMMK Numpad, USB | 320F:5088 | Numpad |
+| GMMK 3 HE and GMMK 3 Pro HE (wired and Wireless by cable), 100% / 75% / 65%, ANSI / ISO | 342D:E3D7-E3F4, 3794:B300-B33B | HE (own numbering) |
 
 Bootloaders (never opened): B007, B009, B00F, B010 (Pro); B008, B00A, B00B, B00C (GMMK 2); the GMMK 3's
-are under vendor 2442, which Wheelguard never matches. Other GMMK 3 models (such as the HE and wireless
-ones) aren't covered yet.
+are under vendor 2442, which Wheelguard never matches. The HE boards have no bootloader ID in CORE; their
+firmware is updated by a separate Glorious tool that Wheelguard never imitates.
 
 **GMMK 2.** Glorious CORE drives it with the same code as the Pro, so every frame below is the same. The
 differences are the key positions, its default key assignment (one for both 65% boards, one for both
@@ -73,7 +74,30 @@ the Numpad's macro-mode frame with its lighting positions rather than its key po
 right can't be told without the board: Wheelguard offers no macros on it. Its Bluetooth link
 (093A:2860, a generic PixArt ID) is never matched.
 
-Two vendor HID interfaces matter:
+**GMMK 3 HE and GMMK 3 Pro HE (Hall-effect keys).** A different protocol in CORE (its own handler). Each
+board has three USB IDs (one under 342D, two under 3794); CORE treats them as the same board.
+
+- One 64-byte command per setting, as a Feature report with no report ID (65 bytes with the leading 0)
+  on usage page 0xFFFF, usage 2. Byte 7 of the command is a checksum: 255 minus the sum of bytes 0 to 6.
+  Profile and layer are 0-based. Events come on 0xFFFF / usage 1: `05 01 pp ll` after a switch on the board.
+- 0x04 polling rate per profile: `[1]` profile, `[2]` 0 = 8000 Hz, 1 = 4000, 2 = 2000, 3 = 1000, 4 = 500,
+  5 = 250, 6 = 125. Wheelguard sends it to all three profiles.
+- 0x05 switch profile and layer: `[1]` profile, `[2]` layer.
+- 0x12 standby, in seconds, little-endian 16-bit: USB at 16, and on the Wireless also Bluetooth at 8 and
+  2.4 GHz at 10; deep-sleep fields (12, 14, 18) stay 0xFFFF. 0 = never.
+- 0x13 one key: `[1]` profile, `[2]` the key's number, `[3]` layer, `[4]` 0, then a 4-byte keycode at 8.
+  Wheelguard offers keys with at most one modifier, media and mouse buttons; no macros, no profile keys.
+- 0x1D with `[1]` 3 (custom mode), then 0x1A per profile and layer: `[1]` layer << 4 | profile,
+  `[3]` 0x80 with rapid trigger, `[4]` actuation, `[5]` 1; payload 8 actuation, 9 and 10 rapid-trigger
+  sensitivity, 25 the bottom dead zone (kept at 3.7 mm). Millimetres go on the wire as round(mm x 10) - 1.
+  Wheelguard offers one actuation point (0.1 to 3.6 mm) and rapid trigger (0.1 to 2.0 mm) for the whole
+  layer, sent again on every profile or layer switch.
+- No debounce on the Keyboard page: CORE has a 0x11 debounce frame (5 ms steps), but magnetic keys have
+  no contacts to bounce, so Wheelguard leaves the board's default. Lighting (0x07, 0x08, 0x0C, 0x51) stays RGBeast's job.
+- Never built, so impossible to send: factory reset (0x02), calibration (0x1C, 0x1E), the travel stream
+  (0x1B), macros (0x16) and the advanced per-key modes.
+
+Two vendor HID interfaces matter (all boards except the HE):
 
 - **Settings**: usage page 0xFF01, usage 0x01. Feature report ID 7. Glorious CORE builds 264-byte frames
   (64 for the profile switch); Wheelguard pads every frame to the Feature report size the descriptor
