@@ -478,9 +478,9 @@ class MouseController(QObject):
     wirelessText = Property(str, lambda s: s._model.wireless_text, notify=infoChanged)
     supportedNames = Property("QVariantList", lambda s: list(models.supported_names()), constant=True)
     supportedSummary = Property(str, lambda s: models.supported_summary(), constant=True)     # "the A, B and C, plus …"
-    # Razer power settings
-    idleMin = Property(int, lambda s: razer.IDLE_MIN, constant=True)
-    idleMax = Property(int, lambda s: razer.IDLE_MAX, constant=True)
+    # Razer and Glorious power settings: the sleep timer's range is the model's (0 = never sleeps)
+    idleMin = Property(int, lambda s: s._model.idle_range[0], notify=infoChanged)
+    idleMax = Property(int, lambda s: s._model.idle_range[1], notify=infoChanged)
     lowBatteryCodes = Property("QVariantList", lambda s: [c for c, _l in razer.LOW_BATTERY], constant=True)
     lowBatteryLabels = Property("QVariantList", lambda s: [l for _c, l in razer.LOW_BATTERY], constant=True)
     # Endgame Gear constants shared with its codec so the QML never duplicates an encoding.

@@ -3,7 +3,7 @@
 Pure Python (no Qt); the GUI runs these on a worker thread. Each operation opens the hidraw node,
 does its work and closes it, so nothing stays open between operations and nothing is sent unless
 the user asked for it. The same flow serves every supported mouse; the model specifics live in its
-driver (drivers.py, razer.py, logitech.py) and codec.
+driver (drivers.py, razer.py, logitech.py, glorious.py) and codec.
 
 Apply = fresh read -> identity gate -> sanity check -> backup before the first write -> apply the
 edits to the *fresh* settings -> write only what changed -> read again and compare. Starting from a
@@ -25,7 +25,8 @@ from .errors import (ApplyResult, Battery, HwError, MouseAsleep, NoAccess, NoDev
 from .hidraw import AccessDenied
 from .logitech import LogitechDriver
 from .models import supported_summary
-from . import logitech, razer
+from . import glorious, logitech, razer
+from .glorious import GloriousV2ProDriver, GloriousV3Driver
 from .razer import RazerDriver
 
 Progress = Callable[[float, str], None]
@@ -44,8 +45,10 @@ def default_backup_dir() -> Path:
     return config_home() / "wheelguard" / "backups"
 
 
-DRIVERS = {"endgame": EndgameDriver, "razer": RazerDriver, "logitech": LogitechDriver}
-CODECS = {**{d.model.key: d.codec for d in DRIVERS.values()}, **razer.CODECS, **logitech.CODECS}   # one per model
+DRIVERS = {"endgame": EndgameDriver, "razer": RazerDriver, "logitech": LogitechDriver,
+           "glorious-v3": GloriousV3Driver, "glorious-v2pro": GloriousV2ProDriver}
+CODECS = {**{d.model.key: d.codec for d in DRIVERS.values()}, **razer.CODECS, **logitech.CODECS,
+          **glorious.CODECS}   # one per model
 
 
 def codec_for(model_key: str):
@@ -58,7 +61,7 @@ _preferred: Optional[tuple] = None      # (vendor, product) of the mouse the scr
 
 def pick(cands, preferred: Optional[tuple]):
     """Which supported mouse to talk to when several are connected: the one being protected (the same
-    USB device, else the same brand), otherwise the first found (Endgame Gear, Razer, Logitech)."""
+    USB device, else the same brand), otherwise the first found (Endgame Gear, Razer, Logitech, Glorious)."""
     if preferred:
         for match in (lambda c: (c.vid, c.pid) == tuple(preferred), lambda c: c.vid == preferred[0]):
             found = next((c for c in cands if match(c)), None)

@@ -11,6 +11,7 @@ from wheelguard.hw import models
 class Names(unittest.TestCase):
     def test_every_known_mouse_has_a_supported_model_name_and_connection(self):
         names = set(models.supported_names())
+        names |= {link.label for link in models.GLORIOUS_LINKS.values() if link.label}     # the O3 / D3 dongle
         for ident in mice.KNOWN_MICE:
             model, connection = mice.identify(*ident)
             self.assertIn(model, names)

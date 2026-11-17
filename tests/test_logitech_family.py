@@ -54,7 +54,7 @@ class Table(unittest.TestCase):
     def test_summary_names_both_families(self):
         text = models.supported_summary()
         self.assertTrue(text.startswith("the Endgame Gear XM2w 4k v2, Logitech G Pro X Superlight and Razer DeathAdder V4 Pro"))
-        self.assertIn("more Logitech and Razer mice (read-only for now)", text)
+        self.assertIn("more Glorious, Logitech and Razer mice (read-only for now)", text)
 
 
 class DpiRange(unittest.TestCase):

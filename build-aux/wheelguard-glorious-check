@@ -1,0 +1,69 @@
+#!/usr/bin/python3 -IsP
+"""udev helper: is this Glorious mouse hidraw node its settings interface, and nothing else?
+
+Called by 70-wheelguard.rules as `wheelguard-glorious-check %S%p` for the hidraw nodes of the Glorious mice
+Wheelguard knows. Reads the node's HID report descriptor from sysfs and prints WHEELGUARD_GLORIOUS=1 only
+when the interface holds the settings collection (usage page 0xFF00 / usage 1 on the Model O3 / D3, usage
+page 0xFFFF / usage 0 on the Sinowealth mice) and every top-level collection on it is a vendor one: a node
+that also carries the pointer, keys bound to buttons, media keys or anything else that reports input is
+never granted, so no user process can read what the mouse sends. Reads only; writes nothing.
+"""
+import os
+import sys
+
+SETTINGS = (bytes.fromhex("0600ff0901"), bytes.fromhex("06ffff0900"))
+
+
+def application_pages(desc: bytes):
+    """Usage page of every top-level (application) collection in a HID report descriptor."""
+    pages, page, depth, i = [], 0, 0, 0
+    stack = []
+    while i < len(desc):
+        prefix = desc[i]
+        if prefix == 0xFE:                          # long item
+            if i + 1 >= len(desc):
+                break
+            i += 3 + desc[i + 1]
+            continue
+        n = (0, 1, 2, 4)[prefix & 3]
+        val = int.from_bytes(desc[i + 1:i + 1 + n], "little")
+        tag = prefix & 0xFC
+        if tag == 0x04:                             # Usage Page
+            page = val
+        elif tag == 0xA4:                           # Push
+            stack.append(page)
+        elif tag == 0xB4 and stack:                 # Pop
+            page = stack.pop()
+        elif tag == 0xA0:                           # Collection
+            if depth == 0:
+                pages.append(page)
+            depth += 1
+        elif tag == 0xC0:                           # End Collection
+            depth = max(0, depth - 1)
+        i += 1 + n
+    return pages
+
+
+def vendor_only(desc: bytes) -> bool:
+    """The settings collection is here, and every collection on this node is a vendor one."""
+    if not any(s in desc for s in SETTINGS):
+        return False
+    pages = application_pages(desc)
+    return bool(pages) and all(p >= 0xFF00 for p in pages)
+
+
+def main(argv) -> int:
+    if len(argv) != 2:
+        return 1
+    try:
+        with open(os.path.join(argv[1], "device", "report_descriptor"), "rb") as f:
+            desc = f.read(4096)
+    except OSError:
+        return 0
+    if vendor_only(desc):
+        print("WHEELGUARD_GLORIOUS=1")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

@@ -33,6 +33,7 @@ class Model:
     # confirms the readings are right. A model of a family Wheelguard already drives starts this way.
     confirmed: bool = True
     art: str = ""               # which drawing MouseArt.qml uses ("" = the model's own, by key)
+    idle_range: Tuple[int, int] = (1, 15)   # "idle": the sleep timer's range in minutes (0 = never sleeps)
 
     @property
     def art_key(self) -> str:
@@ -51,6 +52,8 @@ FEATURES = (
     "sleep_deep",       # Endgame: sleep + deep sleep in minutes, LED-off-on-lift
     "idle",             # Razer: one sleep timer, 1-15 minutes
     "low_battery",      # Razer: low-battery warning threshold
+    "status_only",      # Glorious: the mouse can't report its DPI stages or polling rate back, so the page
+                        # shows only what it can read (battery, firmware and, with "idle", the sleep timer)
 )
 
 ENDGAME_XM2W = Model(
@@ -210,7 +213,95 @@ LOGI_LINKS: Dict[int, LogiLink] = {
     **{link.pid: link for _m, links in _LOGI_FAMILY for link in links},
 }
 
-MODELS: Dict[str, Model] = {m.key: m for m in (ENDGAME_XM2W,) + LOGI_FAMILY + RAZER_FAMILY}
+# ---------------------------------------------------------------- the Glorious mice
+# Two protocols, decoded from the Glorious CORE app (docs/glorious-mouse-protocol.md). "v3": the Model O3 / D3
+# (vendor 3794), one command per setting on report 3. "v2pro": the Sinowealth wireless mice (vendor 258a) on
+# report 0. Neither protocol has a command that reads the DPI stages or the polling rate back, so Wheelguard
+# shows what it can read (battery, charging, firmware; the O3 / D3 sleep timer too) and changes nothing
+# until someone with the mouse confirms the readings. Bootloader ids and the ids the app gives to two
+# products (258a:2014, 3794:a100) are left out on purpose, and so is Bluetooth.
+
+@dataclass(frozen=True)
+class GloriousLink:
+    pid: int
+    model: str                  # Model.key
+    wired: bool
+    protocol: str               # "v3" | "v2pro"
+    label: str = ""             # the name before the mouse says which it is (the O3 and D3 share a dongle)
+
+
+GLORIOUS_V3_VENDOR, GLORIOUS_V2PRO_VENDOR = 0x3794, 0x258A
+_GLORIOUS_O, _GLORIOUS_D = "endgame-xm2w-4k-v2", "razer-deathadder-v4-pro"     # symmetric / right-handed art
+_G_RATES = {125: 0x08, 250: 0x04, 500: 0x02, 1000: 0x01, 2000: 0x20, 4000: 0x40, 8000: 0x80}    # v2pro codes
+
+
+def _glorious_v3(key, name, art, wireless):
+    rates = (125, 250, 500, 1000) + ((2000, 4000, 8000) if wireless else ())
+    return Model(key=key, name=name, brand="Glorious", dpi_min=50, dpi_max=30000, dpi_step=50, max_stages=6,
+                 polling=tuple(Polling(hz, f"{hz} Hz") for hz in rates),        # the command takes Hz
+                 features=frozenset(("status_only", "idle")),
+                 wireless_text="Wireless via 2.4 GHz dongle" if wireless else "Wired",
+                 usb_vendor=GLORIOUS_V3_VENDOR, confirmed=False, art=art, idle_range=(0, 60))
+
+
+def _glorious_v2pro(key, name, dpi_max, art, max_hz=1000):
+    return Model(key=key, name=name, brand="Glorious", dpi_min=100, dpi_max=dpi_max, dpi_step=50, max_stages=6,
+                 polling=tuple(Polling(code, f"{hz} Hz") for hz, code in _G_RATES.items() if hz <= max_hz),
+                 features=frozenset(("status_only",)), wireless_text="Wireless via 2.4 GHz dongle",
+                 usb_vendor=GLORIOUS_V2PRO_VENDOR, confirmed=False, art=art)
+
+
+GLORIOUS_O3 = _glorious_v3("glorious-model-o3-wireless", "Glorious Model O3 Wireless", _GLORIOUS_O, True)
+GLORIOUS_D3 = _glorious_v3("glorious-model-d3-wireless", "Glorious Model D3 Wireless", _GLORIOUS_D, True)
+GLORIOUS_O3_DONGLE = 0xA300         # shared by the O3 and D3 Wireless: the mouse's name (command 0x99) decides
+_GLORIOUS_V3 = [     # (model, [(pid, wired, label)])
+    (GLORIOUS_O3, [(0xA312, True, ""), (GLORIOUS_O3_DONGLE, False, "Glorious Model O3 / D3 Wireless")]),
+    (GLORIOUS_D3, [(0xA322, True, "")]),
+    (_glorious_v3("glorious-model-o3", "Glorious Model O3", _GLORIOUS_O, False), [(0xA310, True, "")]),
+    (_glorious_v3("glorious-model-d3", "Glorious Model D3", _GLORIOUS_D, False), [(0xA320, True, "")]),
+]
+_GLORIOUS_V2PRO = [     # (model, cable pid, dongle pid)
+    (_glorious_v2pro("glorious-model-o-wireless", "Glorious Model O Wireless", 19000, _GLORIOUS_O), 0x2011, 0x2022),
+    (_glorious_v2pro("glorious-model-o-minus-wireless", "Glorious Model O- Wireless", 19000, _GLORIOUS_O), 0x2013, 0x2024),
+    (_glorious_v2pro("glorious-model-o-pro-wireless", "Glorious Model O Pro Wireless", 19000, _GLORIOUS_O), 0x2015, 0x2027),
+    (_glorious_v2pro("glorious-model-d-wireless", "Glorious Model D Wireless", 19000, _GLORIOUS_D), 0x2012, 0x2023),
+    # the cable id 2014 is also given to the "Model D2 Minus Wired" in the app: only the dongle is matched
+    (_glorious_v2pro("glorious-model-d-minus-wireless", "Glorious Model D- Wireless", 19000, _GLORIOUS_D), None, 0x2025),
+    (_glorious_v2pro("glorious-model-d-pro-wireless", "Glorious Model D Pro Wireless", 19000, _GLORIOUS_D), 0x2017, 0x2029),
+    (_glorious_v2pro("glorious-series-one-pro-wireless", "Glorious Series One Pro Wireless", 19000, _GLORIOUS_O),
+     0x2018, 0x2031),
+    (_glorious_v2pro("glorious-model-o2-pro-wireless", "Glorious Model O2 Pro Wireless", 26000, _GLORIOUS_O), 0x2019, 0x2033),
+    (_glorious_v2pro("glorious-model-d2-pro-wireless", "Glorious Model D2 Pro Wireless", 26000, _GLORIOUS_D), 0x201A, 0x2034),
+    (_glorious_v2pro("glorious-model-o2-pro-4k8k", "Glorious Model O2 Pro 4K/8K Wireless", 26000, _GLORIOUS_O, 8000),
+     0x201B, 0x2035),
+    (_glorious_v2pro("glorious-model-d2-pro-4k8k", "Glorious Model D2 Pro 4K/8K Wireless", 26000, _GLORIOUS_D, 8000),
+     0x201C, 0x2036),
+    (_glorious_v2pro("glorious-series-2-pro-wireless", "Glorious Series 2 Pro Wireless", 26000, _GLORIOUS_O, 8000),
+     0x201D, 0x2039),
+]
+
+
+def _glorious_links():
+    links: Dict[int, GloriousLink] = {}
+    for model, entries in _GLORIOUS_V3:
+        for pid, wired, label in entries:
+            links[pid] = GloriousLink(pid, model.key, wired, "v3", label)
+    for model, cable, dongle in _GLORIOUS_V2PRO:
+        for pid, wired in ((cable, True), (dongle, False)):
+            if pid is not None:
+                links[pid] = GloriousLink(pid, model.key, wired, "v2pro")
+    return links
+
+
+GLORIOUS_FAMILY: Tuple[Model, ...] = tuple(m for m, _l in _GLORIOUS_V3) + tuple(m for m, *_p in _GLORIOUS_V2PRO)
+GLORIOUS_LINKS: Dict[int, GloriousLink] = _glorious_links()
+
+
+def glorious_vendor(link: GloriousLink) -> int:
+    return GLORIOUS_V3_VENDOR if link.protocol == "v3" else GLORIOUS_V2PRO_VENDOR
+
+
+MODELS: Dict[str, Model] = {m.key: m for m in (ENDGAME_XM2W,) + LOGI_FAMILY + RAZER_FAMILY + GLORIOUS_FAMILY}
 DEFAULT = ENDGAME_XM2W
 
 
@@ -236,4 +327,5 @@ def supported_summary(joiner: str = "and") -> str:
     text = ", ".join(names[:-1]) + f" {joiner} " + names[-1] if len(names) > 1 else names[0]
     more = [m for m in MODELS.values() if not m.confirmed]
     brands = sorted({m.brand for m in more})
-    return f"the {text}" + (f", plus {len(more)} more {' and '.join(brands)} mice (read-only for now)" if more else "")
+    brand_text = ", ".join(brands[:-1]) + " and " + brands[-1] if len(brands) > 1 else "".join(brands)
+    return f"the {text}" + (f", plus {len(more)} more {brand_text} mice (read-only for now)" if more else "")

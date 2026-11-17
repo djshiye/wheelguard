@@ -225,7 +225,7 @@ WgScrollPage {
         }
         Text {
             Layout.fillWidth: true
-            text: "None of the vendors publish these protocols. The Endgame Gear one was reverse-engineered from the vendor's Windows configuration tool; the Logitech and Razer ones follow the open-source libratbag, Solaar and OpenRazer projects. They haven't been verified on every mouse and firmware. Wheelguard is an independent project and isn't affiliated with or endorsed by Endgame Gear, Logitech or Razer."
+            text: "None of the vendors publish these protocols. The Endgame Gear one was reverse-engineered from the vendor's Windows configuration tool; the Logitech and Razer ones follow the open-source libratbag, Solaar and OpenRazer projects; the ones for Glorious mice were decoded from the Glorious CORE app. They haven't been verified on every mouse and firmware. Wheelguard is an independent project and isn't affiliated with or endorsed by Endgame Gear, Glorious, Logitech or Razer."
             font.pixelSize: Theme.fsBody
             color: Theme.textMuted
             wrapMode: Text.WordWrap
