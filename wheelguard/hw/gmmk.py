@@ -13,12 +13,12 @@ import os
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from . import gmmk_he
+from . import gmbk, gmmk_eternal, gmmk_he
 from .hidraw import DEV_DIR, SYSFS_HIDRAW, HidrawDevice, _nodes
 
 VENDOR = 0x320F          # GMMK Pro and GMMK 2
-VENDOR_GMMK3 = 0x342D
-VENDOR_3794 = 0x3794          # Glorious's newer vendor ID (GMMK 3 HE revisions, GMBK, Eternal)    # GMMK 3 / GMMK 3 Pro, wired
+VENDOR_GMMK3 = 0x342D    # GMMK 3 / GMMK 3 Pro
+VENDOR_3794 = 0x3794     # newer Glorious boards (GMMK 3 HE revisions, GMBK, Eternal)
 REPORT_ID = 7
 FRAME_LEN = 264          # what Glorious CORE builds (report ID included); padded to the descriptor's size
 SHORT_LEN = 64           # the profile commit frame
@@ -76,19 +76,26 @@ class KeyboardModel:
     macros: bool = True      # False where CORE's macro frames can't be trusted (the Numpad)
     protocol: str = "gmmk"   # "gmmk" (these frames) | "he" (gmmk_he.py)
     wireless: bool = False   # has 2.4 GHz / Bluetooth links (Wheelguard still only talks over the cable)
+    default_debounce: int = 16   # ms, what the board starts with
+    default_sleep: int = 7       # minutes (255 never), what the board starts with
 
 
 @dataclass(frozen=True)
 class Protocol:
     report_id: int
     command: bytes           # the command collection in the HID report descriptor
-    event: bytes             # the event collection
+    event: Optional[bytes]   # the event collection (None: Wheelguard doesn't listen)
     polling: Tuple[int, ...]  # rates the board takes, fastest first
+    output: bool = False     # settings go as output reports (write), not Feature reports
 
 
 PROTOCOLS = {
     "gmmk": Protocol(REPORT_ID, COMMAND_COLLECTION, EVENT_COLLECTION, POLLING_HZ),
     "he": Protocol(gmmk_he.REPORT_ID, gmmk_he.COMMAND_COLLECTION, gmmk_he.EVENT_COLLECTION, gmmk_he.POLLING_HZ),
+    # The GMBK's event interface only reports whether a write worked, so it isn't opened.
+    "gmbk": Protocol(gmbk.REPORT_ID, COMMAND_COLLECTION, None, gmbk.POLLING_HZ),
+    "eternal": Protocol(gmmk_eternal.REPORT_ID, gmmk_eternal.COMMAND_COLLECTION, None, gmmk_eternal.POLLING_HZ,
+                        output=True),
 }
 
 
@@ -153,10 +160,24 @@ for _ids, _line, _size, _iso, _wl in (
 # the lighting index instead of the key's, so Wheelguard leaves macros off on it.
 MODELS[0x5088] = KeyboardModel("gmmk-numpad", "Glorious GMMK Numpad", "ansi", "numpad", "numpad", True,
                                key_count=20, macros=False)
+# GMBK 75%: its own settings and key frames (gmbk.py); no macros. Right Alt is a layer key and stays put.
+for _pid, _iso in ((0xB000, False), (0xB001, True)):
+    _lay = "iso" if _iso else "ansi"
+    MODELS[_pid] = KeyboardModel(f"gmbk-75-{_lay}", f"Glorious GMBK 75%{' (ISO)' if _iso else ''}", _lay,
+                                 f"gmbk-{_lay}", "g3-75", False, vendor=VENDOR_3794, key_count=gmbk.PAIRS,
+                                 sleep=True, macros=False, protocol="gmbk", default_debounce=gmbk.DEFAULT_DEBOUNCE)
+# GMMK Eternal 96: output reports with a checksum, written setting by setting and key by key (gmmk_eternal.py).
+for _pid, _iso in ((0xB010, False), (0xB011, True)):
+    _lay = "iso" if _iso else "ansi"
+    MODELS[_pid] = KeyboardModel(f"gmmk-eternal-96-{_lay}", f"Glorious GMMK Eternal 96%{' (ISO)' if _iso else ''}",
+                                 _lay, f"eternal-{_lay}", "96", False, vendor=VENDOR_3794, sleep=True, macros=False,
+                                 protocol="eternal", default_debounce=16 if _iso else 8, default_sleep=255)
 GMMK_PRO = MODELS            # the name before the GMMK 2 joined
 # Pro ANSI, ISO, Alt ANSI, Alt ISO; GMMK 2 65 ANSI, 65 ISO, 96 ANSI, 96 ISO. The GMMK 3's bootloader has a
 # vendor of its own (2442) that Wheelguard never matches.
 BOOTLOADER_PIDS = frozenset((0xB007, 0xB009, 0xB00F, 0xB010, 0xB008, 0xB00A, 0xB00B, 0xB00C))
+# Every bootloader as (vendor, product): the ones above, the GMBK's (B002, B003) and the Eternal's (B012).
+BOOTLOADERS = frozenset({(VENDOR, p) for p in BOOTLOADER_PIDS} | {(VENDOR_3794, p) for p in (0xB002, 0xB003, 0xB012)})
 
 # ---------------------------------------------------------------- key positions in the keymap frame
 _ANSI = {
@@ -244,9 +265,17 @@ KEY_INDEX = {"ansi": _ANSI, "iso": _ISO, "ansi-alt": _ANSI_ALT,
              "g3w-ansi": _G3W, "g3w-iso": dict(_G3W, Hashtag=72, Backslash=107),
              "g3w-65-ansi": _G3W_65, "g3w-65-iso": dict(_G3W_65, Hashtag=72, Backslash=107),
              "numpad": _NUMPAD,
+             **{f"gmbk-{k}": v for k, v in gmbk.KEY_INDEX.items()},
+             **{f"eternal-{k}": v for k, v in gmmk_eternal.KEY_INDEX.items()},
              **{f"he-{k}": v for k, v in gmmk_he.KEY_NUMBERS.items()}}
 KEY_COUNT = 120                              # the Pro and GMMK 2; a model's own count is model.key_count
 LOCKED_KEYS = frozenset(("Fn", "Knob"))      # never remapped
+
+
+def locked_keys(model: KeyboardModel) -> frozenset:
+    """Keys a board's controls never change: Fn and the knob, plus what its protocol can't put back."""
+    extra = {"gmbk": gmbk.LOCKED, "eternal": gmmk_eternal.LOCKED}.get(model.protocol, frozenset())
+    return LOCKED_KEYS | extra
 
 # The board's own key assignment, as Glorious CORE sends it: 120 type bytes then 120 code bytes (0xFF = no
 # key there). Type 1 = key (code = HID usage), 2 = modifier, 3 = media (code = media function).
@@ -542,8 +571,9 @@ def macro_frame(slot: int, events: Sequence[dict]) -> bytes:
 
 
 # ---------------------------------------------------------------- report descriptor
-def feature_report_length(desc: bytes, report_id: int) -> int:
+def feature_report_length(desc: bytes, report_id: int, main_tag: int = 0xB0) -> int:
     """Bytes of Feature report `report_id`, report ID byte included (0 = the descriptor has none).
+    `main_tag` 0x90 measures the Output report instead.
 
     A minimal HID descriptor walk: global Report Size / Count / ID, Push / Pop, and Feature main items.
     """
@@ -571,7 +601,7 @@ def feature_report_length(desc: bytes, report_id: int) -> int:
             stack.append((size, count, rid))
         elif tag == 0xB4 and stack:
             size, count, rid = stack.pop()
-        elif tag == 0xB0:                        # Feature
+        elif tag == main_tag:                    # Feature (or Output)
             bits[rid] = bits.get(rid, 0) + size * count
         i += 1 + n
     if report_id not in bits:
@@ -610,9 +640,11 @@ def discover(sysfs: str = SYSFS_HIDRAW, dev_dir: str = DEV_DIR) -> List[Board]:
         proto = PROTOCOLS[MODELS[pid].protocol]
         b = seen.setdefault(pid, {"path": "", "event": "", "len": 0, "qmk": False, "fw": ""})
         if proto.command in desc and not b["path"]:
-            b["path"], b["len"] = os.path.join(dev_dir, name), feature_report_length(desc, proto.report_id)
+            b["path"] = os.path.join(dev_dir, name)
+            b["len"] = feature_report_length(desc, proto.report_id, 0x90 if proto.output else 0xB0)
             b["fw"] = _firmware(sysfs, name)
-        elif proto.event in desc and not b["event"]:
+            continue                             # the Eternal's settings page is QMK's page too
+        elif proto.event and proto.event in desc and not b["event"]:
             b["event"] = os.path.join(dev_dir, name)
         if QMK_PAGE in desc:
             b["qmk"] = True
@@ -628,6 +660,8 @@ class Transport:
     def __init__(self, board: Board, sleep, opener=HidrawDevice):
         if board.qmk or not board.path:
             raise ValueError("this board doesn't speak the Glorious protocol")
+        if (board.model.vendor, board.pid) in BOOTLOADERS:
+            raise ValueError("Wheelguard never writes to a bootloader")
         if board.report_len < SHORT_LEN or board.report_len > 1024:
             raise ValueError(f"unexpected settings report size ({board.report_len} bytes)")
         self.board = board
@@ -635,14 +669,23 @@ class Transport:
         self._dev = opener(board.path)
 
     def send(self, frame: bytes, delay: float = DELAY_LONG) -> None:
-        if not frame or frame[0] != PROTOCOLS[self.board.model.protocol].report_id:
+        proto_name = self.board.model.protocol
+        proto = PROTOCOLS[proto_name]
+        if not frame or frame[0] != proto.report_id:
             raise ValueError("not a settings frame")
-        if self.board.model.protocol == "he" and frame[1] not in gmmk_he.ALLOWED:
+        if proto_name == "he" and frame[1] not in gmmk_he.ALLOWED:
             raise ValueError("not a settings frame")
+        why = {"gmbk": gmbk.check, "eternal": gmmk_eternal.check}.get(proto_name, lambda _f: None)(frame)
+        if why:
+            raise ValueError(why)
         n = self.board.report_len
         if len(frame) > n and any(frame[n:]):
             raise ValueError("frame doesn't fit the board's report")
-        self._dev.set_feature(bytes(frame[:n]).ljust(n, b"\0"))
+        data = bytes(frame[:n]).ljust(n, b"\0")
+        if proto.output:
+            self._dev.write(data)
+        else:
+            self._dev.set_feature(data)
         self._sleep(delay)
 
     def close(self) -> None:

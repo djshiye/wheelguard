@@ -232,14 +232,16 @@ WgScrollPage {
             accessibleName: "Debounce"
             Layout.fillWidth: true
             model: ["2 ms", "8 ms", "16 ms"]
-            subLabels: ["quickest", "balanced", "steadiest, default"]
+            subLabels: ["quickest", "balanced", "steadiest"].map((t, i) => i === keyboard.debounceDefault ? (t + ", default") : t)
             currentIndex: keyboard.debounceIndex
             onActivated: (i) => keyboard.setDebounce(i)
         }
         Note {
             visible: keyboard.hasDebounce
             text: "How long a key must settle before it counts. Lower is quicker; go higher if a key types twice. "
-                  + (keyboard.rgbeastLighting
+                  + (!keyboard.sharesLighting
+                     ? "It's one setting for the whole keyboard."
+                     : keyboard.rgbeastLighting
                      ? "RGBeast looks after the keyboard's lighting, so it saves this for you and your colours stay as they are."
                      : keyboard.rgbeastSupports
                        ? "The keyboard stores this with its lighting, so changing it puts the lighting back to Glorious mode. Turn on lighting control in RGBeast to keep your colours."
@@ -256,14 +258,14 @@ WgScrollPage {
             accessibleName: "Standby"
             Layout.fillWidth: true
             model: ["3 min", "7 min", "15 min", "30 min", "Never"]
-            subLabels: ["soonest", "default", "", "", "stays lit"]
+            subLabels: ["soonest", "", "", "", "stays lit"].map((t, i) => i === keyboard.sleepDefault ? (t ? t + ", default" : "default") : t)
             currentIndex: keyboard.sleepIndex
             onActivated: (i) => keyboard.setSleep(i)
         }
         Note {
             visible: keyboard.hasSleep
             text: "How long the keyboard waits with no typing before it goes into standby and turns its lights off. Any key wakes it."
-                  + (keyboard.hasAnalog ? "" : " This is stored with the lighting too, so changing it puts the lighting back to its default.")
+                  + (!keyboard.sharesLighting ? "" : " This is stored with the lighting too, so changing it puts the lighting back to its default.")
         }
     }
 
@@ -381,7 +383,12 @@ WgScrollPage {
                 }
             }
         }
-        Note { text: "Each profile has three layers, and each layer its own keys. The keyboard remembers all nine, and the page follows when you switch on the keyboard itself." }
+        Note {
+            text: "Each profile has three layers, and each layer its own keys. The keyboard remembers all nine"
+                  + (!keyboard.layerSwitches ? ". Picking a layer here shows its keys; the keyboard itself decides when that layer is in use."
+                     : keyboard.followsBoard ? ", and the page follows when you switch on the keyboard itself."
+                     : ". If you switch on the keyboard itself, pick the same profile and layer here before changing keys.")
+        }
     }
 
     // Keys

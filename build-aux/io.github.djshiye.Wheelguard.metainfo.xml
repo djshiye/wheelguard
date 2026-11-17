@@ -44,6 +44,7 @@
           <li>New: the Keyboard page also works with the Glorious GMMK 3 and GMMK 3 Pro, wired (100%, 75% and 65%, ANSI and ISO), including how long the keyboard waits before standby. Its controls start off until you turn them on, because they haven't been tried on a real board yet</li>
           <li>New: the GMMK 3 Pro Wireless (while connected by its cable) and the GMMK Numpad, with their controls off until you turn them on</li>
           <li>New: the GMMK 3 HE and GMMK 3 Pro HE: polling up to 8000 Hz, standby, key remapping, actuation point and rapid trigger, with their controls off until you turn them on</li>
+          <li>New: the GMBK 75% and GMMK Eternal 96%: polling, standby and key remapping, with their controls off until you turn them on</li>
         </ul>
       </description>
     </release>

@@ -4,7 +4,7 @@
 Called by 70-wheelguard.rules as `wheelguard-gmmk-check %S%p` for the keyboard's hidraw nodes. Reads
 the node's HID report descriptor from sysfs and prints WHEELGUARD_GMMK=1 only when the interface holds
 the vendor settings collection (usage page 0xFF01, usage 1; GMMK 3 HE 0xFFFF, usage 2) or event collection
-(0xFF00 / 0xFF00; GMMK 3 HE 0xFFFF, usage 1) and
+(0xFF00 / 0xFF00; GMMK 3 HE 0xFFFF, usage 1), or with --eternal the GMMK Eternal's (0xFF60 / 0x61), and
 every top-level collection on it is a vendor one: a node that also carries the keyboard, media keys or
 anything else that reports input is never granted, so no user process can read what is typed. Reads
 only; writes nothing.
@@ -16,6 +16,7 @@ SETTINGS = bytes.fromhex("0601ff0901")
 EVENTS = bytes.fromhex("0600ff0a00ff")
 HE_SETTINGS = bytes.fromhex("06ffff0902")    # GMMK 3 HE: usage page 0xFFFF, usage 2
 HE_EVENTS = bytes.fromhex("06ffff0901")      # and usage 1
+ETERNAL = bytes.fromhex("0660ff0961")        # GMMK Eternal: usage page 0xFF60, usage 0x61 (only with --eternal)
 
 
 def application_pages(desc: bytes):
@@ -48,23 +49,26 @@ def application_pages(desc: bytes):
     return pages
 
 
-def vendor_only(desc: bytes) -> bool:
-    """The settings or event collection is here, and every collection on this node is a vendor one."""
-    if not any(c in desc for c in (SETTINGS, EVENTS, HE_SETTINGS, HE_EVENTS)):
+def vendor_only(desc: bytes, eternal: bool = False) -> bool:
+    """The settings or event collection is here, and every collection on this node is a vendor one.
+    `eternal`: the GMMK Eternal's settings page (the same page QMK uses, so only for the Eternal's own IDs)."""
+    wanted = (ETERNAL,) if eternal else (SETTINGS, EVENTS, HE_SETTINGS, HE_EVENTS)
+    if not any(c in desc for c in wanted):
         return False
     pages = application_pages(desc)
     return bool(pages) and all(p >= 0xFF00 for p in pages)
 
 
 def main(argv) -> int:
-    if len(argv) != 2:
+    eternal = argv[2:] == ["--eternal"]
+    if len(argv) != 2 and not eternal:
         return 1
     try:
         with open(os.path.join(argv[1], "device", "report_descriptor"), "rb") as f:
             desc = f.read(4096)
     except OSError:
         return 0
-    if vendor_only(desc):
+    if vendor_only(desc, eternal):
         print("WHEELGUARD_GMMK=1")
     return 0
 

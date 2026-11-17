@@ -22,7 +22,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
 
-from ..hw import gmmk, gmmk_he, gmmk_mock
+from ..hw import gmbk, gmmk, gmmk_eternal, gmmk_he, gmmk_mock
 from ..hw.hidraw import AccessDenied, HidrawDevice
 from .appsettings import config_dir
 from .rgbeast import RGBeastClient
@@ -48,21 +48,21 @@ class _StepFailed(Exception):
 
 
 # ---------------------------------------------------------------- stored state
-def _empty_board() -> dict:
+def _empty_board(model: Optional[gmmk.KeyboardModel] = None) -> dict:
     return {
         "unlocked": False,
         "polling": gmmk.DEFAULT_POLLING,
         "profile": 0,
         "layer": 0,
-        "debounce": [gmmk.DEFAULT_DEBOUNCE] * gmmk.PROFILES,
-        "sleep": gmmk.DEFAULT_SLEEP,            # GMMK 3 only: lights-off timer in minutes (255 never)
+        "debounce": [model.default_debounce if model else gmmk.DEFAULT_DEBOUNCE] * gmmk.PROFILES,
+        "sleep": model.default_sleep if model else gmmk.DEFAULT_SLEEP,   # lights-off timer, minutes (255 never)
         "analog": dict(gmmk_he.DEFAULT_ANALOG),  # GMMK 3 HE only: actuation point and rapid trigger
         "keys": [[{} for _ in range(gmmk.LAYERS)] for _ in range(gmmk.PROFILES)],
     }
 
 
 def _clean_board(raw, model: gmmk.KeyboardModel) -> dict:
-    b = _empty_board()
+    b = _empty_board(model)
     if not isinstance(raw, dict):
         return b
     b["unlocked"] = raw.get("unlocked") is True
@@ -79,12 +79,14 @@ def _clean_board(raw, model: gmmk.KeyboardModel) -> dict:
         if isinstance(raw.get(k), int) and 0 <= raw[k] < n:
             b[k] = raw[k]
     deb = raw.get("debounce")
-    if isinstance(deb, list) and len(deb) == gmmk.PROFILES and all(d in gmmk.DEBOUNCE_MS for d in deb):
+    if (model.protocol != "gmbk" and isinstance(deb, list) and len(deb) == gmmk.PROFILES
+            and all(d in gmmk.DEBOUNCE_MS for d in deb)):
         b["debounce"] = list(deb)
     if raw.get("sleep") in gmmk.SLEEP_MINUTES:
         b["sleep"] = raw["sleep"]
     keys = raw.get("keys")
     index = gmmk.KEY_INDEX[model.keymap]
+    locked = gmmk.locked_keys(model)
     if isinstance(keys, list) and len(keys) == gmmk.PROFILES:
         for p in range(gmmk.PROFILES):
             if not isinstance(keys[p], list) or len(keys[p]) != gmmk.LAYERS:
@@ -93,7 +95,7 @@ def _clean_board(raw, model: gmmk.KeyboardModel) -> dict:
                 layer_keys = keys[p][layer]
                 if isinstance(layer_keys, dict):
                     b["keys"][p][layer] = {k: v for k, v in layer_keys.items()
-                                           if k in index and k not in gmmk.LOCKED_KEYS and isinstance(v, dict)
+                                           if k in index and k not in locked and isinstance(v, dict)
                                            and v.get("kind") != "default"}
     return b
 
@@ -513,7 +515,8 @@ class KeyboardController(QObject):
 
     @Property(bool, notify=changed)
     def hasDebounce(self):
-        return self._model is None or self._model.protocol == "gmmk"
+        # The HE's magnetic keys don't bounce; the GMBK's debounce unit isn't known, so it keeps its own.
+        return self._protocol() in ("gmmk", "eternal")
 
     @Property(bool, notify=changed)
     def hasAnalog(self):
@@ -551,8 +554,38 @@ class KeyboardController(QObject):
             self._b["analog"] = a
         self._send(gmmk_he.analog_job(self._b["profile"], self._b["layer"], a), ok)
 
+    @Property(bool, notify=changed)
+    def sharesLighting(self):
+        """Debounce and standby ride in the lighting frame (GMMK Pro, GMMK 2, GMMK 3)."""
+        return self._protocol() == "gmmk"
+
+    @Property(bool, notify=changed)
+    def followsBoard(self):
+        """The board reports profile and layer switches made on it."""
+        return bool(self._board_hw and self._board_hw.event_path)
+
+    @Property(bool, notify=changed)
+    def layerSwitches(self):
+        """Picking a layer switches the board to it (the Eternal has no command for that)."""
+        return self._protocol() != "eternal"
+
+    @Property(int, notify=changed)
+    def debounceDefault(self):
+        return gmmk.DEBOUNCE_MS.index(self._model.default_debounce) if self.hasDebounce and self._model else 2
+
+    @Property(int, notify=changed)
+    def sleepDefault(self):
+        return gmmk.SLEEP_MINUTES.index(self._model.default_sleep) if self._model else 1
+
     def _he(self) -> bool:
-        return self._model is not None and self._model.protocol == "he"
+        return self._protocol() == "he"
+
+    def _protocol(self) -> str:
+        return self._model.protocol if self._model is not None else "gmmk"
+
+    def _gmbk_settings(self, polling: int, minutes: int) -> Job:
+        """GMBK: polling and standby travel together, in each profile's settings frame."""
+        return [(gmbk.settings_frame(p, polling, minutes), gmbk.DELAY) for p in range(gmmk.PROFILES)]
 
     @Property(bool, notify=changed)
     def hasMacros(self):
@@ -600,6 +633,7 @@ class KeyboardController(QObject):
             return []
         bound = self._layer_keys()
         names = self._macro_names()
+        locked = gmmk.locked_keys(self._model)
         out = []
         for k in gmmk.layout(self._model):
             kid = "Enter" if k["id"] == "EnterLower" else k["id"]
@@ -607,7 +641,7 @@ class KeyboardController(QObject):
             out.append({"id": kid, "piece": k["id"], "label": gmmk.key_label(k["id"]), "name": gmmk.key_name(kid),
                         "x": k["x"], "y": k["y"], "w": k["w"], "h": k["h"],
                         "action": gmmk.binding_text(b, names), "remapped": bool(b),
-                        "locked": kid in gmmk.LOCKED_KEYS})
+                        "locked": kid in locked})
         return out
 
     @Property(int, notify=keysChanged)
@@ -640,9 +674,10 @@ class KeyboardController(QObject):
     def mouseActions(self):
         return [{"code": c, "name": n} for c, n in gmmk.MOUSE.items()]
 
-    @Property("QVariantList", constant=True)
+    @Property("QVariantList", notify=changed)
     def functionActions(self):
-        return [{"code": c, "name": gmmk.FUNCTIONS[c]} for c in (2, 1, 4, 3)]
+        codes = (2, 1) if self._protocol() == "eternal" else (2, 1, 4, 3)     # the Eternal has no layer keys
+        return [{"code": c, "name": gmmk.FUNCTIONS[c]} for c in codes]
 
     @Property("QVariantList", notify=macrosChanged)
     def macros(self):
@@ -715,6 +750,12 @@ class KeyboardController(QObject):
 
         def ok():
             self._b["polling"] = hz
+        if self._protocol() == "gmbk":
+            self._send(self._gmbk_settings(hz, self._b["sleep"]), ok)
+            return
+        if self._protocol() == "eternal":
+            self._send([(gmmk_eternal.polling_frame(hz), gmmk_eternal.DELAY)], ok)
+            return
         if self._he():
             # The HE keeps a rate per profile: give all three the same one.
             self._send([(gmmk_he.polling_frame(p, hz), gmmk_he.DELAY) for p in range(gmmk.PROFILES)], ok)
@@ -744,10 +785,16 @@ class KeyboardController(QObject):
         minutes = gmmk.SLEEP_MINUTES[index]
         if minutes == self._b["sleep"]:
             return
+        def set_minutes():
+            self._b["sleep"] = minutes
         if self._he():
-            def he_ok():
-                self._b["sleep"] = minutes
-            self._send([(gmmk_he.sleep_frame(minutes, self._model.wireless), gmmk_he.DELAY)], he_ok)
+            self._send([(gmmk_he.sleep_frame(minutes, self._model.wireless), gmmk_he.DELAY)], set_minutes)
+            return
+        if self._protocol() == "gmbk":
+            self._send(self._gmbk_settings(self._b["polling"], minutes), set_minutes)
+            return
+        if self._protocol() == "eternal":
+            self._send([(gmmk_eternal.standby_frame(minutes), gmmk_eternal.DELAY)], set_minutes)
             return
         polling = self._polling_byte()
         job: Job = [] if polling else [(gmmk.polling_frame(self._b["polling"], minutes), gmmk.DELAY_LONG)]
@@ -764,6 +811,11 @@ class KeyboardController(QObject):
             return
         ms, p = gmmk.DEBOUNCE_MS[index], self._b["profile"]
         if ms == self._b["debounce"][p]:
+            return
+        if self._protocol() == "eternal":
+            def all_ok():            # one setting for the whole board
+                self._b["debounce"] = [ms] * gmmk.PROFILES
+            self._send([(gmmk_eternal.debounce_frame(ms), gmmk_eternal.DELAY)], all_ok)
             return
         rgb, pid, active_layer = self._rgbeast, self._board_hw.pid, self._b["layer"]
         vid, sleep = self._board_hw.model.vendor, self._sleep_byte()
@@ -788,6 +840,9 @@ class KeyboardController(QObject):
     def _layer_job(self, p: int, layer: int, keys: Dict[str, dict], macros: Dict[int, dict]) -> Job:
         """Macros used by the layer, its key assignment (frames for any profile/layer); no commit."""
         assert self._model is not None
+        if self._protocol() == "gmbk":
+            frame = gmbk.keys_frame(self._model.layout, p, layer, keys, gmmk.encode_binding, gmmk.LOCKED_KEYS)
+            return [(frame, gmbk.DELAY)]
         job: Job = []
         used = sorted({b["slot"] for b in keys.values() if b.get("kind") == "macro"})
         if used:
@@ -815,6 +870,9 @@ class KeyboardController(QObject):
         if self._he():
             self._send(gmmk_he.analog_job(index, self._b["layer"], self._b["analog"]), ok)
             return
+        if self._protocol() == "eternal":
+            self._send([(gmmk_eternal.profile_frame(index), gmmk_eternal.DELAY)], ok)
+            return
         self._send([(gmmk.profile_frame(index, self._b["layer"]), gmmk.DELAY_LONG),
                     (self._tell_rgbeast(index, self._b["layer"]), 0)], ok)
 
@@ -827,6 +885,13 @@ class KeyboardController(QObject):
             def he_ok():
                 self._b["layer"] = index
             self._send(gmmk_he.analog_job(p, index, self._b["analog"]), he_ok)
+            return
+        if self._protocol() == "eternal":
+            # The Eternal has no command to switch layers: the page just shows that layer's keys.
+            self._b["layer"] = index
+            self._store.save(self._model, self._b)
+            self.changed.emit()
+            self.keysChanged.emit()
             return
         keys = self._b["keys"][p][index]
         f = gmmk.profile_frame(p, index)
@@ -861,6 +926,9 @@ class KeyboardController(QObject):
         try:
             if self._he():
                 job = self._he_keys_job(p, layer, self._layer_keys(), new_keys)
+            elif self._protocol() == "eternal":
+                job = gmmk_eternal.keys_job(self._model.layout, layer, self._layer_keys(), new_keys,
+                                            lambda k: gmmk.default_usage(self._model, k))
             else:
                 job = self._layer_job(p, layer, new_keys, self._store.macros) + self._commit()
         except ValueError as e:
@@ -874,7 +942,8 @@ class KeyboardController(QObject):
     @Slot(str, str, int, str)
     def bindKey(self, key: str, kind: str, code: int, mods: str):
         """kind: default | disabled | key | media | mouse | function | macro (code = macro slot)."""
-        if key in gmmk.LOCKED_KEYS or self._model is None or key not in gmmk.KEY_INDEX[self._model.keymap]:
+        if (self._model is None or key in gmmk.locked_keys(self._model)
+                or key not in gmmk.KEY_INDEX[self._model.keymap]):
             return
         if kind == "default":
             b = None
@@ -893,6 +962,9 @@ class KeyboardController(QObject):
             b = {"kind": kind, "code": code}
         if b is not None:
             problem = gmmk.binding_problem(b, list(self._store.macros))
+            extra = {"gmbk": gmbk.binding_problem, "eternal": gmmk_eternal.binding_problem,
+                     "he": gmmk_he.binding_problem}.get(self._protocol())
+            problem = problem or (extra(b) if extra else "")
             if problem:
                 self._set_message(problem)
                 return

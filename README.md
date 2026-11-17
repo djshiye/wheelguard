@@ -37,10 +37,10 @@ installs its own `/etc/yum.repos.d/wheelguard.repo`, so the repository stays con
     G Pro Hero, G305, G102 / G203, G303 Shroud Edition, G403 Hero, G502 Hero, Lightspeed, X,
     X Lightspeed and X Plus, G604, G703 Hero, G705, G903 Hero (battery, DPI stages, polling rate)
 - **Glorious GMMK Pro, GMMK 2 (65% and 96%), GMMK 3 / GMMK 3 Pro (100%, 75% and 65%; the Wireless by its
-  cable), GMMK 3 HE / GMMK 3 Pro HE keyboards and the GMMK Numpad**
+  cable), GMMK 3 HE / GMMK 3 Pro HE, GMBK 75% and GMMK Eternal 96% keyboards and the GMMK Numpad**
   (stock firmware, ANSI and ISO): polling rate, debounce, profiles and layers, remapping any key (other keys,
-  key combinations, media, mouse buttons, profile switching) and macros, stored on the keyboard, plus the
-  standby timer on the GMMK 3, and the actuation point and rapid trigger on the HE boards. The GMMK Pro's lighting is controlled by RGBeast. The controls start off until you
+  key combinations, media, mouse buttons, profile switching) and macros (GMMK Pro, GMMK 2 and GMMK 3), stored on the keyboard, plus the
+  standby timer on the GMMK 3, GMBK and Eternal, and the actuation point and rapid trigger on the HE boards. The GMMK Pro's lighting is controlled by RGBeast. The controls start off until you
   turn them on, because nobody has tried them on a real board yet (`docs/gmmk-protocol.md`)
 - **Scroll filter for any mouse with a wheel**: supported mice are picked up automatically. For any other
   mouse, press **Allow this mouse** (in the mouse list under the status pill at the top of the window) and

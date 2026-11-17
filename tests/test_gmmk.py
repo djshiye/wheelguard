@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from wheelguard.hw import gmmk, gmmk_he
+from wheelguard.hw import gmbk, gmmk, gmmk_eternal, gmmk_he
 
 ROOT = Path(__file__).resolve().parent.parent
 ANSI = gmmk.GMMK_PRO[0x5044]
@@ -156,8 +156,15 @@ class FakeDev:
     def set_feature(self, data):
         self.sent.append(bytes(data))
 
+    def write(self, data):                      # output reports (the Eternal)
+        FakeDev.writes.append(bytes(data))
+        self.sent.append(bytes(data))
+
     def close(self):
         self.closed = True
+
+
+FakeDev.writes = []
 
 
 class TransportTests(unittest.TestCase):
@@ -242,10 +249,17 @@ class Gmmk2Tests(unittest.TestCase):
         rules = (Path(__file__).resolve().parent.parent / "build-aux" / "70-wheelguard.rules").read_text()
         granted = set()
         for vid in (gmmk.VENDOR, gmmk.VENDOR_GMMK3, gmmk.VENDOR_3794):
-            line = next(x for x in rules.splitlines() if f'idVendor}}=="{vid:04x}"' in x and "gmmk-check" in x)
-            pids = {int(p, 16) for p in line.split('idProduct}=="')[1].split('"')[0].split("|")}
+            lines = [x for x in rules.splitlines() if f'idVendor}}=="{vid:04x}"' in x and "gmmk-check" in x]
+            pids = set()
+            for line in lines:
+                line_pids = {int(p, 16) for p in line.split('idProduct}=="')[1].split('"')[0].split("|")}
+                eternal = {p for p in line_pids if gmmk.MODELS[p].protocol == "eternal"}
+                # The QMK page is accepted only on the Eternal's own line.
+                self.assertEqual("--eternal" in line, bool(eternal))
+                self.assertIn(eternal, (set(), line_pids))
+                self.assertNotIn("uaccess", line)
+                pids |= line_pids
             self.assertEqual(pids, {pid for pid, m in gmmk.MODELS.items() if m.vendor == vid})
-            self.assertNotIn("uaccess", line)
             granted |= pids
         self.assertEqual(granted, set(gmmk.MODELS))
 
@@ -494,6 +508,120 @@ class NumpadTests(unittest.TestCase):
         self.assertEqual(f[8 + 40:], bytes(len(f) - 48))
 
 
+class GmbkTests(unittest.TestCase):
+    ANSI_M, ISO_M = gmmk.MODELS[0xB000], gmmk.MODELS[0xB001]
+
+    def test_models_locked_under_3794(self):
+        for m in (self.ANSI_M, self.ISO_M):
+            self.assertEqual((m.vendor, m.protocol, m.confirmed, m.macros, m.sleep, m.commit_keys),
+                             (0x3794, "gmbk", False, False, True, False))
+        self.assertNotIn((0x3794, 0xB000), gmmk.BOOTLOADERS)
+        self.assertTrue({(0x3794, 0xB002), (0x3794, 0xB003), (0x3794, 0xB012)} <= gmmk.BOOTLOADERS)
+
+    def test_every_drawn_key_types_itself(self):
+        for m in (self.ANSI_M, self.ISO_M):
+            index = gmmk.KEY_INDEX[m.keymap]
+            for layer in (0, 1, 2):
+                pairs = gmbk.default_pairs(layer)
+                for key in {k["id"] for k in gmmk.layout(m)} - {"EnterLower"} - gmmk.locked_keys(m):
+                    t, code = pairs[2 * index[key]], pairs[2 * index[key] + 1]
+                    self.assertIn(t, (1, 2), key)
+                    self.assertEqual(gmmk.default_usage(m, key), code, (m.key, key))
+            self.assertEqual(gmmk.layout_size(m)[0], 16)
+
+    def test_settings_frame(self):
+        self.assertEqual(gmbk.settings_frame(1, 250, 15), bytes([7, 0x11, 2, 0, 0, 3, 2, 15, 0]))
+        self.assertEqual(gmbk.settings_frame(0, 125, 255)[5:8], bytes([7, 2, 0]))
+        for bad in ((0, 8000, 7), (0, 1000, 61), (3, 1000, 7)):
+            with self.assertRaises(ValueError):
+                gmbk.settings_frame(*bad)
+
+    def test_keys_frame(self):
+        f = gmbk.keys_frame("iso", 2, 1, {"KeyA": {"kind": "key", "code": 6, "mods": ["shift"]},
+                                          "Backslash": {"kind": "media", "code": 1}}, gmmk.encode_binding,
+                            gmmk.LOCKED_KEYS)
+        self.assertEqual((len(f), f[:4]), (256, bytes([7, 3, 3, 2])))
+        self.assertEqual((f[4 + 2 * 64], f[5 + 2 * 64]), (0xE1, 6))      # 0xE0 + Shift's index
+        self.assertEqual((f[4 + 2 * 85], f[5 + 2 * 85]), (3, 1))
+        self.assertEqual((f[4 + 2 * 115], f[5 + 2 * 115]), (0x0D, 2))    # layer 2's right Alt kept
+        for bad in ({"AltRight": {"kind": "disabled"}}, {"Fn": {"kind": "disabled"}},
+                    {"KeyA": {"kind": "macro", "slot": 1}},
+                    {"KeyA": {"kind": "key", "code": 6, "mods": ["ctrl", "shift"]}}):
+            with self.assertRaises(ValueError):
+                gmbk.keys_frame("ansi", 0, 0, bad, gmmk.encode_binding, gmmk.LOCKED_KEYS)
+
+    def test_transport_refuses_other_commands(self):
+        FakeDev.log = []
+        t = gmmk.Transport(gmmk.Board("/dev/x", 0xB000, self.ANSI_M, "", 264), lambda s: None, FakeDev)
+        t.send(gmbk.settings_frame(0, 1000, 7))
+        self.assertEqual(len(FakeDev.log[0]), 264)
+        for cmd in (0x02, 0x12, 0x07, 0x93):
+            with self.assertRaises(ValueError):
+                t.send(bytes([7, cmd]) + bytes(262))
+
+
+class EternalTests(unittest.TestCase):
+    ANSI_M, ISO_M = gmmk.MODELS[0xB010], gmmk.MODELS[0xB011]
+
+    def test_models(self):
+        for m in (self.ANSI_M, self.ISO_M):
+            self.assertEqual((m.vendor, m.protocol, m.confirmed, m.macros, m.form, m.default_sleep),
+                             (0x3794, "eternal", False, False, "96", 255))
+        self.assertEqual((self.ANSI_M.default_debounce, self.ISO_M.default_debounce), (8, 16))
+
+    def test_every_drawn_key_has_a_position(self):
+        for m in (self.ANSI_M, self.ISO_M):
+            index = gmmk.KEY_INDEX[m.keymap]
+            keys = {k["id"] for k in gmmk.layout(m)} - {"EnterLower"}
+            self.assertLessEqual(keys, set(index))
+            self.assertEqual(len(set(index.values())), len(index))
+        self.assertEqual((gmmk.KEY_INDEX["eternal-iso"]["Backslash"], gmmk.KEY_INDEX["eternal-iso"]["Hashtag"]),
+                         (105, 106))
+
+    def test_frames_and_checksum(self):
+        # CORE's own prebuilt "profile 1" frame: 09 10 00 00 01 00 01 01 ... E3
+        f = gmmk_eternal.profile_frame(1)
+        self.assertEqual((f[:8], f[63], len(f)), (bytes([9, 0x10, 0, 0, 1, 0, 1, 1]), 0xE3, 64))
+        self.assertEqual(gmmk_eternal.polling_frame(250)[:8], bytes([9, 4, 0x17, 0, 1, 0, 1, 2]))
+        self.assertEqual(gmmk_eternal.debounce_frame(8)[6:9], bytes([2, 0x1F, 0x40]))     # 8000 us
+        self.assertEqual(gmmk_eternal.standby_frame(15)[6:9], bytes([2, 0x03, 0x84]))     # 900 s
+        self.assertEqual(gmmk_eternal.standby_frame(255)[7:9], bytes(2))
+        k = gmmk_eternal.key_frame(2, 43, (0, 1, 0, 6))
+        self.assertEqual(k[:13], bytes([9, 3, 2, 0, 1, 0, 6, 0, 43, 0, 1, 0, 6]))
+        for f in (k, gmmk_eternal.polling_frame(1000)):
+            self.assertEqual(sum(f) & 0xFF, 0xFF)
+
+    def test_keycodes(self):
+        kc = gmmk_eternal.keycode
+        self.assertEqual(kc(None, 4), (0, 0, 0, 4))
+        self.assertEqual(kc({"kind": "disabled"}, 4), (0, 0, 0, 0))
+        self.assertEqual(kc({"kind": "key", "code": 6, "mods": ["ctrl", "super"]}, 4), (0, 9, 0, 6))
+        self.assertEqual(kc({"kind": "media", "code": 0}, 4), (2, 0, 1, 0x83))
+        self.assertEqual(kc({"kind": "mouse", "code": 4}, 4), (1, 5, 0, 0))     # back
+        self.assertEqual(kc({"kind": "function", "code": 1}, 4), (6, 2, 0, 0))  # previous profile
+        for b in ({"kind": "function", "code": 4}, {"kind": "macro", "slot": 1}, {"kind": "key", "code": 0xE0}):
+            self.assertTrue(gmmk_eternal.binding_problem(b))
+
+    def test_transport_writes_output_reports_and_refuses_the_rest(self):
+        FakeDev.log, FakeDev.writes = [], []
+        t = gmmk.Transport(gmmk.Board("/dev/x", 0xB010, self.ANSI_M, "", 64), lambda s: None, FakeDev)
+        t.send(gmmk_eternal.polling_frame(500))
+        self.assertEqual(FakeDev.writes, [gmmk_eternal.polling_frame(500)])
+        reset = bytearray(64)
+        reset[:8] = bytes([9, 0x11, 0, 0, 1, 0, 1, 0])
+        reset[63] = gmmk_eternal.checksum(reset)
+        lighting = bytearray(gmmk_eternal.polling_frame(500))
+        lighting[2] = 0x01
+        lighting[63] = gmmk_eternal.checksum(lighting)
+        bad_sum = bytearray(gmmk_eternal.polling_frame(500))
+        bad_sum[63] ^= 1
+        for f in (bytes(reset), bytes(lighting), bytes(bad_sum)):
+            with self.assertRaises(ValueError):
+                t.send(f)
+        with self.assertRaises(ValueError):
+            gmmk.Transport(gmmk.Board("/dev/x", 0xB012, self.ANSI_M, "", 64), lambda s: None, FakeDev)
+
+
 class DiscoveryTests(unittest.TestCase):
     def make_node(self, root, name, pid, desc, iface, bcd="0045", vid=0x320F):
         usb = Path(root) / "usb" / f"1-1:{pid:04x}"
@@ -544,6 +672,17 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual([(b.model.key, b.path, b.event_path, b.report_len) for b in boards],
                          [("gmmk3-he-65-ansi", "/dev/hidraw2", "/dev/hidraw3", 65)])
 
+    def test_finds_a_gmbk_and_an_eternal(self):
+        eternal = bytes.fromhex("0660ff0961a101" "8509" "7508" "953f" "0962" "9102" "0962" "8102" "c0")
+        with tempfile.TemporaryDirectory() as root:
+            self.make_node(root, "hidraw2", 0xB001, SETTINGS_DESC, 1, vid=0x3794)
+            self.make_node(root, "hidraw3", 0xB001, EVENTS_DESC, 2, vid=0x3794)
+            self.make_node(root, "hidraw4", 0xB010, eternal, 2, vid=0x3794)
+            boards = gmmk.discover(os.path.join(root, "class"), "/dev")
+        self.assertEqual([(b.model.key, b.path, b.event_path, b.report_len, b.qmk) for b in boards],
+                         [("gmbk-75-iso", "/dev/hidraw2", "", 264, False),
+                          ("gmmk-eternal-96-ansi", "/dev/hidraw4", "", 64, False)])
+
     def test_qmk_board(self):
         qmk = bytes.fromhex("0660ff0961a101" "0962" "8102" "c0")
         with tempfile.TemporaryDirectory() as root:
@@ -560,6 +699,11 @@ class UdevHelperTests(unittest.TestCase):
         self.assertFalse(h.vendor_only(KEYBOARD_DESC))
         self.assertFalse(h.vendor_only(KEYBOARD_DESC + SETTINGS_DESC))     # never a node that also types
         self.assertFalse(h.vendor_only(b""))
+        eternal = bytes.fromhex("0660ff0961a101" "0962" "8102" "c0")
+        self.assertFalse(h.vendor_only(eternal))                          # QMK's page: only for the Eternal
+        self.assertTrue(h.vendor_only(eternal, eternal=True))
+        self.assertFalse(h.vendor_only(SETTINGS_DESC, eternal=True))
+        self.assertFalse(h.vendor_only(KEYBOARD_DESC + eternal, eternal=True))
 
 
 try:
@@ -797,6 +941,67 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(FakeDev.log, [])
         stored = json.loads(self.path.read_text())["boards"]["gmmk3-he-75-ansi"]
         self.assertEqual((stored["polling"], stored["analog"]["actuation"]), (8000, 1.2))
+
+    def test_gmbk_board(self):
+        m = gmmk.MODELS[0xB000]
+        c = self.make(board=gmmk.Board("/dev/hidraw9", 0xB000, m, "0100", 264))
+        self.assertEqual((c.hasDebounce, c.hasMacros, c.hasSleep, c.hasKnob), (False, False, True, True))
+        self.assertTrue(next(k for k in c.keys if k["id"] == "AltRight")["locked"])
+        c.unlock()
+        c.setPolling(1)                                          # 250 Hz
+        self.settle(c)
+        self.assertEqual(FakeDev.log, [gmbk.settings_frame(p, 250, 7).ljust(264, b"\0") for p in range(3)])
+        FakeDev.log = []
+        c.setSleep(4)                                            # never
+        self.settle(c)
+        self.assertEqual([f[7] for f in FakeDev.log], [0, 0, 0])
+        FakeDev.log = []
+        c.bindKey("KeyA", "key", 6, "ctrl,shift")                # two modifiers: refused
+        c.bindKey("AltRight", "disabled", 0, "")
+        self.assertEqual(FakeDev.log, [])
+        c.bindKey("KeyA", "key", 6, "ctrl")
+        self.settle(c)
+        self.assertEqual(len(FakeDev.log), 1)                    # no commit
+        self.assertEqual(FakeDev.log[0][:4 + 2 * 65], gmbk.keys_frame("ansi", 0, 0, {"KeyA": {"kind": "key", "code": 6,
+                         "mods": ["ctrl"]}}, gmmk.encode_binding, gmmk.LOCKED_KEYS)[:4 + 2 * 65])
+        FakeDev.log = []
+        c.setLayer(1)                                            # select, then that layer's keys, as CORE does
+        self.settle(c)
+        self.assertEqual([f[1] for f in FakeDev.log], [gmmk.CMD_PROFILE, gmbk.CMD_KEYS, gmmk.CMD_PROFILE])
+
+    def test_eternal_board(self):
+        m = gmmk.MODELS[0xB011]
+        c = self.make(board=gmmk.Board("/dev/hidraw9", 0xB011, m, "0100", 64))
+        self.assertEqual((c.hasDebounce, c.hasMacros, c.hasSleep, c.hasKnob), (True, False, True, False))
+        self.assertEqual((c.debounceIndex, c.sleepIndex), (2, 4))       # 16 ms (ISO), never: the board's own
+        self.assertEqual([a["code"] for a in c.functionActions], [2, 1])
+        c.unlock()
+        FakeDev.writes = []
+        c.setPolling(0)
+        self.settle(c)
+        c.setDebounce(0)
+        self.settle(c)
+        c.setSleep(1)
+        self.settle(c)
+        c.setProfile(2)
+        self.settle(c)
+        self.assertEqual(FakeDev.writes, [gmmk_eternal.polling_frame(125), gmmk_eternal.debounce_frame(2),
+                                          gmmk_eternal.standby_frame(7), gmmk_eternal.profile_frame(2)])
+        FakeDev.writes = []
+        c.setLayer(1)                                            # no command for it: nothing sent
+        self.assertEqual((c.layer, FakeDev.writes), (1, []))
+        c.bindKey("ShiftLeft", "disabled", 0, "")
+        c.bindKey("CapsLock", "key", 0xE0, "")
+        c.bindKey("KeyQ", "function", 4, "")
+        self.assertEqual(FakeDev.writes, [])
+        c.bindKey("Backslash", "mouse", 1, "")                   # ISO: the key left of Z
+        self.settle(c)
+        c.resetLayer()
+        self.settle(c)
+        self.assertEqual(FakeDev.writes, [gmmk_eternal.key_frame(1, 105, (1, 1, 0, 0)),
+                                          gmmk_eternal.key_frame(1, 105, (0, 0, 0, 0x64))])
+        stored = json.loads(self.path.read_text())["boards"]["gmmk-eternal-96-iso"]
+        self.assertEqual((stored["debounce"], stored["profile"], stored["layer"]), ([2, 2, 2], 2, 1))
 
     def test_numpad_has_no_macros(self):
         c = self.make(board=gmmk.Board("/dev/hidraw9", 0x5088, gmmk.MODELS[0x5088], "0100", 264))
