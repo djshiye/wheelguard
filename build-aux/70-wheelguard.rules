@@ -141,3 +141,10 @@ SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="046d", ATTRS{idProduct}=
 SUBSYSTEM=="hidraw", ATTRS{idVendor}=="046d", ATTRS{idProduct}=="c099", TAG+="uaccess"
 SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="046d", ATTRS{idProduct}=="c09d", ENV{ID_INPUT_MOUSE}=="1", ENV{ID_INPUT_KEYBOARD}!="1", TAG+="uaccess"
 SUBSYSTEM=="hidraw", ATTRS{idVendor}=="046d", ATTRS{idProduct}=="c09d", TAG+="uaccess"
+
+# --- Glorious GMMK Pro keyboards (ANSI 5044, ISO 5046, later boards 5092 / 5093), stock firmware.
+# Only the two vendor interfaces (settings and events) are granted, and only when the helper sees that the
+# interface carries nothing that reports keys: Wheelguard can never read what is typed. Never the
+# bootloader (B007, B009, B00F, B010), and no input nodes.
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="320f", ATTRS{idProduct}=="5044|5046|5092|5093", IMPORT{program}="wheelguard-gmmk-check %S%p"
+SUBSYSTEM=="hidraw", ENV{WHEELGUARD_GMMK}=="1", TAG+="uaccess"

@@ -9,7 +9,8 @@ APP_ID = "io.github.djshiye.Wheelguard"
 HERE = Path(__file__).resolve().parent
 QML_DIR = HERE / "qml"
 ICON_NAME = APP_ID + ".svg"
-PAGES = {"scroll": 0, "clicks": 1, "mouse": 2, "pointer": 3, "profiles": 4, "settings": 5}     # sidebar order
+PAGES = {"scroll": 0, "clicks": 1, "mouse": 2, "pointer": 3, "profiles": 4, "settings": 5,
+         "keyboard": 6}      # page numbers (the sidebar shows Keyboard after Mouse)
 PAGE_ALIASES = {"about": "settings"}        # the page's name before 1.7.0
 
 
@@ -52,6 +53,10 @@ def parse_args(argv):
                            "(optionally the app picker or the editor)")
     shot.add_argument("--hot-button", type=int, metavar="N",
                       help="on the Mouse page, light up button N (0 to 4) on the drawing")
+    shot.add_argument("--key-editor", metavar="KEY", help="on the Keyboard page, open the editor for this key")
+    shot.add_argument("--macro-editor", action="store_true", help="on the Keyboard page, open the macro editor")
+    shot.add_argument("--keyboard-demo", action="store_true",
+                      help="on the Keyboard page, turn the controls on and remap a few keys first")
     shot.add_argument("--delay-ms", type=int, default=1500)
     return ap.parse_args(argv)
 
@@ -129,6 +134,7 @@ def main(argv=None):
     from .backend import Appearance, Autostart, DaemonClient, HandFollow, LiquidGlass, MouseFollow, PointerSettings
     from .batteryalert import BatteryAlerts
     from .diagnostics import Diagnostics
+    from .keyboard import KeyboardController
     from .shortcuts import ShortcutsBackend
     from .mouse import MouseController
     from .mouseaccess import MouseAccess
@@ -185,6 +191,9 @@ def main(argv=None):
         BatteryAlerts(view, app_settings, parent=engine)
 
     profile_ctl = ProfileController(daemon, mouse, app_settings, ext, parent=engine)
+    keyboard = KeyboardController(parent=engine)
+    if args.keyboard_demo:
+        keyboard.demo()
     engine.addImageProvider(PROVIDER_ID, AppIconProvider())
     if args.profiles_demo:
         app_settings.setProfilesEnabled(True)
@@ -195,6 +204,7 @@ def main(argv=None):
     ctx.setContextProperty("daemon", daemon)
     ctx.setContextProperty("pointer", pointer)
     ctx.setContextProperty("mouse", mouse)
+    ctx.setContextProperty("keyboard", keyboard)
     ctx.setContextProperty("appearance", appearance)
     ctx.setContextProperty("liquidGlass", glass)
     ctx.setContextProperty("shell", shell)
@@ -258,6 +268,11 @@ def main(argv=None):
         page = win.findChild(QObject, "mousePage")
         if page is not None:
             page.setProperty("hotButton", args.hot_button)
+    if args.key_editor or args.macro_editor:
+        page = win.findChild(QObject, "keyboardPage")
+        if page is not None:
+            prop, value = ("editorOpenFor", args.key_editor) if args.key_editor else ("macroEditorOpen", True)
+            QTimer.singleShot(max(0, args.delay_ms - 700), lambda: page.setProperty(prop, value))
     if args.welcome is not None:
         win.setProperty("welcomeStep", max(0, min(2, args.welcome)))
     if args.advanced:
@@ -285,6 +300,7 @@ def main(argv=None):
     app.aboutToQuit.connect(pointer.flush)
     app.aboutToQuit.connect(appearance.shutdown)
     app.aboutToQuit.connect(mouse.shutdown)
+    app.aboutToQuit.connect(keyboard.shutdown)
     if tray_icon is not None:
         app.aboutToQuit.connect(tray_icon.hide)
 
