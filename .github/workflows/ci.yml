@@ -98,6 +98,7 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
           WHEELGUARD_HW_MOCK: connected
+          WHEELGUARD_KB_MOCK: gmmk-pro
           WHEELGUARD_GSETTINGS_READONLY: "1"
         run: |
           export XDG_RUNTIME_DIR=$(mktemp -d) HOME=$(mktemp -d)
@@ -105,7 +106,7 @@ jobs:
           mock=$!
           trap 'kill "$mock"' EXIT
           sleep 1
-          for page in scroll clicks mouse pointer profiles settings; do
+          for page in scroll clicks mouse keyboard pointer profiles settings; do
             for scale in 1 1.5; do
               timeout 60 python3 wheelguard-settings --socket "$XDG_RUNTIME_DIR/mock.sock" --page "$page" --text-scale "$scale" \
                 --screenshot "$RUNNER_TEMP/$page-$scale.png" --delay-ms 2000 > "$RUNNER_TEMP/log" 2>&1 || { cat "$RUNNER_TEMP/log"; exit 1; }

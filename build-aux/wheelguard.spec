@@ -7,10 +7,10 @@
 %global __brp_python_bytecompile %{nil}
 
 Name:           wheelguard
-Version:        1.10.0
+Version:        1.11.0
 # CI appends .<commit count> so every build from main is a newer release.
 Release:        1%{?release_suffix}%{?dist}
-Summary:        Scroll bounce filter and advanced mouse settings (Endgame Gear, Logitech, Razer)
+Summary:        Scroll bounce filter, advanced mouse settings and GMMK Pro keyboard controls
 
 License:        MIT
 URL:            https://github.com/djshiye/wheelguard
@@ -70,6 +70,7 @@ install -Dpm 0644 build-aux/%{app_id}.policy %{buildroot}%{_datadir}/polkit-1/ac
 install -Dpm 0644 build-aux/wheelguard.service %{buildroot}%{_userunitdir}/wheelguard.service
 install -Dpm 0644 build-aux/80-wheelguard.preset %{buildroot}%{_userpresetdir}/80-wheelguard.preset
 install -Dpm 0644 build-aux/70-wheelguard.rules %{buildroot}%{_udevrulesdir}/70-wheelguard.rules
+install -Dpm 0755 build-aux/wheelguard-gmmk-check %{buildroot}%{_udevrulesdir}/../wheelguard-gmmk-check
 install -Dpm 0644 build-aux/%{app_id}.desktop %{buildroot}%{_datadir}/applications/%{app_id}.desktop
 install -Dpm 0644 build-aux/%{app_id}-autostart.desktop %{buildroot}%{_sysconfdir}/xdg/autostart/%{app_id}.desktop
 install -Dpm 0644 build-aux/%{app_id}.svg %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/%{app_id}.svg
@@ -128,6 +129,7 @@ fi
 %{_userunitdir}/wheelguard.service
 %{_userpresetdir}/80-wheelguard.preset
 %{_udevrulesdir}/70-wheelguard.rules
+%{_udevrulesdir}/../wheelguard-gmmk-check
 %{_datadir}/applications/%{app_id}.desktop
 %config(noreplace) %{_sysconfdir}/xdg/autostart/%{app_id}.desktop
 %{_datadir}/icons/hicolor/scalable/apps/%{app_id}.svg
@@ -140,6 +142,11 @@ fi
 %{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-djshiye-%{name}
 
 %changelog
+* Tue Nov 17 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.11.0-1
+- New: a Keyboard page for the Glorious GMMK Pro (stock firmware, ANSI and ISO): polling rate, debounce, profiles and layers, key remapping and macros, stored on the keyboard; lighting stays with RGBeast
+- The keyboard's controls start off until turned on; the Fn key and the knob are never remapped
+- udev: only the GMMK Pro's two vendor interfaces are granted, checked by wheelguard-gmmk-check so a node that carries key presses is never opened
+
 * Thu Nov 12 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.10.0-1
 - New: Scroll speed. A slider on the Scroll protection page sets how far one notch of the wheel scrolls, from 50% to 300%, for the mouse Wheelguard protects (GNOME has no setting for it)
 - Click-Lock works for left-handed use: with GNOME's left-handed switch on, it watches the right button of the mouse, which is then your main button

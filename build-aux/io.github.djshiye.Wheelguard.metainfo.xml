@@ -38,6 +38,15 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.11.0" date="2026-11-17">
+      <description>
+        <ul>
+          <li>New: a Keyboard page for the Glorious GMMK Pro (stock firmware, ANSI and ISO): polling rate, debounce, profiles and layers, remapping keys, and macros, all stored on the keyboard. Its lighting is in RGBeast</li>
+          <li>The keyboard's controls start off until you turn them on, because they haven't been tried on a real board yet. The Fn key and the knob always keep their own jobs</li>
+          <li>Wheelguard only opens the keyboard's two settings channels, never the one that carries what you type</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.10.0" date="2026-11-12">
       <description>
         <ul>

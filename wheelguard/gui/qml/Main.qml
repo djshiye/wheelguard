@@ -113,7 +113,7 @@ Window {
                         color: Theme.text
                     }
                     Text {
-                        text: "Advanced mouse settings"
+                        text: keyboard.known ? "Advanced mouse and keyboard settings" : "Advanced mouse settings"
                         font.pixelSize: Theme.fsSmall
                         color: Theme.textMuted
                     }
@@ -185,9 +185,21 @@ Window {
             width: Math.round(204 + (Theme.textScale - 1) * 170)     // wider with Large Text so labels keep their margin
             height: parent.height - header.height - 12
 
+            // Page numbers stay fixed (app.PAGES); the Keyboard entry only shows once a GMMK Pro has been seen.
+            readonly property var entries: [
+                { label: "Scroll", icon: "shield", page: 0 },
+                { label: "Clicks", icon: "hand", page: 1 },
+                { label: "Mouse", icon: "mouse", page: 2 }
+            ].concat(keyboard.known || win.pageIndex === 6 ? [{ label: "Keyboard", icon: "keyboard", page: 6 }] : []).concat([
+                { label: "Pointer", icon: "cursor", page: 3 },
+                { label: "Profiles", icon: "apps", page: 4 },
+                { label: "Settings", icon: "sliders", page: 5 }
+            ])
+            readonly property int currentRow: Math.max(0, entries.findIndex(e => e.page === win.pageIndex))
+
             Rectangle {   // moving selection highlight
                 x: 0
-                y: 4 + win.pageIndex * 52
+                y: 4 + sidebar.currentRow * 52
                 width: parent.width
                 height: 44
                 radius: Theme.radiusSm
@@ -206,19 +218,12 @@ Window {
             }
 
             Repeater {
-                model: [
-                    { label: "Scroll", icon: "shield" },
-                    { label: "Clicks", icon: "hand" },
-                    { label: "Mouse", icon: "mouse" },
-                    { label: "Pointer", icon: "cursor" },
-                    { label: "Profiles", icon: "apps" },
-                    { label: "Settings", icon: "sliders" }
-                ]
+                model: sidebar.entries
                 delegate: Item {
                     id: nav
                     required property int index
                     required property var modelData
-                    readonly property bool current: win.pageIndex === index
+                    readonly property bool current: win.pageIndex === modelData.page
                     y: 4 + index * 52
                     width: sidebar.width
                     height: 44
@@ -227,11 +232,11 @@ Window {
                     Accessible.role: Accessible.PageTab
                     Accessible.name: nav.modelData.label
                     Accessible.selected: nav.current
-                    Accessible.onPressAction: win.pageIndex = nav.index
-                    Keys.onSpacePressed: win.pageIndex = nav.index
-                    Keys.onReturnPressed: win.pageIndex = nav.index
-                    Keys.onUpPressed: if (nav.index > 0) { win.pageIndex = nav.index - 1; nav.nextItemInFocusChain(false).forceActiveFocus() }
-                    Keys.onDownPressed: if (nav.index < 5) { win.pageIndex = nav.index + 1; nav.nextItemInFocusChain(true).forceActiveFocus() }
+                    Accessible.onPressAction: win.pageIndex = nav.modelData.page
+                    Keys.onSpacePressed: win.pageIndex = nav.modelData.page
+                    Keys.onReturnPressed: win.pageIndex = nav.modelData.page
+                    Keys.onUpPressed: if (nav.index > 0) { win.pageIndex = sidebar.entries[nav.index - 1].page; nav.nextItemInFocusChain(false).forceActiveFocus() }
+                    Keys.onDownPressed: if (nav.index < sidebar.entries.length - 1) { win.pageIndex = sidebar.entries[nav.index + 1].page; nav.nextItemInFocusChain(true).forceActiveFocus() }
                     WgFocusRing {}
 
                     Rectangle {
@@ -266,7 +271,7 @@ Window {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: win.pageIndex = nav.index
+                        onClicked: win.pageIndex = nav.modelData.page
                     }
                 }
             }
@@ -288,7 +293,7 @@ Window {
             StatusBanner {
                 id: banner
                 width: parent.width
-                suppressed: win.pageIndex === 2     // the Mouse page doesn't involve the service
+                suppressed: win.pageIndex === 2 || win.pageIndex === 6     // the Mouse and Keyboard pages don't involve the service
                 daemonState: daemon.state
                 detail: daemon.detail
                 busy: daemon.serviceBusy
@@ -391,6 +396,15 @@ Window {
                     visible: opacity > 0
                     enabled: visible
                     transform: Translate { y: win.pageIndex === 5 ? 0 : 12; Behavior on y { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutCubic } } }
+                    Behavior on opacity { NumberAnimation { duration: Theme.normal } }
+                }
+                KeyboardPage {
+                    objectName: "keyboardPage"
+                    anchors.fill: parent
+                    opacity: win.pageIndex === 6 ? 1 : 0
+                    visible: opacity > 0
+                    enabled: visible
+                    transform: Translate { y: win.pageIndex === 6 ? 0 : 12; Behavior on y { NumberAnimation { duration: Theme.slow; easing.type: Easing.OutCubic } } }
                     Behavior on opacity { NumberAnimation { duration: Theme.normal } }
                 }
             }
