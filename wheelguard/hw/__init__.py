@@ -2,8 +2,9 @@
 
 Endgame Gear XM2w 4k v2 (docs/endgame-protocol.md), Logitech G Pro X Superlight
 (docs/logitech-protocol.md) and Razer DeathAdder V4 Pro (docs/razer-protocol.md), plus more Logitech and
-Razer mice of the same families, read-only until tested (hw/models.py). Nothing here has been
+Razer mice of the same families and the Glorious mice (docs/glorious-mouse-protocol.md), read-only until
+tested (hw/models.py). Nothing here has been
 validated on hardware yet, so every layer is defensive: an allow-list of commands per transport
-(endgame.py, hidpp.py, razer.py), a write gate on the identified mouse, diff-only writes and a
+(endgame.py, hidpp.py, razer.py, glorious.py), a write gate on the identified mouse, diff-only writes and a
 one-time backup of the mouse's settings before the first write (session.py).
 """

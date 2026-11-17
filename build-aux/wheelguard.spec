@@ -71,6 +71,7 @@ install -Dpm 0644 build-aux/wheelguard.service %{buildroot}%{_userunitdir}/wheel
 install -Dpm 0644 build-aux/80-wheelguard.preset %{buildroot}%{_userpresetdir}/80-wheelguard.preset
 install -Dpm 0644 build-aux/70-wheelguard.rules %{buildroot}%{_udevrulesdir}/70-wheelguard.rules
 install -Dpm 0755 build-aux/wheelguard-gmmk-check %{buildroot}%{_udevrulesdir}/../wheelguard-gmmk-check
+install -Dpm 0755 build-aux/wheelguard-glorious-check %{buildroot}%{_udevrulesdir}/../wheelguard-glorious-check
 install -Dpm 0644 build-aux/%{app_id}.desktop %{buildroot}%{_datadir}/applications/%{app_id}.desktop
 install -Dpm 0644 build-aux/%{app_id}-autostart.desktop %{buildroot}%{_sysconfdir}/xdg/autostart/%{app_id}.desktop
 install -Dpm 0644 build-aux/%{app_id}.svg %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/%{app_id}.svg
@@ -130,6 +131,7 @@ fi
 %{_userpresetdir}/80-wheelguard.preset
 %{_udevrulesdir}/70-wheelguard.rules
 %{_udevrulesdir}/../wheelguard-gmmk-check
+%{_udevrulesdir}/../wheelguard-glorious-check
 %{_datadir}/applications/%{app_id}.desktop
 %config(noreplace) %{_sysconfdir}/xdg/autostart/%{app_id}.desktop
 %{_datadir}/icons/hicolor/scalable/apps/%{app_id}.svg
@@ -149,6 +151,8 @@ fi
 - New: GMBK 75% and GMMK Eternal 96% on the Keyboard page (polling, standby, key remapping; debounce on the Eternal), controls off until turned on
 - udev: the GMMK 3's two vendor interfaces (vendor 342d) are granted the same way as the Pro's, checked by wheelguard-gmmk-check
 - The Keyboard page only points to RGBeast for boards RGBeast can light (the GMMK Pro so far)
+- New, read-only for now: Glorious mice on the Mouse page and in the panel. Model O3 / D3 (wired and wireless): battery, charging and the sleep timer. Model O / O- / O Pro / D / D- / D Pro Wireless, Series One Pro, Model O2 Pro / D2 Pro (also 4K/8K) and Series 2 Pro Wireless: battery and charging, because their protocol has no way to read the other settings back
+- udev: only each Glorious mouse's settings interface is granted, checked by the new wheelguard-glorious-check so a node that also carries input is never opened
 
 * Tue Nov 17 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.12.0-1
 - New: the Keyboard page also works with the Glorious GMMK 2 (65% and 96%, ANSI and ISO), drawn as each board looks; controls start off until turned on
