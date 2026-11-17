@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls.Basic as C
 
-// A Glorious GMMK Pro or GMMK 2: response, profiles and layers, what each key does, and macros (gui/keyboard.py).
+// A Glorious GMMK Pro, GMMK 2, GMMK 3 or GMMK Numpad: response, profiles and layers, what each key does, and macros (gui/keyboard.py).
 // Lighting lives in RGBeast.
 WgScrollPage {
     id: page
@@ -38,7 +38,8 @@ WgScrollPage {
         }
         Text {
             width: parent.width
-            text: "How fast your " + keyboard.shortName + " responds, its profiles, what each key does, and macros."
+            text: "How fast your " + keyboard.shortName + " responds, its profiles, what each key does"
+                  + (keyboard.hasMacros ? ", and macros." : ".")
             font.pixelSize: Theme.fsBody
             color: Theme.textMuted
             wrapMode: Text.WordWrap
@@ -46,7 +47,8 @@ WgScrollPage {
         Item { width: 1; height: 2 }
         WgScope {
             icon: "keyboard"
-            text: "Saved on the keyboard itself, so it works on any computer. Lighting is in RGBeast"
+            text: "Saved on the keyboard itself, so it works on any computer."
+                  + (keyboard.rgbeastSupports ? " Lighting is in RGBeast" : "")
         }
     }
 
@@ -112,7 +114,7 @@ WgScrollPage {
                     color: Theme.text
                 }
                 Text {
-                    text: keyboard.layoutName + " layout" + (keyboard.firmware !== "" ? "  ·  firmware " + keyboard.firmware : "") + "  ·  USB"
+                    text: (keyboard.layoutName !== "" ? keyboard.layoutName + " layout" + (keyboard.firmware !== "" ? "  ·  " : "") : "") + (keyboard.firmware !== "" ? "firmware " + keyboard.firmware : "") + "  ·  USB"
                     font.pixelSize: Theme.fsSmall
                     color: Theme.textMuted
                 }
@@ -213,27 +215,134 @@ WgScrollPage {
         WgSegmented {
             accessibleName: "Polling rate"
             Layout.fillWidth: true
-            model: ["125 Hz", "250 Hz", "500 Hz", "1000 Hz"]
-            subLabels: ["8 ms", "4 ms", "2 ms", "1 ms, fastest"]
+            model: keyboard.pollingChoices.map(c => c.label)
+            subLabels: keyboard.pollingChoices.map(c => c.sub)
             currentIndex: keyboard.pollingIndex
             onActivated: (i) => keyboard.setPolling(i)
         }
-        Note { text: "How often the keyboard reports to the computer. 1000 Hz is the default and the quickest." }
-        Item { Layout.preferredHeight: 4; Layout.fillWidth: true }
-        Text { text: "Debounce"; font.pixelSize: Theme.fsBody; font.weight: Font.Medium; color: Theme.text }
+        Note {
+            text: keyboard.pollingChoices.length > 4
+                  ? "How often the keyboard reports to the computer. 1000 Hz is the default; the faster rates use more of the computer's time."
+                  : "How often the keyboard reports to the computer. 1000 Hz is the default and the quickest."
+        }
+        Item { visible: keyboard.hasDebounce; Layout.preferredHeight: 4; Layout.fillWidth: true }
+        Text { visible: keyboard.hasDebounce; text: "Debounce"; font.pixelSize: Theme.fsBody; font.weight: Font.Medium; color: Theme.text }
         WgSegmented {
+            visible: keyboard.hasDebounce
             accessibleName: "Debounce"
             Layout.fillWidth: true
             model: ["2 ms", "8 ms", "16 ms"]
-            subLabels: ["quickest", "balanced", "steadiest, default"]
+            subLabels: ["quickest", "balanced", "steadiest"].map((t, i) => i === keyboard.debounceDefault ? (t + ", default") : t)
             currentIndex: keyboard.debounceIndex
             onActivated: (i) => keyboard.setDebounce(i)
         }
         Note {
+            visible: keyboard.hasDebounce
             text: "How long a key must settle before it counts. Lower is quicker; go higher if a key types twice. "
-                  + (keyboard.rgbeastLighting
+                  + (!keyboard.sharesLighting
+                     ? "It's one setting for the whole keyboard."
+                     : keyboard.rgbeastLighting
                      ? "RGBeast looks after the keyboard's lighting, so it saves this for you and your colours stay as they are."
-                     : "The keyboard stores this with its lighting, so changing it puts the lighting back to Glorious mode. Turn on lighting control in RGBeast to keep your colours.")
+                     : keyboard.rgbeastSupports
+                       ? "The keyboard stores this with its lighting, so changing it puts the lighting back to Glorious mode. Turn on lighting control in RGBeast to keep your colours."
+                       : "The keyboard stores this with its lighting, so changing it puts the lighting back to its default.")
+        }
+        Item { visible: keyboard.hasSleep; Layout.preferredHeight: 4; Layout.fillWidth: true }
+        Text {
+            visible: keyboard.hasSleep
+            text: "Standby"
+            font.pixelSize: Theme.fsBody; font.weight: Font.Medium; color: Theme.text
+        }
+        WgSegmented {
+            visible: keyboard.hasSleep
+            accessibleName: "Standby"
+            Layout.fillWidth: true
+            model: ["3 min", "7 min", "15 min", "30 min", "Never"]
+            subLabels: ["soonest", "", "", "", "stays lit"].map((t, i) => i === keyboard.sleepDefault ? (t ? t + ", default" : "default") : t)
+            currentIndex: keyboard.sleepIndex
+            onActivated: (i) => keyboard.setSleep(i)
+        }
+        Note {
+            visible: keyboard.hasSleep
+            text: "How long the keyboard waits with no typing before it goes into standby and turns its lights off. Any key wakes it."
+                  + (!keyboard.sharesLighting ? "" : " This is stored with the lighting too, so changing it puts the lighting back to its default.")
+        }
+    }
+
+    // Hall-effect keys
+    WgCard {
+        id: analogCard
+        width: parent.width
+        visible: page.ready && keyboard.hasAnalog
+        enabled: page.editable
+        spacing: 12
+        // what the sliders show while dragged; sent once when let go
+        property real act: keyboard.actuation
+        property real sens: keyboard.sensitivity
+        function mm(v) { return v.toFixed(1) + " mm" }
+        function apply() { keyboard.setAnalog(act, keyboard.rapidTrigger, sens) }
+        Connections {
+            target: keyboard
+            function onChanged() { analogCard.act = keyboard.actuation; analogCard.sens = keyboard.sensitivity }
+        }
+        SectionTitle { text: "Key press" }
+        RowLayout {
+            Layout.fillWidth: true
+            Text { text: "Actuation point"; font.pixelSize: Theme.fsBody; font.weight: Font.Medium; color: Theme.text }
+            Item { Layout.fillWidth: true }
+            Text { text: analogCard.mm(analogCard.act); font.pixelSize: Theme.fsBody; font.weight: Font.DemiBold; color: Theme.text }
+        }
+        WgSlider {
+            Accessible.name: "Actuation point"
+            Layout.fillWidth: true
+            from: 0.1
+            to: 3.6
+            stepSize: 0.1
+            snapMode: WgSlider.SnapAlways
+            value: analogCard.act
+            valueText: analogCard.mm(value)
+            onMoved: analogCard.act = Math.round(value * 10) / 10
+            onPressedChanged: if (!pressed) analogCard.apply()
+        }
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.leftMargin: 4
+            Layout.rightMargin: 4
+            Text { text: "0.1 mm, lightest touch"; font.pixelSize: Theme.fsSmall; color: Theme.textFaint }
+            Item { Layout.fillWidth: true }
+            Text { text: "3.6 mm, deepest"; font.pixelSize: Theme.fsSmall; color: Theme.textFaint }
+        }
+        Note { text: "How far a key goes down before it counts, for every key. 2.0 mm is the default." }
+        WgToggleRow {
+            Layout.topMargin: 6
+            title: "Rapid trigger"
+            description: "A key lets go as soon as it starts to rise, and presses again as soon as it goes down, instead of waiting for the actuation point. Quicker repeated presses in games."
+            checked: keyboard.rapidTrigger
+            onToggled: (v) => keyboard.setAnalog(analogCard.act, v, analogCard.sens)
+        }
+        ColumnLayout {
+            visible: keyboard.rapidTrigger
+            Layout.fillWidth: true
+            spacing: 8
+            RowLayout {
+                Layout.fillWidth: true
+                Text { text: "Sensitivity"; font.pixelSize: Theme.fsBody; font.weight: Font.Medium; color: Theme.text }
+                Item { Layout.fillWidth: true }
+                Text { text: analogCard.mm(analogCard.sens); font.pixelSize: Theme.fsBody; font.weight: Font.DemiBold; color: Theme.text }
+            }
+            WgSlider {
+                Accessible.name: "Rapid trigger sensitivity"
+                Layout.fillWidth: true
+                from: 0.1
+                to: 2.0
+                stepSize: 0.1
+                snapMode: WgSlider.SnapAlways
+                value: analogCard.sens
+                valueText: analogCard.mm(value)
+                onMoved: analogCard.sens = Math.round(value * 10) / 10
+                onPressedChanged: if (!pressed) analogCard.apply()
+            }
+            Note { text: "How far a key must rise or fall to let go or press again. 0.2 mm is the default; smaller reacts sooner." }
         }
     }
 
@@ -274,7 +383,12 @@ WgScrollPage {
                 }
             }
         }
-        Note { text: "Each profile has three layers, and each layer its own keys. The keyboard remembers all nine, and the page follows when you switch on the keyboard itself." }
+        Note {
+            text: "Each profile has three layers, and each layer its own keys. The keyboard remembers all nine"
+                  + (!keyboard.layerSwitches ? ". Picking a layer here shows its keys; the keyboard itself decides when that layer is in use."
+                     : keyboard.followsBoard ? ", and the page follows when you switch on the keyboard itself."
+                     : ". If you switch on the keyboard itself, pick the same profile and layer here before changing keys.")
+        }
     }
 
     // Keys
@@ -304,12 +418,15 @@ WgScrollPage {
         Note {
             text: keyboard.remappedCount > 0
                   ? keyboard.remappedCount + (keyboard.remappedCount === 1 ? " key does" : " keys do") + " something else on this layer. Click a key to change it."
-                  : "Click a key to make it type something else, control media or the mouse, switch profiles, or play a macro."
+                  : "Click a key to make it type something else, control media or the mouse, switch profiles"
+                    + (keyboard.hasMacros ? ", or play a macro." : ".")
         }
 
         Item {
             id: art
-            Layout.fillWidth: true
+            // A small board (the Numpad) is drawn at a full keyboard's key size, centred, not stretched.
+            Layout.preferredWidth: Math.min(parent.width, keyboard.layoutSize[0] * Theme.px(46))
+            Layout.alignment: Qt.AlignHCenter
             Layout.topMargin: 4
             readonly property real unit: width / keyboard.layoutSize[0]
             readonly property real rowGap: keyboard.layoutSize[2] ? 6 : 0     // sets the F-key row apart
@@ -364,7 +481,7 @@ WgScrollPage {
                     }
                     Text {
                         anchors.fill: parent
-                        anchors.margins: 3
+                        anchors.margins: key.modelData.remapped ? 3 : 1
                         visible: !key.lower
                         text: key.modelData.remapped ? key.modelData.action : key.modelData.label
                         horizontalAlignment: Text.AlignHCenter
@@ -372,9 +489,9 @@ WgScrollPage {
                         elide: Text.ElideRight
                         wrapMode: key.modelData.remapped ? Text.Wrap : Text.NoWrap
                         maximumLineCount: 2
-                        // a long name on a narrow key (PgUp on a 96% board) shrinks a little before it's cut
+                        // a long name on a narrow key (PgUp on a 96% or 100% board) shrinks a little before it's cut
                         fontSizeMode: key.modelData.remapped ? Text.FixedSize : Text.HorizontalFit
-                        minimumPixelSize: 8
+                        minimumPixelSize: 7
                         font.pixelSize: Math.max(8, Math.min(Theme.px(12), art.unit * (key.modelData.remapped ? 0.24 : 0.3)))
                         font.weight: key.modelData.remapped ? Font.DemiBold : Font.Medium
                         color: key.modelData.remapped ? (Theme.dark ? "#E5DBFF" : Theme.accentA) : Theme.textMuted
@@ -398,7 +515,7 @@ WgScrollPage {
     // Macros
     WgCard {
         width: parent.width
-        visible: page.ready
+        visible: page.ready && keyboard.hasMacros
         spacing: 10
         RowLayout {
             Layout.fillWidth: true
@@ -574,7 +691,8 @@ WgScrollPage {
         property int kindIndex: 0
         property int code: -1
         property var mods: []
-        readonly property var kinds: ["default", "key", "media", "mouse", "function", "macro", "disabled"]
+        readonly property var kinds: keyboard.hasMacros ? ["default", "key", "media", "mouse", "function", "macro", "disabled"]
+                                                        : ["default", "key", "media", "mouse", "function", "disabled"]
         readonly property var macroChoices: keyboard.macros.map(m => ({ code: m.slot, name: m.name }))
         width: Math.min(page.width - 40, Theme.px(520))
 
@@ -610,7 +728,8 @@ WgScrollPage {
             WgSegmented {
                 Layout.fillWidth: true
                 accessibleName: "What the key does"
-                model: ["Normal", "Key", "Media", "Mouse", "Profile", "Macro", "Off"]
+                model: keyboard.hasMacros ? ["Normal", "Key", "Media", "Mouse", "Profile", "Macro", "Off"]
+                                          : ["Normal", "Key", "Media", "Mouse", "Profile", "Off"]
                 currentIndex: keyEditor.kindIndex
                 onActivated: (i) => { keyEditor.kindIndex = i; keyEditor.code = -1; keyEditor.mods = [] }
             }

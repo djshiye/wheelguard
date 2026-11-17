@@ -1,6 +1,6 @@
-# Glorious GMMK Pro and GMMK 2: settings protocol (stock firmware)
+# Glorious GMMK Pro, GMMK 2 and GMMK 3: settings protocol (stock firmware)
 
-How Wheelguard talks to a Glorious GMMK Pro or GMMK 2 on its original firmware. Learned by reading the keyboard
+How Wheelguard talks to a Glorious GMMK Pro, GMMK 2 or wired GMMK 3 / 3 Pro on its original firmware. Learned by reading the keyboard
 code of Glorious CORE 2.1.23 (the Windows app) without running it; no Glorious code is used. Nothing
 here touches the firmware: the bootloader IDs and firmware updates are out of scope.
 
@@ -16,8 +16,24 @@ here touches the firmware: the bootloader IDs and firmware updates are out of sc
 | GMMK 2 65% ISO | 320F:504A | 65% ISO |
 | GMMK 2 96% ANSI | 320F:504B | 96% ANSI |
 | GMMK 2 96% ISO | 320F:505A | 96% ISO |
+| GMMK 3 100% ANSI / ISO | 342D:E3C8 / E3D1 | GMMK 3 ANSI / ISO |
+| GMMK 3 75% ANSI / ISO | 342D:E3C9 / E3D2 | GMMK 3 ANSI / ISO |
+| GMMK 3 65% ANSI / ISO | 342D:E3CA / E3D3 | GMMK 3 ANSI / ISO |
+| GMMK 3 Pro 100% ANSI / ISO | 342D:E3C5 / E3CE | GMMK 3 ANSI / ISO |
+| GMMK 3 Pro 75% ANSI / ISO | 342D:E3C6 / E3CF | GMMK 3 ANSI / ISO |
+| GMMK 3 Pro 65% ANSI / ISO | 342D:E3C7 / E3D0 | GMMK 3 ANSI / ISO |
+| GMMK 3 Pro Wireless 100% ANSI / ISO, by cable | 342D:E3CB / E3D4 | GMMK 3 Wireless |
+| GMMK 3 Pro Wireless 75% ANSI / ISO, by cable | 342D:E3CC / E3D5 | GMMK 3 Wireless |
+| GMMK 3 Pro Wireless 65% ANSI / ISO, by cable | 342D:E3CD / E3D6 | GMMK 3 Wireless (65%) |
+| GMMK Numpad, USB | 320F:5088 | Numpad |
+| GMMK 3 HE and GMMK 3 Pro HE (wired and Wireless by cable), 100% / 75% / 65%, ANSI / ISO | 342D:E3D7-E3F4, 3794:B300-B33B | HE (own numbering) |
+| GMBK 75% ANSI / ISO | 3794:B000 / B001 | GMBK (own pairs) |
+| GMMK Eternal 96% ANSI / ISO | 3794:B010 / B011 | Eternal (own positions) |
 
-Bootloaders (never opened): B007, B009, B00F, B010 (Pro); B008, B00A, B00B, B00C (GMMK 2).
+Bootloaders (never opened, and refused by the transport): 320F:B007, B009, B00F, B010 (Pro); B008, B00A, B00B,
+B00C (GMMK 2); 3794:B002 / B003 (GMBK) and B012 (Eternal); the GMMK 3's
+are under vendor 2442, which Wheelguard never matches. The HE boards have no bootloader ID in CORE; their
+firmware is updated by a separate Glorious tool that Wheelguard never imitates.
 
 **GMMK 2.** Glorious CORE drives it with the same code as the Pro, so every frame below is the same. The
 differences are the key positions, its default key assignment (one for both 65% boards, one for both
@@ -26,7 +42,103 @@ positions come from the default assignment, which says what each position types.
 tables agree except for `/` and `\`, which they name the other way round; Wheelguard follows the
 default assignment. That is one of the things to check on a real board.
 
-Two vendor HID interfaces matter:
+**GMMK 3 and GMMK 3 Pro (wired).** Same code in CORE again, under vendor 342D, with these differences:
+
+- The key assignment frame has 126 positions (types at byte 8, codes at byte 8 + 126), not 120. Every
+  size shares one matrix: a key keeps its position whatever the board's size. The knob press is
+  position 20 (media, play / pause) and is never remapped; 17 and 18 are the knob's turn. The default
+  assignment is the same for all twelve boards, except that the GMMK 3 Pro 100% ANSI's leaves 17 and 18
+  empty. The badge on the board is a light, not a key.
+- No profile commit after a key assignment, as on the GMMK 2.
+- A standby timer in minutes (1 to 254, 255 = never; CORE's default 7) at byte 11 of both the polling
+  frame (0x08) and every properties frame (0x07). CORE repeats it in each, so Wheelguard does too: the
+  timer is sent with every polling or debounce change, and a timer change writes the polling frame and
+  all nine properties frames. Wheelguard offers 3, 7, 15 and 30 minutes and never.
+
+**GMMK 3 Pro Wireless, by its USB cable.** Same frames on the cable. Wheelguard never writes through
+the 2.4 GHz receiver (342D:E3E6-E3E8, E3FB-E3FD: each frame split into four 65-byte reports with a
+readiness poll) or Bluetooth (CORE writes nothing there either). Differences from the wired GMMK 3:
+
+- 110 key positions (types at byte 8, codes at byte 118), counted column by column. One default
+  assignment for all six boards. On the 65% the Esc key sits in the backtick's position (1). CORE's
+  default makes position 1 type Esc on every size and leaves ISO's key left of Z (107) empty;
+  Wheelguard sends a backtick at 1 on the 75% and 100% and IntlBackslash (0x64) at 107 on ISO boards.
+  The knob press is 108 (never remapped); its turn is 104 (down) and 109 (up), which CORE always sends
+  as media volume down / up and Wheelguard does too.
+- No polling frame (0x08): the rate is byte 9 of the properties frame (same codes). CORE leaves byte 9
+  at 0 in its other properties frames, which would reset the rate to 1000 Hz; Wheelguard always fills
+  it with the chosen rate. A rate change is one properties frame for the active profile and layer.
+- No commit after a key assignment.
+
+**GMMK Numpad.** Same frames and polling. 20 key positions (types at byte 8, codes at byte 28); the
+knob's press is 11 (mute, never remapped), 17 and 18 are empty, and the slider is analog and has no
+setting. No standby setting. CORE commits (0x01) after a key assignment, as on the Pro. CORE indexes
+the Numpad's macro-mode frame with its lighting positions rather than its key positions, so which is
+right can't be told without the board: Wheelguard offers no macros on it. Its Bluetooth link
+(093A:2860, a generic PixArt ID) is never matched.
+
+**GMMK 3 HE and GMMK 3 Pro HE (Hall-effect keys).** A different protocol in CORE (its own handler). Each
+board has three USB IDs (one under 342D, two under 3794); CORE treats them as the same board.
+
+- One 64-byte command per setting, as a Feature report with no report ID (65 bytes with the leading 0)
+  on usage page 0xFFFF, usage 2. Byte 7 of the command is a checksum: 255 minus the sum of bytes 0 to 6.
+  Profile and layer are 0-based. Events come on 0xFFFF / usage 1: `05 01 pp ll` after a switch on the board.
+- 0x04 polling rate per profile: `[1]` profile, `[2]` 0 = 8000 Hz, 1 = 4000, 2 = 2000, 3 = 1000, 4 = 500,
+  5 = 250, 6 = 125. Wheelguard sends it to all three profiles.
+- 0x05 switch profile and layer: `[1]` profile, `[2]` layer.
+- 0x12 standby, in seconds, little-endian 16-bit: USB at 16, and on the Wireless also Bluetooth at 8 and
+  2.4 GHz at 10; deep-sleep fields (12, 14, 18) stay 0xFFFF. 0 = never.
+- 0x13 one key: `[1]` profile, `[2]` the key's number, `[3]` layer, `[4]` 0, then a 4-byte keycode at 8.
+  Wheelguard offers keys with at most one modifier, media and mouse buttons; no macros, no profile keys.
+- 0x1D with `[1]` 3 (custom mode), then 0x1A per profile and layer: `[1]` layer << 4 | profile,
+  `[3]` 0x80 with rapid trigger, `[4]` actuation, `[5]` 1; payload 8 actuation, 9 and 10 rapid-trigger
+  sensitivity, 25 the bottom dead zone (kept at 3.7 mm). Millimetres go on the wire as round(mm x 10) - 1.
+  Wheelguard offers one actuation point (0.1 to 3.6 mm) and rapid trigger (0.1 to 2.0 mm) for the whole
+  layer, sent again on every profile or layer switch.
+- No debounce on the Keyboard page: CORE has a 0x11 debounce frame (5 ms steps), but magnetic keys have
+  no contacts to bounce, so Wheelguard leaves the board's default. Lighting (0x07, 0x08, 0x0C, 0x51) stays RGBeast's job.
+- Never built, so impossible to send: factory reset (0x02), calibration (0x1C, 0x1E), the travel stream
+  (0x1B), macros (0x16) and the advanced per-key modes.
+
+**GMBK 75%.** Same report (Feature report 7 on 0xFF01 / 1) but its own commands; CORE's GMBK code shares
+nothing with the GMMK code.
+
+- 0x01 switch profile and layer (`[2]` profile, `[3]` layer, 1-based). CORE then sends that layer's keys
+  again, and Wheelguard does too.
+- 0x03 one layer's keys: `[2]` profile, `[3]` layer, then (type, code) pairs from byte 4, 126 pairs.
+  Types as on the GMMK, except a key with a modifier is 0xE0 + the modifier's index (0 Ctrl, 1 Shift,
+  2 Alt, 3 Super), so one modifier per key. The knob turns at pairs 17 and 18 and presses at 19. Layer 2's
+  default has a layer key (type 0x0D) on right Alt, so right Alt is never remapped. CORE's own name table
+  puts the backtick, ISO #, ISO's key left of Z and the knob press in the wrong places; Wheelguard follows
+  CORE's default buffer instead (backtick 21, # 75, left of Z 85, knob press 19).
+- 0x11 settings, one frame per profile, 9 bytes as CORE builds it (Wheelguard pads it to the report size,
+  as Windows does): `[2]` profile, `[3]` Win-lock, `[4]` OS mode, `[5]` polling (1000 Hz 0, 500 Hz 1,
+  250 Hz 3, 125 Hz 7), `[6]` debounce (default 2), `[7]` standby in minutes (1 to 60, 0 never), `[8]` knob
+  sensitivity. Wheelguard sends polling and standby to all three profiles and keeps the rest at CORE's
+  defaults. Debounce isn't offered: its unit isn't known.
+- No macros: CORE numbers a macro one way in the macro frame and another in the key that plays it.
+- The event interface only reports whether a write worked, so Wheelguard doesn't open it, and the page
+  can't follow a profile switch made on the board.
+
+**GMMK Eternal 96.** A different protocol again: 64-byte **output** reports (report ID 9), written with
+write(), on usage page 0xFF60 / usage 0x61. That page is the one QMK uses, but this is Glorious's stock
+firmware: Wheelguard matches it only by its own USB IDs, and the udev helper accepts that page only for
+those IDs (`wheelguard-gmmk-check --eternal`). Every frame is `09 cmd val 00 01 00 len payload…` with a
+checksum in byte 63: 255 minus the sum of bytes 0 to 62.
+
+- 0x04 write configuration, one setting per frame: val 0x17 polling (1000 Hz 0, 500 Hz 1, 250 Hz 2,
+  125 Hz 3; CORE also lists 8000, 4000 and 2000 Hz from a vendor document, left out until a board shows
+  them), 0x1E debounce in microseconds (16-bit big-endian; CORE builds this and then always sends 5 ms,
+  Wheelguard sends what you pick), 0x23 standby in seconds (16-bit big-endian, 0 never).
+- 0x10 switch profile: payload `[profile]`, 0-based. There is no layer switch command: the page's layer
+  picker only chooses which layer's keys you edit.
+- 0x03 one key: val = layer, payload `[position high, position low, type, b1, b2, b3]`: a key with
+  modifiers `00 mask 00 usage` (Ctrl 1, Shift 2, Alt 4, Super 8), mouse `01 button 00 00`, consumer
+  `02 00 usage-high usage-low`, next / previous profile `06 01|02 00 00`. A key put back gets its own usage.
+  Modifier keys stay as they are, because CORE has no code to put one back.
+- Never built: 0x11 (a factory reset), 0x71 (user data), lighting, macros, firmware.
+
+Two vendor HID interfaces matter (the GMMK Pro, GMMK 2, GMMK 3 and Numpad):
 
 - **Settings**: usage page 0xFF01, usage 0x01. Feature report ID 7. Glorious CORE builds 264-byte frames
   (64 for the profile switch); Wheelguard pads every frame to the Feature report size the descriptor

@@ -18,6 +18,10 @@ KNOWN = {
     # the rest of the Logitech family (models.LOGI_LINKS)
     **{(0x046D, pid): (models.MODELS[link.model].name, "cable" if link.wired else "receiver")
        for pid, link in models.LOGI_LINKS.items() if pid not in (0x4093, 0xC094)},
+    # the Glorious mice (models.GLORIOUS_LINKS)
+    **{(models.glorious_vendor(link), pid): (link.label or models.MODELS[link.model].name,
+                                             "cable" if link.wired else "dongle")
+       for pid, link in models.GLORIOUS_LINKS.items()},
 }
 KNOWN_MICE = tuple(KNOWN)
 AUTO = "auto"

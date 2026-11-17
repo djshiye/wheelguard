@@ -142,10 +142,72 @@ SUBSYSTEM=="hidraw", ATTRS{idVendor}=="046d", ATTRS{idProduct}=="c099", TAG+="ua
 SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="046d", ATTRS{idProduct}=="c09d", ENV{ID_INPUT_MOUSE}=="1", ENV{ID_INPUT_KEYBOARD}!="1", TAG+="uaccess"
 SUBSYSTEM=="hidraw", ATTRS{idVendor}=="046d", ATTRS{idProduct}=="c09d", TAG+="uaccess"
 
+# --- Glorious mice (wheelguard/hw/models.py GLORIOUS_LINKS): read-only until confirmed. Model O3 / D3
+# (vendor 3794) and the Sinowealth wireless mice (vendor 258a). Never the bootloaders, never 258a:2014 or
+# 3794:a100 (the app gives each to two products), no Bluetooth. Event nodes only when udev sees a pure mouse.
+# Of the hidraw nodes only the settings interface, and only when the helper sees that it carries nothing
+# but vendor collections (never the pointer, keys bound to buttons or media keys).
+# Glorious Model O3 Wireless: wired (a312), dongle (a300, shared with the D3 Wireless)
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="3794", ATTRS{idProduct}=="a312", ENV{ID_INPUT_MOUSE}=="1", ENV{ID_INPUT_KEYBOARD}!="1", TAG+="uaccess"
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="3794", ATTRS{idProduct}=="a300", ENV{ID_INPUT_MOUSE}=="1", ENV{ID_INPUT_KEYBOARD}!="1", TAG+="uaccess"
+# Glorious Model D3 Wireless: wired (a322), and the dongle above
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="3794", ATTRS{idProduct}=="a322", ENV{ID_INPUT_MOUSE}=="1", ENV{ID_INPUT_KEYBOARD}!="1", TAG+="uaccess"
+# Glorious Model O3: wired (a310)
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="3794", ATTRS{idProduct}=="a310", ENV{ID_INPUT_MOUSE}=="1", ENV{ID_INPUT_KEYBOARD}!="1", TAG+="uaccess"
+# Glorious Model D3: wired (a320)
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="3794", ATTRS{idProduct}=="a320", ENV{ID_INPUT_MOUSE}=="1", ENV{ID_INPUT_KEYBOARD}!="1", TAG+="uaccess"
+# Glorious Model O Wireless: wired (2011), dongle (2022)
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="258a", ATTRS{idProduct}=="2011", ENV{ID_INPUT_MOUSE}=="1", ENV{ID_INPUT_KEYBOARD}!="1", TAG+="uaccess"
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="258a", ATTRS{idProduct}=="2022", ENV{ID_INPUT_MOUSE}=="1", ENV{ID_INPUT_KEYBOARD}!="1", TAG+="uaccess"
+# Glorious Model O- Wireless: wired (2013), dongle (2024)
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="258a", ATTRS{idProduct}=="2013", ENV{ID_INPUT_MOUSE}=="1", ENV{ID_INPUT_KEYBOARD}!="1", TAG+="uaccess"
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="258a", ATTRS{idProduct}=="2024", ENV{ID_INPUT_MOUSE}=="1", ENV{ID_INPUT_KEYBOARD}!="1", TAG+="uaccess"
+# Glorious Model O Pro Wireless: wired (2015), dongle (2027)
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="258a", ATTRS{idProduct}=="2015", ENV{ID_INPUT_MOUSE}=="1", ENV{ID_INPUT_KEYBOARD}!="1", TAG+="uaccess"
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="258a", ATTRS{idProduct}=="2027", ENV{ID_INPUT_MOUSE}=="1", ENV{ID_INPUT_KEYBOARD}!="1", TAG+="uaccess"
+# Glorious Model D Wireless: wired (2012), dongle (2023)
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="258a", ATTRS{idProduct}=="2012", ENV{ID_INPUT_MOUSE}=="1", ENV{ID_INPUT_KEYBOARD}!="1", TAG+="uaccess"
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="258a", ATTRS{idProduct}=="2023", ENV{ID_INPUT_MOUSE}=="1", ENV{ID_INPUT_KEYBOARD}!="1", TAG+="uaccess"
+# Glorious Model D- Wireless: dongle (2025)
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="258a", ATTRS{idProduct}=="2025", ENV{ID_INPUT_MOUSE}=="1", ENV{ID_INPUT_KEYBOARD}!="1", TAG+="uaccess"
+# Glorious Model D Pro Wireless: wired (2017), dongle (2029)
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="258a", ATTRS{idProduct}=="2017", ENV{ID_INPUT_MOUSE}=="1", ENV{ID_INPUT_KEYBOARD}!="1", TAG+="uaccess"
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="258a", ATTRS{idProduct}=="2029", ENV{ID_INPUT_MOUSE}=="1", ENV{ID_INPUT_KEYBOARD}!="1", TAG+="uaccess"
+# Glorious Series One Pro Wireless: wired (2018), dongle (2031)
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="258a", ATTRS{idProduct}=="2018", ENV{ID_INPUT_MOUSE}=="1", ENV{ID_INPUT_KEYBOARD}!="1", TAG+="uaccess"
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="258a", ATTRS{idProduct}=="2031", ENV{ID_INPUT_MOUSE}=="1", ENV{ID_INPUT_KEYBOARD}!="1", TAG+="uaccess"
+# Glorious Model O2 Pro Wireless: wired (2019), dongle (2033)
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="258a", ATTRS{idProduct}=="2019", ENV{ID_INPUT_MOUSE}=="1", ENV{ID_INPUT_KEYBOARD}!="1", TAG+="uaccess"
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="258a", ATTRS{idProduct}=="2033", ENV{ID_INPUT_MOUSE}=="1", ENV{ID_INPUT_KEYBOARD}!="1", TAG+="uaccess"
+# Glorious Model D2 Pro Wireless: wired (201a), dongle (2034)
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="258a", ATTRS{idProduct}=="201a", ENV{ID_INPUT_MOUSE}=="1", ENV{ID_INPUT_KEYBOARD}!="1", TAG+="uaccess"
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="258a", ATTRS{idProduct}=="2034", ENV{ID_INPUT_MOUSE}=="1", ENV{ID_INPUT_KEYBOARD}!="1", TAG+="uaccess"
+# Glorious Model O2 Pro 4K/8K Wireless: wired (201b), dongle (2035)
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="258a", ATTRS{idProduct}=="201b", ENV{ID_INPUT_MOUSE}=="1", ENV{ID_INPUT_KEYBOARD}!="1", TAG+="uaccess"
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="258a", ATTRS{idProduct}=="2035", ENV{ID_INPUT_MOUSE}=="1", ENV{ID_INPUT_KEYBOARD}!="1", TAG+="uaccess"
+# Glorious Model D2 Pro 4K/8K Wireless: wired (201c), dongle (2036)
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="258a", ATTRS{idProduct}=="201c", ENV{ID_INPUT_MOUSE}=="1", ENV{ID_INPUT_KEYBOARD}!="1", TAG+="uaccess"
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="258a", ATTRS{idProduct}=="2036", ENV{ID_INPUT_MOUSE}=="1", ENV{ID_INPUT_KEYBOARD}!="1", TAG+="uaccess"
+# Glorious Series 2 Pro Wireless: wired (201d), dongle (2039)
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="258a", ATTRS{idProduct}=="201d", ENV{ID_INPUT_MOUSE}=="1", ENV{ID_INPUT_KEYBOARD}!="1", TAG+="uaccess"
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="258a", ATTRS{idProduct}=="2039", ENV{ID_INPUT_MOUSE}=="1", ENV{ID_INPUT_KEYBOARD}!="1", TAG+="uaccess"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3794", ATTRS{idProduct}=="a312|a300|a322|a310|a320", IMPORT{program}="wheelguard-glorious-check %S%p"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="258a", ATTRS{idProduct}=="2011|2022|2013|2024|2015|2027|2012|2023|2025|2017|2029|2018|2031|2019|2033|201a|2034|201b|2035|201c|2036|201d|2039", IMPORT{program}="wheelguard-glorious-check %S%p"
+SUBSYSTEM=="hidraw", ENV{WHEELGUARD_GLORIOUS}=="1", TAG+="uaccess"
+
 # --- Glorious GMMK Pro keyboards (ANSI 5044, ISO 5046, later boards 5092 / 5093) and GMMK 2 keyboards
-# (65% ANSI 5045, ISO 504a; 96% ANSI 504b, ISO 505a), stock firmware.
+# (65% ANSI 5045, ISO 504a; 96% ANSI 504b, ISO 505a), stock firmware; GMMK 3 and GMMK 3 Pro wired keyboards
+# (vendor 342d: 100% e3c8 / e3d1 and Pro e3c5 / e3ce, 75% e3c9 / e3d2 and Pro e3c6 / e3cf, 65% e3ca / e3d3 and
+# Pro e3c7 / e3d0, ANSI / ISO), the GMMK 3 Pro Wireless by its USB cable (100% e3cb / e3d4, 75% e3cc / e3d5,
+# 65% e3cd / e3d6; never its 2.4 GHz receiver or Bluetooth), the GMMK 3 HE and GMMK 3 Pro HE over USB (342d:e3d7-e3df and
+# e3ec-e3f4, and their later USB IDs under vendor 3794: b300-b33b; never a receiver or Bluetooth) and the GMMK Numpad
+# (320f:5088, USB only), the GMBK 75% (3794:b000, b001) and the GMMK Eternal 96 (3794:b010, b011; its
+# settings collection is on usage page 0xFF60, which the helper accepts only when called with --eternal).
 # Only the two vendor interfaces (settings and events) are granted, and only when the helper sees that the
 # interface carries nothing that reports keys: Wheelguard can never read what is typed. Never the
-# bootloaders (B007-B00C, B00F, B010), and no input nodes.
-SUBSYSTEM=="hidraw", ATTRS{idVendor}=="320f", ATTRS{idProduct}=="5044|5046|5092|5093|5045|504a|504b|505a", IMPORT{program}="wheelguard-gmmk-check %S%p"
+# bootloaders (320f:B007-B00C, B00F, B010; 3794:B002, B003, B012; the GMMK 3's are under another vendor), and no input nodes.
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="320f", ATTRS{idProduct}=="5044|5046|5092|5093|5045|504a|504b|505a|5088", IMPORT{program}="wheelguard-gmmk-check %S%p"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="342d", ATTRS{idProduct}=="e3c5|e3c6|e3c7|e3c8|e3c9|e3ca|e3cb|e3cc|e3cd|e3ce|e3cf|e3d0|e3d1|e3d2|e3d3|e3d4|e3d5|e3d6|e3d7|e3d8|e3d9|e3da|e3db|e3dc|e3dd|e3de|e3df|e3ec|e3ed|e3ee|e3ef|e3f0|e3f1|e3f2|e3f3|e3f4", IMPORT{program}="wheelguard-gmmk-check %S%p"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3794", ATTRS{idProduct}=="b300|b301|b302|b303|b304|b305|b306|b307|b308|b310|b311|b312|b313|b315|b317|b319|b31a|b31b|b320|b321|b322|b323|b324|b325|b326|b327|b328|b330|b331|b332|b333|b335|b337|b339|b33a|b33b|b000|b001", IMPORT{program}="wheelguard-gmmk-check %S%p"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3794", ATTRS{idProduct}=="b010|b011", IMPORT{program}="wheelguard-gmmk-check %S%p --eternal"
 SUBSYSTEM=="hidraw", ENV{WHEELGUARD_GMMK}=="1", TAG+="uaccess"

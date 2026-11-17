@@ -7,7 +7,7 @@
 %global __brp_python_bytecompile %{nil}
 
 Name:           wheelguard
-Version:        1.12.0
+Version:        1.13.0
 # CI appends .<commit count> so every build from main is a newer release.
 Release:        1%{?release_suffix}%{?dist}
 Summary:        Scroll bounce filter, advanced mouse settings and Glorious keyboard controls
@@ -71,6 +71,7 @@ install -Dpm 0644 build-aux/wheelguard.service %{buildroot}%{_userunitdir}/wheel
 install -Dpm 0644 build-aux/80-wheelguard.preset %{buildroot}%{_userpresetdir}/80-wheelguard.preset
 install -Dpm 0644 build-aux/70-wheelguard.rules %{buildroot}%{_udevrulesdir}/70-wheelguard.rules
 install -Dpm 0755 build-aux/wheelguard-gmmk-check %{buildroot}%{_udevrulesdir}/../wheelguard-gmmk-check
+install -Dpm 0755 build-aux/wheelguard-glorious-check %{buildroot}%{_udevrulesdir}/../wheelguard-glorious-check
 install -Dpm 0644 build-aux/%{app_id}.desktop %{buildroot}%{_datadir}/applications/%{app_id}.desktop
 install -Dpm 0644 build-aux/%{app_id}-autostart.desktop %{buildroot}%{_sysconfdir}/xdg/autostart/%{app_id}.desktop
 install -Dpm 0644 build-aux/%{app_id}.svg %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/%{app_id}.svg
@@ -130,6 +131,7 @@ fi
 %{_userpresetdir}/80-wheelguard.preset
 %{_udevrulesdir}/70-wheelguard.rules
 %{_udevrulesdir}/../wheelguard-gmmk-check
+%{_udevrulesdir}/../wheelguard-glorious-check
 %{_datadir}/applications/%{app_id}.desktop
 %config(noreplace) %{_sysconfdir}/xdg/autostart/%{app_id}.desktop
 %{_datadir}/icons/hicolor/scalable/apps/%{app_id}.svg
@@ -142,6 +144,16 @@ fi
 %{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-djshiye-%{name}
 
 %changelog
+* Tue Nov 17 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.13.0-1
+- New: the Keyboard page also works with the Glorious GMMK 3 and GMMK 3 Pro, wired (100%, 75% and 65%, ANSI and ISO), with a Standby timer; controls start off until turned on
+- New: the GMMK 3 Pro Wireless (by its USB cable) and the GMMK Numpad on the Keyboard page, controls off until turned on
+- New: GMMK 3 HE and GMMK 3 Pro HE: polling up to 8000 Hz, standby, key remapping, actuation point and rapid trigger, controls off until turned on
+- New: GMBK 75% and GMMK Eternal 96% on the Keyboard page (polling, standby, key remapping; debounce on the Eternal), controls off until turned on
+- udev: the GMMK 3's two vendor interfaces (vendor 342d) are granted the same way as the Pro's, checked by wheelguard-gmmk-check
+- The Keyboard page only points to RGBeast for boards RGBeast can light (the GMMK Pro so far)
+- New, read-only for now: Glorious mice on the Mouse page and in the panel. Model O3 / D3 (wired and wireless): battery, charging and the sleep timer. Model O / O- / O Pro / D / D- / D Pro Wireless, Series One Pro, Model O2 Pro / D2 Pro (also 4K/8K) and Series 2 Pro Wireless: battery and charging, because their protocol has no way to read the other settings back
+- udev: only each Glorious mouse's settings interface is granted, checked by the new wheelguard-glorious-check so a node that also carries input is never opened
+
 * Tue Nov 17 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.12.0-1
 - New: the Keyboard page also works with the Glorious GMMK 2 (65% and 96%, ANSI and ISO), drawn as each board looks; controls start off until turned on
 - udev: the GMMK 2's two vendor interfaces are granted the same way as the Pro's, checked by wheelguard-gmmk-check

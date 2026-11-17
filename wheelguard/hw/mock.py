@@ -9,9 +9,14 @@ ever created when WHEELGUARD_HW_MOCK is set (see session.default_opener) or by t
                        razer-classic (a DeathAdder V3 Pro behind its dongle: the classic polling command)
                        razer-viper (a Viper V3 Pro behind its HyperPolling dongle)
                        logitech|logitech-wired|logitech-factory|logitech-asleep|logitech-g502
+                       glorious-o3 (a Model O3 Wireless behind the dongle it shares with the D3)
+                       glorious-d3 (a Model D3 Wireless behind the same dongle)
+                       glorious-o3-wired (a Model O3 Wireless on its cable, charging)
+                       glorious-o2pro|glorious-o2pro-asleep (a Model O2 Pro Wireless behind its dongle)
 
 FakeRazer and FakeLogitech do the same for the other two mice: they sit under razer.RazerDevice and
 hidpp.HidppDevice and answer like the real protocol (as documented by OpenRazer, libratbag and Solaar).
+FakeGloriousV3 and FakeGloriousV2Pro answer like glorious.py expects (docs/glorious-mouse-protocol.md).
 """
 import os
 from collections import deque
@@ -24,7 +29,8 @@ from .hidraw import (AccessDenied, LOGI_SUPERLIGHT_WIRED, LOGI_SUPERLIGHT_WIRELE
 MOCK_ENV = "WHEELGUARD_HW_MOCK"
 MODES = ("connected", "connected-wired", "asleep", "unsupported", "denied", "missing",
          "razer", "razer-wired", "razer-asleep", "razer-classic", "razer-viper",
-         "logitech", "logitech-wired", "logitech-factory", "logitech-asleep", "logitech-g502")
+         "logitech", "logitech-wired", "logitech-factory", "logitech-asleep", "logitech-g502",
+         "glorious-o3", "glorious-d3", "glorious-o3-wired", "glorious-o2pro", "glorious-o2pro-asleep")
 
 
 def default_blob() -> bytes:
@@ -344,6 +350,92 @@ class FakeLogitech:
         return self._out.popleft() if self._out else None
 
 
+class FakeGloriousV3:
+    """A Model O3 / D3 behind glorious.V3Device: Feature report 3, `03 BB cmd len data`."""
+
+    def __init__(self, mode: str = "glorious-o3"):
+        self.mode = mode
+        self.wired = mode == "glorious-o3-wired"
+        self.pid = 0xA312 if self.wired else 0xA300
+        self.name = b"MOUSE_D3_WIRELESS" if mode == "glorious-d3" else b"MOUSE_O3_WIRELESS"
+        self.sleep_ms, self.low_ms = 7 * 60000, 60000      # the app's default: 7 minutes
+        self.level = 64
+        self.sent: List[bytes] = []
+        self._reply: Optional[bytes] = None
+
+    def close(self):
+        pass
+
+    def set_feature(self, data: bytes) -> None:
+        r = bytes(data)
+        assert len(r) == 64 and r[0] == 0x03 and r[1] == 0xBB, "Glorious V3 reports are 64 bytes, 03 BB cmd len"
+        self.sent.append(r)
+        cmd, a = r[2], bytearray(64)        # the reply as the app reads it: data from byte 3
+        a[0], a[1], a[2] = 0x03, 0xBB, cmd
+        if cmd == 0x80:
+            a[3:6] = bytes((1, 4, 2))
+        elif cmd == 0x82:
+            a[3], a[4] = 0, 0               # no backup battery
+            a[7], a[8] = (1 if self.wired else 0), self.level
+        elif cmd == 0x84:
+            a[3:7], a[7:11] = self.sleep_ms.to_bytes(4, "big"), self.low_ms.to_bytes(4, "big")
+        elif cmd == 0x99:
+            a[3:3 + len(self.name)] = self.name
+        elif cmd == 0x04:
+            self.sleep_ms, self.low_ms = int.from_bytes(r[4:8], "big"), int.from_bytes(r[8:12], "big")
+        else:
+            raise AssertionError(f"the mock Glorious V3 received unexpected command {cmd:#04x}")
+        # through the dongle the reply carries two more bytes after the report id
+        self._reply = bytes(a) if self.wired else (bytes(a[:1]) + b"\xaa\x00" + bytes(a[1:62]))
+
+    def get_feature(self, report_id: int, length: int) -> bytes:
+        if self._reply is None or report_id != 0x03:
+            raise OSError(5, "no pending reply")
+        return self._reply
+
+
+class FakeGloriousV2Pro:
+    """A Model O2 Pro Wireless behind glorious.V2ProDevice: Feature report 0, 65 bytes, a status byte first."""
+
+    def __init__(self, mode: str = "glorious-o2pro", busy: int = 1):
+        self.mode = mode
+        self.wired = False
+        self.pid = 0x2033
+        self.level, self.charging = 73, 0
+        self.busy = busy                    # answer "busy" this many times before each reply
+        self.sent: List[bytes] = []
+        self._reply: Optional[bytes] = None
+        self._busy_left = 0
+
+    def close(self):
+        pass
+
+    def set_feature(self, data: bytes) -> None:
+        r = bytes(data)
+        assert len(r) == 65 and r[0] == 0, "Glorious V2 Pro reports are report 0 + 64 bytes"
+        self.sent.append(r)
+        d = bytearray(r[1:])                # the reply echoes the request, status in byte 0
+        cls, cid = r[5], r[6]
+        d[0] = 0xA1
+        if (cls, cid) == (0x00, 0x81):
+            d[6:10] = bytes((2, 0, 3, 1))
+        elif (cls, cid) == (0x00, 0x83):
+            if self.mode == "glorious-o2pro-asleep":
+                d[0] = 0xA4                 # the dongle can't find the mouse
+            d[6], d[7] = self.charging, self.level
+        else:
+            raise AssertionError(f"the mock Glorious V2 Pro received unexpected command {cls:02x}/{cid:02x}")
+        self._reply, self._busy_left = bytes(d), self.busy
+
+    def get_feature(self, report_id: int, length: int) -> bytes:
+        if self._reply is None:
+            raise OSError(5, "no pending reply")
+        if self._busy_left:
+            self._busy_left -= 1
+            return b"\x00\xa0" + bytes(63)
+        return b"\x00" + self._reply
+
+
 _singletons: dict = {}
 
 
@@ -364,6 +456,10 @@ def open_mock(mode: str):
             dev = FakeRazer(mode)
         elif mode.startswith("logitech"):
             dev = FakeLogitech(mode)
+        elif mode.startswith("glorious-o2pro"):
+            dev = FakeGloriousV2Pro(mode)
+        elif mode.startswith("glorious"):
+            dev = FakeGloriousV3(mode)
         else:
             dev = FakeHidraw(mode)
         _singletons[mode] = dev
@@ -371,4 +467,8 @@ def open_mock(mode: str):
         return dev, dev.wired, "razer", dev.pid
     if isinstance(dev, FakeLogitech):
         return dev, dev.wired, "logitech", dev.pid
+    if isinstance(dev, FakeGloriousV3):
+        return dev, dev.wired, "glorious-v3", dev.pid
+    if isinstance(dev, FakeGloriousV2Pro):
+        return dev, dev.wired, "glorious-v2pro", dev.pid
     return dev, dev.wired

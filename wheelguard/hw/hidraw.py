@@ -11,7 +11,7 @@ import select
 from dataclasses import dataclass
 from typing import List, Optional
 
-from .models import LOGI_LINKS, RAZER_LINKS
+from .models import GLORIOUS_LINKS, LOGI_LINKS, RAZER_LINKS, glorious_vendor
 
 VENDOR = 0x3367
 PID_DONGLE = 0x1970
@@ -48,6 +48,12 @@ LOGI_WIRED = frozenset(p for p, link in LOGI_LINKS.items() if link.wired)
 HIDPP_PAGE = bytes.fromhex("0600ff")
 HIDPP_LONG = bytes.fromhex("8511")
 
+# Glorious mice (models.GLORIOUS_LINKS). The settings collection: usage page 0xFF00, usage 1 on the Model O3 /
+# D3 ("v3"); usage page 0xFFFF, usage 0 on the Sinowealth mice ("v2pro"). Only a node whose every top-level
+# collection is a vendor one is used (and granted by udev), never one that also carries keys or buttons.
+GLORIOUS_COLLECTION = {"v3": bytes.fromhex("0600ff0901"), "v2pro": bytes.fromhex("06ffff0900")}
+GLORIOUS_WIRED = frozenset(p for p, link in GLORIOUS_LINKS.items() if link.wired)
+
 
 class AccessDenied(Exception):
     """The hidraw node exists but this user may not open it (udev rule missing or not yet applied)."""
@@ -76,7 +82,7 @@ class Candidate:
     vid: int
     pid: int
     sysname: str       # hidrawN
-    kind: str = "endgame"       # "endgame" | "razer" | "logitech"
+    kind: str = "endgame"       # "endgame" | "razer" | "logitech" | "glorious-v3" | "glorious-v2pro"
 
     @property
     def wired(self) -> bool:
@@ -84,6 +90,8 @@ class Candidate:
             return self.pid in RAZER_WIRED
         if self.kind == "logitech":
             return self.pid in LOGI_WIRED
+        if self.kind.startswith("glorious"):
+            return self.pid in GLORIOUS_WIRED
         return self.pid == PID_WIRED
 
 
@@ -93,6 +101,47 @@ def descriptor_is_config_channel(desc: bytes) -> bool:
 
 def descriptor_is_hidpp(desc: bytes) -> bool:
     return HIDPP_PAGE in desc and HIDPP_LONG in desc
+
+
+def application_pages(desc: bytes) -> List[int]:
+    """Usage page of every top-level (application) collection in a HID report descriptor (the same walk as
+    build-aux/wheelguard-glorious-check)."""
+    pages: List[int] = []
+    stack: List[int] = []
+    page = depth = i = 0
+    while i < len(desc):
+        prefix = desc[i]
+        if prefix == 0xFE:                          # long item
+            if i + 1 >= len(desc):
+                break
+            i += 3 + desc[i + 1]
+            continue
+        n = (0, 1, 2, 4)[prefix & 3]
+        val = int.from_bytes(desc[i + 1:i + 1 + n], "little")
+        tag = prefix & 0xFC
+        if tag == 0x04:                             # Usage Page
+            page = val
+        elif tag == 0xA4:                           # Push
+            stack.append(page)
+        elif tag == 0xB4 and stack:                 # Pop
+            page = stack.pop()
+        elif tag == 0xA0:                           # Collection
+            if depth == 0:
+                pages.append(page)
+            depth += 1
+        elif tag == 0xC0:                           # End Collection
+            depth = max(0, depth - 1)
+        i += 1 + n
+    return pages
+
+
+def descriptor_is_glorious_settings(desc: bytes, protocol: str) -> bool:
+    """The Glorious settings collection is on this node, and nothing but vendor collections."""
+    collection = GLORIOUS_COLLECTION.get(protocol)
+    if collection is None or collection not in desc:
+        return False
+    pages = application_pages(desc)
+    return bool(pages) and all(p >= 0xFF00 for p in pages)
 
 
 def _hid_id(uevent: str) -> Optional[tuple]:
@@ -181,10 +230,22 @@ def discover_logitech(sysfs: str = SYSFS_HIDRAW, dev_dir: str = DEV_DIR) -> List
     return found
 
 
+def discover_glorious(sysfs: str = SYSFS_HIDRAW, dev_dir: str = DEV_DIR) -> List[Candidate]:
+    """Vendor-only settings nodes of a Glorious mouse Wheelguard knows (models.GLORIOUS_LINKS), wired first."""
+    found = []
+    for name, vid, pid, desc in _nodes(sysfs):
+        link = GLORIOUS_LINKS.get(pid)
+        if link is not None and vid == glorious_vendor(link) and descriptor_is_glorious_settings(desc, link.protocol):
+            found.append(Candidate(os.path.join(dev_dir, name), vid, pid, name, "glorious-" + link.protocol))
+    found.sort(key=lambda c: 0 if c.wired else 1)
+    return found
+
+
 def discover_all(sysfs: str = SYSFS_HIDRAW, dev_dir: str = DEV_DIR) -> List[Candidate]:
     """Every supported mouse's config channel: Endgame Gear first (the original mouse), then Razer,
-    then Logitech. The session talks to the first one."""
-    return discover(sysfs, dev_dir) + discover_razer(sysfs, dev_dir) + discover_logitech(sysfs, dev_dir)
+    Logitech and Glorious. The session talks to the first one."""
+    return (discover(sysfs, dev_dir) + discover_razer(sysfs, dev_dir) + discover_logitech(sysfs, dev_dir)
+            + discover_glorious(sysfs, dev_dir))
 
 
 class HidrawDevice:

@@ -38,6 +38,18 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.13.0" date="2026-11-17">
+      <description>
+        <ul>
+          <li>New: the Keyboard page also works with the Glorious GMMK 3 and GMMK 3 Pro, wired (100%, 75% and 65%, ANSI and ISO), including how long the keyboard waits before standby. Its controls start off until you turn them on, because they haven't been tried on a real board yet</li>
+          <li>New: the GMMK 3 Pro Wireless (while connected by its cable) and the GMMK Numpad, with their controls off until you turn them on</li>
+          <li>New: the GMMK 3 HE and GMMK 3 Pro HE: polling up to 8000 Hz, standby, key remapping, actuation point and rapid trigger, with their controls off until you turn them on</li>
+          <li>New: the GMBK 75% and GMMK Eternal 96%: polling, standby and key remapping, with their controls off until you turn them on</li>
+          <li>New, read-only for now: Glorious mice on the Mouse page and in the panel. The Model O3 and D3 (wired and wireless) show the battery, charging and the sleep timer; the Model O, O-, O Pro, D, D- and D Pro Wireless, Series One Pro, Model O2 Pro and D2 Pro (also 4K/8K) and Series 2 Pro Wireless show the battery and charging, because their protocol can't read the other settings back. Nothing is changed on these mice until they have been tried on real hardware</li>
+          <li>Wheelguard only opens a Glorious mouse's settings channel, never one that carries its clicks or keys</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.12.0" date="2026-11-17">
       <description>
         <ul>

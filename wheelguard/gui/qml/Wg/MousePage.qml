@@ -2,8 +2,9 @@ import QtQuick
 import QtQuick.Layouts
 
 // Hardware settings stored on the mouse itself (Endgame Gear XM2w 4k v2, Logitech G Pro X Superlight,
-// Razer DeathAdder V4 Pro). Cards and controls follow mouse.features, so each model only shows what it
-// has. Edits are staged locally and only sent when the user presses Apply (see the action bar).
+// Razer DeathAdder V4 Pro, and the read-only families). Cards and controls follow mouse.features, so each
+// model only shows what it has; a "status_only" mouse (Glorious) can't report its DPI stages or polling
+// rate, so it gets no Sensitivity or Performance section. Edits are staged locally and only sent when the user presses Apply (see the action bar).
 Item {
     id: root
 
@@ -35,7 +36,7 @@ Item {
     // The settings are split into sections, so each fits on one screen. Only sections this mouse has show.
     property int section: 0
     readonly property var sections: {
-        var out = [{ key: "sens", label: "Sensitivity" }, { key: "perf", label: "Performance" }]
+        var out = has("status_only") ? [] : [{ key: "sens", label: "Sensitivity" }, { key: "perf", label: "Performance" }]
         if (has("buttons")) out.push({ key: "buttons", label: "Buttons" })
         out.push({ key: "power", label: hasPower ? "Power and backup" : "Backup" })
         return out
@@ -574,7 +575,7 @@ Item {
         WgSegmented {
             width: parent.width
             height: Theme.px(44)
-            visible: root.shown
+            visible: root.shown && root.sections.length > 1
             accessibleName: "Mouse settings section"
             model: root.sections.map(function (x) { return x.label })
             currentIndex: Math.max(0, Math.min(root.section, root.sections.length - 1))
@@ -979,10 +980,11 @@ Item {
             spacing: 0
 
             Heading { title: "Power"; Layout.topMargin: 10; Layout.bottomMargin: 4 }
-            WgToggleRow {   // Razer: one sleep timer
+            WgToggleRow {   // Razer, Glorious: one sleep timer
                 visible: root.has("idle")
                 title: "Sleep after"
                 description: "Go to sleep after this long without use. A click or a move wakes it."
+                             + (mouse.idleMin === 0 ? " 0 keeps it awake." : "")
                 switchVisible: false
                 edited: root.isEdited("idle_min")
                 WgSpinBox {
@@ -1124,7 +1126,9 @@ Item {
         Text {
             width: parent.width
             visible: root.shown
-            text: mouse.brand === "Logitech"
+            text: mouse.brand === "Glorious"
+                  ? "Wheelguard talks to the mouse with a protocol decoded from the vendor's Glorious CORE app. It hasn't been tested on this mouse yet, and it isn't affiliated with or endorsed by Glorious."
+                  : mouse.brand === "Logitech"
                   ? "Wheelguard edits the mouse's onboard profile the way libratbag and Solaar do. It hasn't been tested on every firmware, and it isn't affiliated with or endorsed by Logitech."
                   : mouse.brand === "Razer"
                     ? "Wheelguard talks to the mouse with the protocol documented by the OpenRazer project. It hasn't been tested on every firmware, and it isn't affiliated with or endorsed by Razer."
