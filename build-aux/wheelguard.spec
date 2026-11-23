@@ -7,7 +7,7 @@
 %global __brp_python_bytecompile %{nil}
 
 Name:           wheelguard
-Version:        1.13.0
+Version:        1.13.1
 # CI appends .<commit count> so every build from main is a newer release.
 Release:        1%{?release_suffix}%{?dist}
 Summary:        Scroll bounce filter, advanced mouse settings and Glorious keyboard controls
@@ -144,6 +144,10 @@ fi
 %{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-djshiye-%{name}
 
 %changelog
+* Mon Nov 23 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.13.1-1
+- Fix: with the Fedora Glass theme on, the mouse picker, dropdown lists, the key and macro editors, the welcome card and the Apply bar are solid; the page no longer shows through them
+- A theme colour that is not a valid colour falls back to the app's own colour
+
 * Tue Nov 17 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.13.0-1
 - New: the Keyboard page also works with the Glorious GMMK 3 and GMMK 3 Pro, wired (100%, 75% and 65%, ANSI and ISO), with a Standby timer; controls start off until turned on
 - New: the GMMK 3 Pro Wireless (by its USB cable) and the GMMK Numpad on the Keyboard page, controls off until turned on
