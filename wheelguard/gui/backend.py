@@ -865,10 +865,11 @@ class LiquidGlass(QObject):
 
     changed = Signal()
 
-    # Theme.qml role -> Liquid Glass token
+    # Theme.qml role -> Liquid Glass token. "floating" is the fill of popups, dropdown lists and dialogs:
+    # nothing is blurred behind those, so a wash like "card" lets the window's text show through them.
     ROLES = {
-        "chrome": "chrome", "panel": "window", "card": "card", "cardHi": "active", "inset": "view",
-        "track": "edge", "border": "edge", "borderHi": "highlight", "hover": "hover",
+        "chrome": "chrome", "panel": "window", "card": "card", "floating": "floating",
+        "cardHi": "active", "inset": "view", "track": "edge", "border": "edge", "borderHi": "highlight", "hover": "hover",
         "text": "fg", "textMuted": "fg_dim", "textFaint": "fg_faint",
         "accentA": "accent", "accentB": "accent_text",
         "coral": "destructive", "amber": "warning", "good": "success",
@@ -918,10 +919,21 @@ class LiquidGlass(QObject):
     @Slot(bool, str, str, result=str)
     def color(self, dark: bool, role: str, fallback: str) -> str:
         """The token colour for a Theme.qml role, or the fallback (an "#RRGGBBAA" token becomes Qt's "#AARRGGBB")."""
-        value = self._tokens.get("dark" if dark else "light", {}).get(self.ROLES.get(role, ""))
-        if not (isinstance(value, str) and value.startswith("#") and len(value) in (7, 9)):
+        tokens = self._tokens.get("dark" if dark else "light", {})
+        value = tokens.get(self.ROLES.get(role, ""))
+        if role == "floating" and not self._valid(value):
+            # Fedora Glass up to 1.7.9 has no "floating" token: its menu colour, made solid, stands in.
+            # (Even 3 % of see-through leaves a heading behind a dialog readable.)
+            value = tokens.get("popover")
+            if self._valid(value):
+                value = value[:7]
+        if not self._valid(value):
             return fallback
         return value if len(value) == 7 else "#" + value[7:9] + value[1:7]
+
+    @staticmethod
+    def _valid(value) -> bool:
+        return isinstance(value, str) and re.fullmatch(r"#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?", value) is not None
 
     @Slot(bool, str, int, result=int)
     def number(self, dark: bool, name: str, fallback: int) -> int:

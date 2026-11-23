@@ -7,6 +7,7 @@ import json
 import contextlib
 import io
 import os
+import re
 import socket
 import tempfile
 import threading
@@ -607,6 +608,43 @@ class LiquidGlassTests(unittest.TestCase):
         self.assertEqual(g.color(False, "text", "#14161D"), "#14161D")   # missing token: fallback
         self.assertEqual(g.color(True, "nonsense", "#123456"), "#123456")
         self.assertEqual(g.number(True, "radius", 16), 22)
+
+    def test_floating_uses_its_token(self):
+        self.write("dark", floating="#1e2025ff", popover="#11223340")
+        g = backend.LiquidGlass(self.lg)
+        self.assertEqual(g.color(True, "floating", "#161820"), "#ff1e2025")
+
+    def test_floating_falls_back_to_a_solid_popover(self):
+        self.write("dark", popover="#11223340")
+        self.write("light", popover="#445566")
+        g = backend.LiquidGlass(self.lg)
+        self.assertEqual(g.color(True, "floating", ""), "#112233")     # the menu colour with no see-through
+        self.assertEqual(g.color(False, "floating", ""), "#445566")
+
+    def test_floating_without_floating_or_popover_uses_fallback(self):
+        for popover in (7, "nonsense", "#12345", "#zzzzzzzz"):
+            self.write("dark", card="#ffffff12", floating="nonsense", popover=popover)
+            g = backend.LiquidGlass(self.lg)
+            self.assertEqual(g.color(True, "floating", "#161820"), "#161820", popover)
+
+    def test_floating_surfaces_are_not_filled_with_the_card_wash(self):
+        # "card" is a translucent wash under a theme: popups, dropdown lists and dialogs must use
+        # Theme.floating or the window's text shows through them.
+        qml = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "wheelguard", "gui", "qml")
+        surfaces = {   # file -> the marker that starts the floating surface
+            "Wg/MousePicker.qml": "background: Rectangle {",
+            "Wg/WgSelect.qml": "background: Rectangle {",
+            "Wg/KeyboardPage.qml": "component Dialog: C.Popup {",
+            "Wg/WelcomeOverlay.qml": "id: card",
+            "Wg/MousePage.qml": "id: bar",
+        }
+        for name, marker in surfaces.items():
+            with open(os.path.join(qml, name), encoding="utf-8") as f:
+                text = f.read()
+            self.assertIn(marker, text, name)
+            fill = re.search(r"color:\s*(Theme\.\w+)", text[text.index(marker):])
+            self.assertEqual(fill.group(1), "Theme.floating",
+                             f"{name}: a floating surface is filled with {fill.group(1)}; use Theme.floating")
 
     def test_ignores_unknown_versions_and_garbage(self):
         self.write("dark", chrome="#2c2f3670")

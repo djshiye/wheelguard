@@ -38,7 +38,7 @@ C.Popup {
 
     background: Rectangle {
         radius: Theme.radius
-        color: Theme.card
+        color: Theme.floating
         border.width: 1
         border.color: Theme.borderHi
         Rectangle {     // soft shadow

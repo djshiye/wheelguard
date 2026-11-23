@@ -611,7 +611,7 @@ WgScrollPage {
         exit: Transition { NumberAnimation { property: "opacity"; from: 1; to: 0; duration: Theme.fast } }
         background: Rectangle {
             radius: Theme.radius
-            color: Theme.card
+            color: Theme.floating
             border.width: 1
             border.color: Theme.borderHi
         }

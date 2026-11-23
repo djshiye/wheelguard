@@ -38,6 +38,13 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.13.1" date="2026-11-23">
+      <description>
+        <ul>
+          <li>Fix: with the Fedora Glass theme on, popups are now solid. The mouse picker, dropdown lists, the key and macro editors, the welcome card and the Apply bar no longer show the page through them</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.13.0" date="2026-11-17">
       <description>
         <ul>
