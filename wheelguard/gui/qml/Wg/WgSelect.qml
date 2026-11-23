@@ -107,7 +107,7 @@ Item {
 
         background: Rectangle {
             radius: Theme.radiusSm
-            color: Theme.card
+            color: Theme.floating
             border.width: 1
             border.color: Theme.borderHi
         }

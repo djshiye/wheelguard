@@ -23,6 +23,8 @@ QtObject {
     readonly property color chrome:   pick("chrome", dark ? "#0A0B0E" : "#E6E8EF")   // window frame, header, sidebar
     readonly property color panel:    pick("panel", dark ? "#0F1116" : "#F4F5F9")   // main content panel
     readonly property color card:     pick("card", dark ? "#161820" : "#FFFFFF")
+    // Fill for anything drawn over other content (popups, dropdown lists, dialogs); card is for cards on the page.
+    readonly property color floating: pick("floating", dark ? "#161820" : "#FFFFFF")
     readonly property color cardHi:   pick("cardHi", dark ? "#1C1F28" : "#F3F4F8")   // hovered / nested surfaces
     readonly property color inset:    pick("inset", dark ? "#0C0D11" : "#ECEEF4")   // wells, tracks, monitor background
     readonly property color track:    pick("track", dark ? "#272A35" : "#D9DCE6")

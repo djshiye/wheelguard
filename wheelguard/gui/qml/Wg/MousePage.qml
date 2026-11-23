@@ -1175,7 +1175,7 @@ Item {
         Rectangle {
             anchors.fill: parent
             radius: Theme.radius
-            color: Theme.card
+            color: Theme.floating
             border.width: 1
             border.color: Theme.borderHi
             clip: true

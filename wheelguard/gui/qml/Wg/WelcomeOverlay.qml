@@ -156,7 +156,7 @@ Item {
         width: Math.min(580, parent.width - 48)
         height: Math.min(parent.height - 32, body.implicitHeight + 56)
         radius: Theme.radius + 4
-        color: Theme.card
+        color: Theme.floating
         border.width: 1
         border.color: Theme.borderHi
         scale: root.visible && !appSettings.welcomeSeen ? 1 : 0.97
