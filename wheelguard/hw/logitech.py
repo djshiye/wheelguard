@@ -350,7 +350,7 @@ class LogitechDriver(Driver):
 
     def read_blob(self) -> bytes:
         hp, size = self.hp, self.sector_size
-        if not size:
+        if not size or not MIN_SECTOR <= size <= MAX_SECTOR:     # never read with a size the firmware got wrong
             raise StatusError(hidpp.ONBOARD_PROFILES, 0)
         self.mode = hp.onboard_mode()
         try:

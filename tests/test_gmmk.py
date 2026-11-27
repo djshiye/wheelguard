@@ -1,5 +1,6 @@
 """Glorious GMMK Pro: frames (checked byte by byte against what Glorious CORE 2.1.23 builds), the report
 descriptor walk, discovery from a fake sysfs, the udev helper, and the Keyboard page's controller."""
+import errno
 import importlib.machinery
 import importlib.util
 import json
@@ -186,6 +187,24 @@ class TransportTests(unittest.TestCase):
                   gmmk.Board("/dev/x", 0x5044, ANSI, "", 4096)):
             with self.assertRaises(ValueError):
                 gmmk.Transport(b, lambda s: None, FakeDev)
+
+
+    def test_refuses_a_node_that_now_belongs_to_another_device(self):
+        class Elsewhere(FakeDev):
+            def ids(self):
+                return (0x1532, 0x00C0)                 # a mouse took the keyboard's old hidrawN
+        FakeDev.log = []
+        board = gmmk.Board("/dev/x", 0x5044, ANSI, "0045", 265)
+        with self.assertRaises(OSError) as cm:
+            gmmk.Transport(board, lambda s: None, Elsewhere)
+        self.assertEqual(cm.exception.errno, errno.ENODEV)
+        self.assertEqual(FakeDev.log, [])
+
+        class Same(FakeDev):
+            def ids(self):
+                return (ANSI.vendor, 0x5044)
+        gmmk.Transport(board, lambda s: None, Same).send(gmmk.profile_frame(0, 0))
+        self.assertEqual(len(FakeDev.log), 1)
 
 
 class Gmmk2Tests(unittest.TestCase):

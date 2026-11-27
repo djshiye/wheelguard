@@ -9,6 +9,10 @@ from evdev import ecodes as e
 
 from wheelguard import config as C
 from wheelguard.control import Controller
+import errno
+from unittest import mock
+
+from wheelguard import ipc
 from wheelguard.ipc import AlreadyRunning, Server, claim_path
 
 
@@ -253,6 +257,42 @@ class Listening(unittest.TestCase):
         with self.assertRaises(AlreadyRunning):
             self.server().start()
         self.assertTrue(os.path.exists(self.path), "must not steal the live socket")
+
+    def test_connections_beyond_the_cap_are_refused(self):
+        srv = self.server()
+        srv.start()
+        self.addCleanup(srv.close)
+        socks = []
+        for _ in range(ipc.MAX_CLIENTS + 3):
+            c = socket.socket(socket.AF_UNIX)
+            c.settimeout(1)
+            c.connect(self.path)
+            socks.append(c)
+            self.addCleanup(c.close)
+            srv.service(srv.fds())
+        self.assertEqual(len(srv.clients), ipc.MAX_CLIENTS)
+        self.assertEqual(socks[-1].recv(10), b"")              # closed by the service
+        socks[0].close()
+        srv.service(srv.fds())                                  # the first client is gone, room again
+        late = socket.socket(socket.AF_UNIX)
+        late.settimeout(1)
+        late.connect(self.path)
+        self.addCleanup(late.close)
+        srv.service(srv.fds())
+        self.assertEqual(len(srv.clients), ipc.MAX_CLIENTS)
+
+    def test_failing_accept_pauses_the_listener(self):
+        srv = self.server()
+        srv.start()
+        self.addCleanup(srv.close)
+        fd = srv.listener.fileno()
+        now = [1000.0]
+        with mock.patch.object(ipc.time, "monotonic", lambda: now[0]), \
+                mock.patch.object(socket.socket, "accept", side_effect=OSError(errno.EMFILE, "Too many open files")):
+            srv.service([fd])
+            self.assertNotIn(fd, srv.fds())                     # no busy loop on a listener we can't serve
+            now[0] += ipc.ACCEPT_PAUSE_S
+            self.assertIn(fd, srv.fds())
 
     def test_non_socket_path_is_refused(self):
         Path(self.path).write_text("x")

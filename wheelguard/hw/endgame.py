@@ -199,6 +199,8 @@ class EndgameDevice:
             reply = self._get(rid, length)
             status = reply[1] if len(reply) > 1 else 0
             if status == 1:
+                if len(reply) < length:         # a short reply would be read past its end by the callers
+                    raise StatusError(cmd, 0)
                 return reply
             if status == 3 and attempt < BUSY_RETRIES:
                 self._sleep(delay + 0.2 * (attempt + 1))

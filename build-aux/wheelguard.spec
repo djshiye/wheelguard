@@ -7,7 +7,7 @@
 %global __brp_python_bytecompile %{nil}
 
 Name:           wheelguard
-Version:        1.13.1
+Version:        1.13.2
 # CI appends .<commit count> so every build from main is a newer release.
 Release:        1%{?release_suffix}%{?dist}
 Summary:        Scroll bounce filter, advanced mouse settings and Glorious keyboard controls
@@ -144,6 +144,14 @@ fi
 %{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-djshiye-%{name}
 
 %changelog
+* Fri Nov 27 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.13.2-1
+- Fix: with the Double-click fix on, letting go just before the Click-Lock hold time could still start Click-Lock (in Hold mode the button stayed down)
+- Fix: settings are never written to a different mouse than the one the Mouse page showed
+- Fix: keyboard settings are never sent to a device that took over the keyboard's old address after an unplug
+- Fix: while another program holds the mouse, the service retries every 2 seconds instead of 4 times a second, and logs it once
+- The service limits open connections and no longer spins when it runs out of file handles; the retry interval has a floor of 0.1 s
+- Odd replies from Endgame and Logitech mice are reported as errors instead of "Unexpected error"
+
 * Mon Nov 23 2026 Dino Klisura <115914552+djshiye@users.noreply.github.com> - 1.13.1-1
 - Fix: with the Fedora Glass theme on, the mouse picker, dropdown lists, the key and macro editors, the welcome card and the Apply bar are solid; the page no longer shows through them
 - A theme colour that is not a valid colour falls back to the app's own colour

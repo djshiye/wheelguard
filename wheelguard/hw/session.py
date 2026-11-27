@@ -20,7 +20,7 @@ from typing import Callable, Dict, List, Optional
 from . import hidraw, mock
 from .drivers import Driver, EndgameDriver, fw_key
 from .endgame import LinkError, Rejected, StatusError
-from .errors import (ApplyResult, Battery, HwError, MouseAsleep, NoAccess, NoDevice, Snapshot,  # noqa: F401
+from .errors import (ApplyResult, Battery, HwError, MouseAsleep, MouseChanged, NoAccess, NoDevice, Snapshot,  # noqa: F401
                      UnsupportedMouse, VerifyMismatch, WriteFailed)
 from .hidraw import AccessDenied
 from .logitech import LogitechDriver
@@ -275,12 +275,23 @@ class MouseSession:
             raise HwError("Refusing to write: " + "; ".join(probs) + ".", snap)
         return fresh
 
-    def apply(self, edits: Dict[str, object], progress: Progress = _noprogress) -> ApplyResult:
-        """Write the edited settings. Raises HwError subclasses; nothing is sent if validation fails."""
+    @staticmethod
+    def _check_same(snap: Snapshot, expect: Optional[str]) -> None:
+        """The edits were made for the mouse model `expect`: refuse if another mouse answers now (the first
+        one was unplugged, or the preferred mouse changed since the page was read)."""
+        if expect is not None and snap.model != expect:
+            raise MouseChanged("A different mouse answered than the one this page showed, so nothing was "
+                               "written. Here is the mouse that is connected now.", snap)
+
+    def apply(self, edits: Dict[str, object], progress: Progress = _noprogress,
+              expect: Optional[str] = None) -> ApplyResult:
+        """Write the edited settings. Raises HwError subclasses; nothing is sent if validation fails, or if
+        `expect` (a model key) is given and a different mouse answers."""
         with self._lock:
             drv = self._open()
             try:
                 snap = drv.identify(progress, 0.0, 0.25)
+                self._check_same(snap, expect)
                 fresh = self._writable_fresh(drv, snap, progress, 0.3)
                 codec = drv.codec
                 try:
@@ -302,12 +313,13 @@ class MouseSession:
             finally:
                 drv.close()
 
-    def restore(self, progress: Progress = _noprogress) -> ApplyResult:
+    def restore(self, progress: Progress = _noprogress, expect: Optional[str] = None) -> ApplyResult:
         """Write the original backup back, through the same diff-only path."""
         with self._lock:
             drv = self._open()
             try:
                 snap = drv.identify(progress, 0.0, 0.25)
+                self._check_same(snap, expect)
                 fresh = self._writable_fresh(drv, snap, progress, 0.3)     # first: the backup name can depend on it
                 path = self.original_backup(snap.mouse_fw, drv)
                 if path is None:
@@ -330,5 +342,5 @@ class MouseSession:
 
 
 __all__ = ["MouseSession", "Snapshot", "ApplyResult", "Battery", "HwError", "NoDevice", "NoAccess",
-           "MouseAsleep", "UnsupportedMouse", "WriteFailed", "VerifyMismatch", "default_opener",
+           "MouseAsleep", "MouseChanged", "UnsupportedMouse", "WriteFailed", "VerifyMismatch", "default_opener",
            "make_driver", "LinkError", "StatusError"]

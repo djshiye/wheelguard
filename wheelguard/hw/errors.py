@@ -41,6 +41,10 @@ class WriteFailed(HwError):
         self.written = written
 
 
+class MouseChanged(HwError):
+    """A different mouse answered than the one the edits were made for; nothing was written."""
+
+
 class VerifyMismatch(HwError):
     """The mouse accepted the writes but a read-back shows different values."""
     def __init__(self, message: str, snapshot: "Snapshot", keys: List[str]):

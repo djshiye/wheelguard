@@ -35,6 +35,26 @@ class MouseControllerTests(unittest.TestCase):
             loop.exec()
         self.assertIn(c.state, states)
 
+    def test_apply_to_a_swapped_mouse_rereads_instead(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        endgame, razer = mock.FakeHidraw("connected-wired"), mock.FakeRazer("razer-wired")
+        cur = ["endgame"]
+        s = session.MouseSession(lambda: (endgame, True) if cur[0] == "endgame" else (razer, True, "razer", razer.pid),
+                                 tmp.name, lambda t: None)
+        c = MouseController(s)
+        self.addCleanup(c.shutdown)
+        c.ensureLoaded()
+        self.wait(c, ("ready",))
+        before = (list(razer.stages), razer.active)
+        c.setValues({"dpi_x0": 1200, "dpi_y0": 1200})
+        cur[0] = "razer"                                    # the Endgame was unplugged; the Razer answers
+        c.apply()
+        self.wait(c, ("reading",))
+        self.wait(c, ("ready",))
+        self.assertEqual((list(razer.stages), razer.active), before)
+        self.assertIn("different mouse", c.message)
+
     def test_read_stage_apply(self):
         c = self.make()
         self.assertEqual(c.state, "idle")

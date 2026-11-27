@@ -8,7 +8,7 @@ from pathlib import Path
 
 from wheelguard import mice
 from wheelguard.hw import hidraw, logitech, mock, models, session
-from wheelguard.hw.endgame import WriteBlocked
+from wheelguard.hw.endgame import StatusError, WriteBlocked
 
 RULES = (Path(__file__).resolve().parent.parent / "build-aux" / "70-wheelguard.rules").read_text()
 SUPERLIGHT_PIDS = (0x4093, 0xC094)
@@ -123,6 +123,15 @@ class ReadOnlyUntilConfirmed(unittest.TestCase):
         self.assertFalse(drv.hp.write_enabled)
         with self.assertRaises(WriteBlocked):
             drv.write(logitech.Op("dpi_index", "DPI stage", index=0))
+
+    def test_impossible_sector_size_is_not_read(self):
+        drv = session.make_driver(mock.open_mock("logitech-g502"), lambda _t: None)
+        drv.identify(lambda *_a: None, 0, 1)
+        for size in (8, 65535):                    # what buggy firmware might report
+            with self.subTest(size=size):
+                drv.sector_size = size
+                with self.assertRaises(StatusError):
+                    drv.read_blob()
 
     def test_superlight_still_writes(self):
         mock._singletons.clear()

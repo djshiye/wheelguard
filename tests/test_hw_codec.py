@@ -326,6 +326,13 @@ class TransportTests(unittest.TestCase):
         eg = EndgameDevice(Busy(), wired=True, sleep=lambda s: None)
         self.assertEqual(eg.battery(), 82)
 
+    def test_short_reply_is_a_status_error(self):
+        class Short(mock.FakeHidraw):
+            def get_feature(self, rid, length):
+                return super().get_feature(rid, length)[:8]
+        with self.assertRaises(endgame.StatusError):
+            EndgameDevice(Short(), wired=True, sleep=lambda s: None).battery()
+
     def test_set_feature_retries_on_eio_only(self):
         class Flaky(mock.FakeHidraw):
             fail = 2

@@ -54,6 +54,7 @@ class ClickLock:
         self.stop_pending = False   # the lock was ended by a press; its release is still to come
         self.next_t = None          # repeat mode: when the button flips next
         self.locked_at = None       # when the running lock engaged (for the safety timer)
+        self.qualified_at = None    # when its press had been held long enough (the hold deadline itself)
         self.timed_out = False      # the last lock ended because the safety timer ran out
         self.moved_x = self.moved_y = 0     # pointer motion since the current press (counts)
         self.configure(enabled, hold_ms, mode, rate, max_s, ignore_drag, drag_counts, button)
@@ -132,6 +133,14 @@ class ClickLock:
                 self.stop_pending = False
                 if self.virtual_down:           # hold mode: this release lets go of the held button
                     out, self.virtual_down = 0, False
+            elif self.locked and self.qualified_at is not None and t < self.qualified_at:
+                # The finger left before the hold time was up; the release just reached us late (the
+                # Double-click fix holds releases back for its window, or the event was read late).
+                # That press never qualified, so the lock is undone and the button is let go.
+                self.locked, self.next_t, self.locked_at, self.qualified_at = False, None, None, None
+                changed = True
+                if self.virtual_down:
+                    out, self.virtual_down = 0, False
             elif not self.locked:
                 out, self.virtual_down = 0, False
         else:
@@ -164,6 +173,7 @@ class ClickLock:
             return frames, True
         if (not self.locked and self.pressed_at is not None and self.phys_down
                 and now >= self.pressed_at + self.hold):
+            self.qualified_at = self.pressed_at + self.hold     # a late flush must not move this later
             self.locked, self.pressed_at, changed = True, None, True
             self.locked_at, self.timed_out = now, False
             if self.mode == REPEAT:
@@ -182,6 +192,7 @@ class ClickLock:
         """End a running lock and give the button back to the user's finger."""
         was = self.locked
         self.locked, self.next_t, self.pressed_at, self.locked_at = False, None, None, None
+        self.qualified_at = None
         frames = []
         if not self.stop_pending and self.virtual_down != self.phys_down:   # a stopping click settles itself
             self.virtual_down = self.phys_down
@@ -191,4 +202,4 @@ class ClickLock:
     def reset(self):
         """The device went away: forget everything (the kernel releases its buttons itself)."""
         self.phys_down = self.virtual_down = self.locked = self.stop_pending = False
-        self.pressed_at = self.next_t = self.locked_at = None
+        self.pressed_at = self.next_t = self.locked_at = self.qualified_at = None

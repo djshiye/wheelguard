@@ -10,8 +10,11 @@ import logging
 import os
 import socket
 import stat
+import time
 
 log = logging.getLogger("wheelguard")
+MAX_CLIENTS = 32         # the app, the panel extension and a few one-shot commands need far fewer
+ACCEPT_PAUSE_S = 1.0     # out of file handles: stop listening this long instead of spinning
 SOCKET_NAME = "wheelguard.sock"
 MAX_LINE = 64 * 1024
 MICE_MAX_AGE = 30.0     # seconds a scan of the input devices is reused (hotplug and session changes end it early)
@@ -72,6 +75,8 @@ class Server:
         self.clients = {}  # fd -> Client
         self._fds = None   # fds() until the next client comes or goes
         self._deferred = None  # events published while a command runs go out after its reply
+        self._full_logged = False         # the "too many connections" warning was given (once until it eases)
+        self._accept_paused_until = None  # accept() failed (e.g. out of file handles): listener left out until then
         ctl.publish = self.publish
 
     # ---------- lifecycle ----------
@@ -104,9 +109,11 @@ class Server:
     def fds(self):
         """What to select() on. The same list object until a client comes or goes or the server stops, so a
         caller in a tight loop can tell with `is` that nothing changed. Don't modify it."""
+        if self._accept_paused_until is not None and time.monotonic() >= self._accept_paused_until:
+            self._accept_paused_until, self._fds = None, None
         if self._fds is None:
             self._fds = list(self.clients)
-            if self.listener is not None:
+            if self.listener is not None and self._accept_paused_until is None:
                 self._fds.append(self.listener.fileno())
         return self._fds
 
@@ -125,8 +132,17 @@ class Server:
             except (BlockingIOError, InterruptedError):
                 return
             except OSError as ex:
-                log.warning("accept failed: %s", ex)
+                # The listener stays readable while accept() fails (EMFILE and the like): leave it out of
+                # select() for a moment, or the loop would spin and flood the journal.
+                log.warning("accept failed: %s; not taking new connections for %.0f s", ex, ACCEPT_PAUSE_S)
+                self._accept_paused_until, self._fds = time.monotonic() + ACCEPT_PAUSE_S, None
                 return
+            if len(self.clients) >= MAX_CLIENTS:
+                if not self._full_logged:
+                    log.warning("%d connections open; refusing new ones until some close", MAX_CLIENTS)
+                    self._full_logged = True
+                sock.close()
+                continue
             self.add_client(sock)
 
     def add_client(self, sock):
@@ -142,6 +158,7 @@ class Server:
         client.closed = True
         self.clients.pop(client.sock.fileno(), None)
         self._fds = None
+        self._full_logged = False
         try:
             client.sock.close()
         except OSError:

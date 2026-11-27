@@ -9,6 +9,7 @@ unit-tested without hardware.
 Never touched: the bootloader IDs (BOOTLOADER_PIDS) and anything to do with firmware updates. The
 Fn key and the knob are never remapped, so the board's own shortcuts always stay reachable.
 """
+import errno
 import os
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -667,6 +668,17 @@ class Transport:
         self.board = board
         self._sleep = sleep
         self._dev = opener(board.path)
+        ids = getattr(self._dev, "ids", None)
+        if ids is not None:
+            try:
+                found = ids()
+            except OSError:
+                found = None
+            if found != (board.model.vendor, board.pid):
+                # The board's node can be a few seconds old: if it was unplugged and another device got the
+                # same hidrawN, nothing may be sent to that one.
+                self._dev.close()
+                raise OSError(errno.ENODEV, "the keyboard is no longer at its old address")
 
     def send(self, frame: bytes, delay: float = DELAY_LONG) -> None:
         proto_name = self.board.model.protocol
