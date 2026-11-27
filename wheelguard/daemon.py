@@ -562,13 +562,15 @@ def main(argv=None):
                     log.info("%s (%04x:%04x), waiting", err, cfg["vendor"], cfg["product"])
                     last_err = err
             else:
-                last_err = None
                 try:
-                    if run_session(dev, ctl, server, tick_log, watcher, lockwatch):
+                    again = run_session(dev, ctl, server, tick_log, watcher, lockwatch)
+                    last_err = None
+                    if again:
                         continue                    # the mouse choice changed or paused: look again at once
                 except (OSError, UInputError) as ex:
                     msg = describe(ex)
-                    log.warning("session ended: %s; retrying", msg)
+                    if msg != last_err:             # the same failure every retry (e.g. busy) is logged once
+                        log.warning("session ended: %s; retrying", msg)
                     ctl.set_device(False, None, msg)
                     last_err = msg
             idle(ctl, server, ctl.cfg["retry_s"], watcher)

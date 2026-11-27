@@ -132,6 +132,14 @@ class ClickLock:
                 self.stop_pending = False
                 if self.virtual_down:           # hold mode: this release lets go of the held button
                     out, self.virtual_down = 0, False
+            elif self.locked and self.locked_at is not None and t < self.locked_at:
+                # The finger left before the hold time was up; the release just reached us late (the
+                # Double-click fix holds releases back for its window, or the event was read late).
+                # That press never qualified, so the lock is undone and the button is let go.
+                self.locked, self.next_t, self.locked_at = False, None, None
+                changed = True
+                if self.virtual_down:
+                    out, self.virtual_down = 0, False
             elif not self.locked:
                 out, self.virtual_down = 0, False
         else:

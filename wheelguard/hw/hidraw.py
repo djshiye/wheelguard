@@ -8,8 +8,9 @@ import errno
 import fcntl
 import os
 import select
+import struct
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from .models import GLORIOUS_LINKS, LOGI_LINKS, RAZER_LINKS, glorious_vendor
 
@@ -74,6 +75,9 @@ def HIDIOCSFEATURE(length: int) -> int:
 
 def HIDIOCGFEATURE(length: int) -> int:
     return _ioc(_IOC_WRITE | _IOC_READ, "H", 0x07, length)
+
+
+HIDIOCGRAWINFO = _ioc(_IOC_READ, "H", 0x03, 8)     # struct hidraw_devinfo: u32 bustype, s16 vendor, s16 product
 
 
 @dataclass(frozen=True)
@@ -270,6 +274,13 @@ class HidrawDevice:
         buf[0] = report_id
         n = fcntl.ioctl(self._fd, HIDIOCGFEATURE(length), buf, True)
         return bytes(buf[:n]) if isinstance(n, int) and 0 < n <= length else bytes(buf)
+
+    def ids(self) -> Tuple[int, int]:
+        """(vendor, product) of the device this node belongs to right now (HIDIOCGRAWINFO)."""
+        buf = bytearray(8)
+        fcntl.ioctl(self._fd, HIDIOCGRAWINFO, buf, True)
+        _bus, vendor, product = struct.unpack("<Ihh", bytes(buf))
+        return vendor & 0xFFFF, product & 0xFFFF
 
     def write(self, data: bytes) -> None:
         """Send an output report (first byte is the report ID)."""

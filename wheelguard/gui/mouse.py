@@ -16,7 +16,7 @@ from PySide6.QtCore import Property, QObject, QThread, QTimer, Signal, Slot
 
 from ..hw import codec, mock, models, razer
 from . import traymodel
-from ..hw.session import (ApplyResult, Battery, HwError, MouseSession, Snapshot, UnsupportedMouse, VerifyMismatch,
+from ..hw.session import (ApplyResult, Battery, HwError, MouseChanged, MouseSession, Snapshot, UnsupportedMouse, VerifyMismatch,
                           WriteFailed, CODECS, codec_for)
 
 BUSY_STATES = ("reading", "applying")
@@ -47,9 +47,10 @@ class _Worker(QObject):
             if kind in ("read", "poll"):
                 res = self._session.read(emit)
             elif kind in ("apply", "stage"):
-                res = self._session.apply(arg, emit)
+                edits, expect = arg
+                res = self._session.apply(edits, emit, expect=expect)
             elif kind == "restore":
-                res = self._session.restore(emit)
+                res = self._session.restore(emit, expect=arg)
             elif kind == "battery":
                 res = self._session.read_battery()
             else:
@@ -224,7 +225,7 @@ class MouseController(QObject):
             self._set_message(str(res))
             self._set_state("ready")
             return
-        if isinstance(res, WriteFailed):
+        if isinstance(res, (WriteFailed, MouseChanged)):
             self._set_message(str(res))
             self._keep_message = True
             self._submit("read")           # show what the mouse really holds now (edits are kept)
@@ -351,7 +352,7 @@ class MouseController(QObject):
         self._pending_stage = index
         self._set_state("applying")
         self._set_progress(0.0, "Switching DPI stage…")
-        self._submit("stage", {"active_stage": index})
+        self._submit("stage", ({"active_stage": index}, self._model.key))
 
     @Slot()
     def apply(self):
@@ -360,7 +361,7 @@ class MouseController(QObject):
         self._set_message("")
         self._set_state("applying")
         self._set_progress(0.0, "Starting…")
-        self._submit("apply", dict(self._staged))
+        self._submit("apply", (dict(self._staged), self._model.key))
 
     @Slot()
     def restoreOriginal(self):
@@ -369,7 +370,7 @@ class MouseController(QObject):
         self._set_message("")
         self._set_state("applying")
         self._set_progress(0.0, "Starting…")
-        self._submit("restore")
+        self._submit("restore", self._model.key)
 
     @Slot()
     def discard(self):

@@ -279,3 +279,30 @@ class Daemon(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LateRelease(unittest.TestCase):
+    """A release that happened before the hold time, but reaches Click-Lock after it (the Double-click fix
+    holds releases back for its window), must not leave a lock running or the button held down."""
+
+    def run_case(self, mode):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "config.json"
+            C.save({**C.DEFAULTS, "clicklock": True, "clicklock_ms": 1000, "clicklock_mode": mode,
+                    "debounce_ms": 40}, path)
+            now = [100.0]
+            ctl = Controller(config_path=path, publish=lambda m: None, clock=lambda: now[0])
+            out = []
+            ctl.handle_frame(key(1), 100.0, out.extend)
+            ctl.handle_frame(key(0), 100.98, out.extend)      # let go 20 ms before the hold time is up
+            for t in (101.0, 101.01, 101.03, 101.1, 102.0):
+                now[0] = t
+                ctl.handle_flush(t, out.extend)
+            self.assertFalse(ctl.cl.active)
+            self.assertEqual(values(out)[-1], 0)            # the button ends up released
+
+    def test_hold_mode(self):
+        self.run_case(HOLD)
+
+    def test_repeat_mode(self):
+        self.run_case(REPEAT)

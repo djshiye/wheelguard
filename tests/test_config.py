@@ -37,6 +37,7 @@ class Normalize(unittest.TestCase):
             {"vendor": "zzzz"},
             {"vendor": 0x10000},
             {"retry_s": 0},
+            {"retry_s": 1e-300},
         ]
         for partial in bad:
             with self.subTest(partial=partial), self.assertRaises(ValueError):

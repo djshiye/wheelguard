@@ -18,6 +18,8 @@ import struct
 log = logging.getLogger("wheelguard")
 
 INPUT_DIR = "/dev/input"
+SYSFS_INPUT = "/sys/class/input"
+OWN_NAME_PREFIX = "wheelguard"     # the virtual mouse (daemon.UI_NAME)
 IN_ATTRIB = 0x00000004
 IN_CREATE = 0x00000100
 IN_MOVED_TO = 0x00000080
@@ -32,8 +34,9 @@ def _libc():
 
 
 class DeviceWatcher:
-    def __init__(self, fd):
+    def __init__(self, fd, path=INPUT_DIR):
         self.fd = fd
+        self.path = path
 
     @classmethod
     def open(cls, path=INPUT_DIR, libc=None):
@@ -51,24 +54,24 @@ class DeviceWatcher:
         except (OSError, AttributeError) as ex:
             log.info("no instant device detection (%s); searching every few seconds instead", ex)
             return None
-        return cls(fd)
+        return cls(fd, path)
 
     def fileno(self):
         return self.fd
 
     def drain(self):
-        """Read pending notifications; True if any concerns an event node (eventN)."""
-        hit = False
+        """Read pending notifications; True if any concerns an event node (eventN) that is still there
+        and is not Wheelguard's own virtual mouse."""
+        names = set()
         while True:
             try:
                 data = os.read(self.fd, 4096)
-            except (BlockingIOError, InterruptedError):
-                return hit
-            except OSError:
-                return hit
+            except OSError:                     # BlockingIOError: all read
+                break
             if not data:
-                return hit
-            hit = hit or relevant(data)
+                break
+            names.update(event_names(data))
+        return any(not is_own_or_gone(self.path, n) for n in names)
 
     def close(self):
         if self.fd is not None:
@@ -79,8 +82,9 @@ class DeviceWatcher:
             self.fd = None
 
 
-def relevant(data):
-    """True if the raw inotify records in `data` name an event* node."""
+def event_names(data):
+    """The event* node names (bytes) in the raw inotify records `data`."""
+    names = []
     off = 0
     while off + _EVENT.size <= len(data):
         _wd, _mask, _cookie, length = _EVENT.unpack_from(data, off)
@@ -88,5 +92,24 @@ def relevant(data):
         name = data[off:off + length].split(b"\0", 1)[0]
         off += length
         if name.startswith(b"event"):
-            return True
-    return False
+            names.append(name)
+    return names
+
+
+def relevant(data):
+    """True if the raw inotify records in `data` name an event* node."""
+    return bool(event_names(data))
+
+
+def is_own_or_gone(path, name, sysfs=None):
+    """True for a node that is no help in finding a mouse: it is already gone again, or it is
+    Wheelguard's own virtual mouse (made and dropped on every attempt while another program holds the
+    real one, which must not cut the retry wait short)."""
+    if not os.path.exists(os.path.join(path, os.fsdecode(name))):
+        return True
+    try:
+        with open(os.path.join(sysfs or SYSFS_INPUT, os.fsdecode(name), "device", "name"), encoding="utf-8",
+                  errors="replace") as f:
+            return f.read(256).startswith(OWN_NAME_PREFIX)
+    except OSError:
+        return False

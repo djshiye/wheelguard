@@ -38,6 +38,17 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.13.2" date="2026-11-27">
+      <description>
+        <ul>
+          <li>Fix: with the Double-click fix on, letting go just before the Click-Lock hold time could still start Click-Lock, and in Hold mode the button stayed down</li>
+          <li>Fix: settings are never written to a different mouse than the one the Mouse page showed</li>
+          <li>Fix: keyboard settings are never sent to another device that took the keyboard's place after an unplug</li>
+          <li>Fix: while another program holds the mouse, Wheelguard waits between retries again instead of retrying four times a second</li>
+          <li>Sturdier service and clearer errors for unusual mouse replies</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.13.1" date="2026-11-23">
       <description>
         <ul>

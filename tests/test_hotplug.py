@@ -68,6 +68,27 @@ class RealInotify(unittest.TestCase):
         self.touch("mouse1")
         self.assertFalse(self.w.drain())
 
+    def test_node_already_gone(self):
+        self.touch("event5")
+        os.unlink(os.path.join(self.dir, "event5"))
+        self.assertFalse(self.w.drain())
+
+    def test_own_virtual_mouse_ignored(self):
+        sysfs = tempfile.mkdtemp()
+        for node, name in (("event6", daemon.UI_NAME), ("event7", "Endgame Gear XM2w")):
+            os.makedirs(os.path.join(sysfs, node, "device"))
+            with open(os.path.join(sysfs, node, "device", "name"), "w") as f:
+                f.write(name + "\n")
+        old, hotplug.SYSFS_INPUT = hotplug.SYSFS_INPUT, sysfs
+        self.addCleanup(setattr, hotplug, "SYSFS_INPUT", old)
+        self.touch("event6")
+        self.assertFalse(self.w.drain())            # made and dropped on every busy retry: not a new mouse
+        self.touch("event7")
+        self.assertTrue(self.w.drain())
+
+    def test_own_name_matches_daemon(self):
+        self.assertTrue(daemon.UI_NAME.startswith(hotplug.OWN_NAME_PREFIX))
+
 
 class FakeServer:
     def fds(self):

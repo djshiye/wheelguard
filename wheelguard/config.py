@@ -35,6 +35,7 @@ DEFAULTS = {
 }
 MS_KEYS = ("lock_ms", "pre_ms", "hold_ms")
 MAX_MS = 2000
+MIN_RETRY_S = 0.1     # below this the mouse search would run flat out while no mouse is connected
 MAX_RETRY_S = 3600
 CLICKLOCK_MS = (500, 30000)     # how long the button must be held before Click-Lock engages
 CLICKLOCK_RATE = (1, 30)        # repeat clicks per second
@@ -136,8 +137,8 @@ def normalize(partial, base=None):
     lo, hi = SCROLL_SPEED
     if not lo <= cfg["scroll_speed"] <= hi or cfg["scroll_speed"] != int(cfg["scroll_speed"]):
         raise ValueError(f"scroll_speed must be a whole number between {lo} and {hi}")
-    if not 0 < cfg["retry_s"] <= MAX_RETRY_S:
-        raise ValueError(f"retry_s must be > 0 and <= {MAX_RETRY_S}")
+    if not MIN_RETRY_S <= cfg["retry_s"] <= MAX_RETRY_S:
+        raise ValueError(f"retry_s must be between {MIN_RETRY_S} and {MAX_RETRY_S}")
     return cfg
 
 
