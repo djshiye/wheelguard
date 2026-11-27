@@ -24,6 +24,7 @@ from .ipc import AlreadyRunning, Server
 from .screenwatch import ScreenWatch
 
 log = logging.getLogger("wheelguard")
+SESSION_LOG_S = 5.0     # a session that lasted this long logs how it ended even if the last one ended alike
 UI_NAME = "wheelguard Endgame Gear"     # unchanged for every mouse, so existing setups see the same virtual device
 UI_PREFIX = "wheelguard"
 SETTLE_S = 0.25     # after a /dev/input change, let udev finish (permissions, sibling nodes) before searching
@@ -562,6 +563,7 @@ def main(argv=None):
                     log.info("%s (%04x:%04x), waiting", err, cfg["vendor"], cfg["product"])
                     last_err = err
             else:
+                started = time.monotonic()
                 try:
                     again = run_session(dev, ctl, server, tick_log, watcher, lockwatch)
                     last_err = None
@@ -569,7 +571,9 @@ def main(argv=None):
                         continue                    # the mouse choice changed or paused: look again at once
                 except (OSError, UInputError) as ex:
                     msg = describe(ex)
-                    if msg != last_err:             # the same failure every retry (e.g. busy) is logged once
+                    # The same failure on every quick retry (e.g. the mouse is busy) is logged once; a session
+                    # that ran for a while and then ended is always worth a line.
+                    if msg != last_err or time.monotonic() - started >= SESSION_LOG_S:
                         log.warning("session ended: %s; retrying", msg)
                     ctl.set_device(False, None, msg)
                     last_err = msg

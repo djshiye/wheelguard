@@ -306,3 +306,16 @@ class LateRelease(unittest.TestCase):
 
     def test_repeat_mode(self):
         self.run_case(REPEAT)
+
+
+class LateFlush(unittest.TestCase):
+    def test_a_full_hold_stays_locked_when_the_loop_was_late(self):
+        """The daemon was busy: it engages at 5.4 s, then reads a release stamped 5.2 s. The press had been
+        held the full 5 s, so the lock stays."""
+        for mode in (HOLD, REPEAT):
+            with self.subTest(mode=mode):
+                cl = ClickLock(enabled=True, hold_ms=5000, mode=mode, rate=10)
+                cl.process(press(1), 0.0)
+                cl.flush(5.4)
+                cl.process(press(0), 5.2)
+                self.assertTrue(cl.active)
